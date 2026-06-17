@@ -16,15 +16,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	r := gin.Default()
-
-	mealHandler := handler.NewMealHandler(database)
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+
+	ingredientHandler := handler.NewIngredientHandler(database)
+	mealHandler := handler.NewMealHandler(database)
+	mealPlanHandler := handler.NewMealPlanHandler(database)
+	shoppingListHandler := handler.NewShoppingListHandler(database)
+
+	ingredients := r.Group("/ingredients")
+	{
+		ingredients.GET("", ingredientHandler.List)
+		ingredients.POST("", ingredientHandler.Create)
+		ingredients.GET("/:id", ingredientHandler.Get)
+		ingredients.PUT("/:id", ingredientHandler.Update)
+		ingredients.DELETE("/:id", ingredientHandler.Delete)
+	}
 
 	meals := r.Group("/meals")
 	{
@@ -33,6 +45,16 @@ func main() {
 		meals.GET("/:id", mealHandler.Get)
 		meals.PUT("/:id", mealHandler.Update)
 		meals.DELETE("/:id", mealHandler.Delete)
+	}
+
+	mealPlans := r.Group("/meal-plans")
+	{
+		mealPlans.GET("", mealPlanHandler.List)
+		mealPlans.POST("", mealPlanHandler.Create)
+		mealPlans.GET("/:id", mealPlanHandler.Get)
+		mealPlans.PUT("/:id", mealPlanHandler.Update)
+		mealPlans.DELETE("/:id", mealPlanHandler.Delete)
+		mealPlans.GET("/:id/shopping-list", shoppingListHandler.Generate)
 	}
 
 	log.Printf("starting server on :%s", cfg.Port)

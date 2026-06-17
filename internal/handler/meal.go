@@ -18,30 +18,32 @@ func NewMealHandler(db *sql.DB) *MealHandler {
 }
 
 func (h *MealHandler) List(c *gin.Context) {
-	date := c.Query("date")
+	mealType := c.Query("meal_type")
 
-	rows, err := h.db.Query(
-		"SELECT id, name, date, meal_type, recipe, created_at, updated_at FROM meals WHERE date = ? ORDER BY meal_type",
-		date,
-	)
+	query := "SELECT id, name, meal_type, instructions, created_at, updated_at FROM meals"
+	args := []any{}
+	if mealType != "" {
+		query += " WHERE meal_type = ?"
+		args = append(args, mealType)
+	}
+	query += " ORDER BY name"
+
+	rows, err := h.db.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	defer rows.Close()
 
-	var meals []model.Meal
+	meals := []model.Meal{}
 	for rows.Next() {
 		var m model.Meal
-		if err := rows.Scan(&m.ID, &m.Name, &m.Date, &m.MealType, &m.Recipe, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Name, &m.MealType, &m.Instructions, &m.CreatedAt, &m.UpdatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		m.Ingredients = []model.MealIngredient{}
 		meals = append(meals, m)
-	}
-
-	if meals == nil {
-		meals = []model.Meal{}
 	}
 
 	c.JSON(http.StatusOK, meals)
@@ -54,9 +56,16 @@ func (h *MealHandler) Create(c *gin.Context) {
 		return
 	}
 
-	result, err := h.db.Exec(
-		"INSERT INTO meals (name, date, meal_type, recipe) VALUES (?, ?, ?, ?)",
-		m.Name, m.Date, m.MealType, m.Recipe,
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.Exec(
+		"INSERT INTO meals (name, meal_type, instructions) VALUES (?, ?, ?)",
+		m.Name, m.MealType, m.Instructions,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -64,6 +73,29 @@ func (h *MealHandler) Create(c *gin.Context) {
 	}
 
 	m.ID, _ = result.LastInsertId()
+
+	for i := range m.Ingredients {
+		res, err := tx.Exec(
+			"INSERT INTO meal_ingredients (meal_id, ingredient_id, quantity, unit) VALUES (?, ?, ?, ?)",
+			m.ID, m.Ingredients[i].IngredientID, m.Ingredients[i].Quantity, m.Ingredients[i].Unit,
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		m.Ingredients[i].ID, _ = res.LastInsertId()
+		m.Ingredients[i].MealID = m.ID
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if m.Ingredients == nil {
+		m.Ingredients = []model.MealIngredient{}
+	}
+
 	c.JSON(http.StatusCreated, m)
 }
 
@@ -76,8 +108,8 @@ func (h *MealHandler) Get(c *gin.Context) {
 
 	var m model.Meal
 	err = h.db.QueryRow(
-		"SELECT id, name, date, meal_type, recipe, created_at, updated_at FROM meals WHERE id = ?", id,
-	).Scan(&m.ID, &m.Name, &m.Date, &m.MealType, &m.Recipe, &m.CreatedAt, &m.UpdatedAt)
+		"SELECT id, name, meal_type, instructions, created_at, updated_at FROM meals WHERE id = ?", id,
+	).Scan(&m.ID, &m.Name, &m.MealType, &m.Instructions, &m.CreatedAt, &m.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "meal not found"})
@@ -86,6 +118,25 @@ func (h *MealHandler) Get(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	rows, err := h.db.Query(
+		"SELECT id, meal_id, ingredient_id, quantity, unit FROM meal_ingredients WHERE meal_id = ?", id,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	m.Ingredients = []model.MealIngredient{}
+	for rows.Next() {
+		var mi model.MealIngredient
+		if err := rows.Scan(&mi.ID, &mi.MealID, &mi.IngredientID, &mi.Quantity, &mi.Unit); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		m.Ingredients = append(m.Ingredients, mi)
 	}
 
 	c.JSON(http.StatusOK, m)
@@ -104,16 +155,55 @@ func (h *MealHandler) Update(c *gin.Context) {
 		return
 	}
 
-	_, err = h.db.Exec(
-		"UPDATE meals SET name=?, date=?, meal_type=?, recipe=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-		m.Name, m.Date, m.MealType, m.Recipe, id,
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.Exec(
+		"UPDATE meals SET name=?, meal_type=?, instructions=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+		m.Name, m.MealType, m.Instructions, id,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "meal not found"})
+		return
+	}
+
+	if _, err := tx.Exec("DELETE FROM meal_ingredients WHERE meal_id=?", id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	for i := range m.Ingredients {
+		res, err := tx.Exec(
+			"INSERT INTO meal_ingredients (meal_id, ingredient_id, quantity, unit) VALUES (?, ?, ?, ?)",
+			id, m.Ingredients[i].IngredientID, m.Ingredients[i].Quantity, m.Ingredients[i].Unit,
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		m.Ingredients[i].ID, _ = res.LastInsertId()
+		m.Ingredients[i].MealID = id
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	m.ID = id
+	if m.Ingredients == nil {
+		m.Ingredients = []model.MealIngredient{}
+	}
 	c.JSON(http.StatusOK, m)
 }
 
@@ -124,9 +214,15 @@ func (h *MealHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	_, err = h.db.Exec("DELETE FROM meals WHERE id=?", id)
+	result, err := h.db.Exec("DELETE FROM meals WHERE id=?", id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "meal not found"})
 		return
 	}
 
