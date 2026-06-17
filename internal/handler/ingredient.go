@@ -17,6 +17,15 @@ func NewIngredientHandler(db *sql.DB) *IngredientHandler {
 	return &IngredientHandler{db: db}
 }
 
+// List godoc
+// @Summary      List ingredients
+// @Description  Returns all ingredients, optionally filtered by name
+// @Tags         ingredients
+// @Produce      json
+// @Param        search  query     string  false  "Filter by name (substring match)"
+// @Success      200     {array}   model.Ingredient
+// @Failure      500     {object}  map[string]string
+// @Router       /ingredients [get]
 func (h *IngredientHandler) List(c *gin.Context) {
 	search := c.Query("search")
 
@@ -55,6 +64,17 @@ func (h *IngredientHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, ingredients)
 }
 
+// Create godoc
+// @Summary      Create ingredient
+// @Description  Creates a new ingredient
+// @Tags         ingredients
+// @Accept       json
+// @Produce      json
+// @Param        ingredient  body      model.Ingredient  true  "Ingredient to create"
+// @Success      201         {object}  model.Ingredient
+// @Failure      400         {object}  map[string]string
+// @Failure      500         {object}  map[string]string
+// @Router       /ingredients [post]
 func (h *IngredientHandler) Create(c *gin.Context) {
 	var ing model.Ingredient
 	if err := c.ShouldBindJSON(&ing); err != nil {
@@ -79,6 +99,16 @@ func (h *IngredientHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, ing)
 }
 
+// Get godoc
+// @Summary      Get ingredient
+// @Description  Returns a single ingredient by ID
+// @Tags         ingredients
+// @Produce      json
+// @Param        id   path      int  true  "Ingredient ID"
+// @Success      200  {object}  model.Ingredient
+// @Failure      400  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Router       /ingredients/{id} [get]
 func (h *IngredientHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -111,6 +141,19 @@ func (h *IngredientHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, ing)
 }
 
+// Update godoc
+// @Summary      Update ingredient
+// @Description  Replaces an ingredient by ID
+// @Tags         ingredients
+// @Accept       json
+// @Produce      json
+// @Param        id         path      int               true  "Ingredient ID"
+// @Param        ingredient body      model.Ingredient  true  "Updated ingredient"
+// @Success      200        {object}  model.Ingredient
+// @Failure      400        {object}  map[string]string
+// @Failure      404        {object}  map[string]string
+// @Failure      500        {object}  map[string]string
+// @Router       /ingredients/{id} [put]
 func (h *IngredientHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -147,6 +190,16 @@ func (h *IngredientHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, ing)
 }
 
+// Delete godoc
+// @Summary      Delete ingredient
+// @Description  Deletes an ingredient by ID
+// @Tags         ingredients
+// @Param        id   path  int  true  "Ingredient ID"
+// @Success      204
+// @Failure      400  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /ingredients/{id} [delete]
 func (h *IngredientHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {

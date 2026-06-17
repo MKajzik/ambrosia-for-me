@@ -2,6 +2,7 @@ package model
 
 import "time"
 
+// Meal represents a meal with a type, instructions, and ingredient list.
 type Meal struct {
 	ID           int64     `json:"id"`
 	Name         string    `json:"name" binding:"required"`

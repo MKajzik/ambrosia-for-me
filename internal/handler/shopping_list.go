@@ -26,6 +26,19 @@ type aggregatedItem struct {
 	category string
 }
 
+// Generate godoc
+// @Summary      Generate shopping list
+// @Description  Returns an aggregated shopping list for a meal plan, grouped by category
+// @Tags         shopping-list
+// @Produce      json
+// @Param        id         path      int     true   "Meal plan ID"
+// @Param        from_date  query     string  false  "Start date (YYYY-MM-DD, defaults to plan start)"
+// @Param        to_date    query     string  false  "End date (YYYY-MM-DD, defaults to plan end)"
+// @Success      200        {object}  model.ShoppingList
+// @Failure      400        {object}  map[string]string
+// @Failure      404        {object}  map[string]string
+// @Failure      500        {object}  map[string]string
+// @Router       /meal-plans/{id}/shopping-list [get]
 func (h *ShoppingListHandler) Generate(c *gin.Context) {
 	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {

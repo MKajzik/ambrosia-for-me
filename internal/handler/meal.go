@@ -17,6 +17,15 @@ func NewMealHandler(db *sql.DB) *MealHandler {
 	return &MealHandler{db: db}
 }
 
+// List godoc
+// @Summary      List meals
+// @Description  Returns all meals, optionally filtered by type
+// @Tags         meals
+// @Produce      json
+// @Param        meal_type  query     string  false  "Filter by type"  Enums(breakfast, lunch, dinner, snack)
+// @Success      200        {array}   model.Meal
+// @Failure      500        {object}  map[string]string
+// @Router       /meals [get]
 func (h *MealHandler) List(c *gin.Context) {
 	mealType := c.Query("meal_type")
 
@@ -49,6 +58,17 @@ func (h *MealHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, meals)
 }
 
+// Create godoc
+// @Summary      Create meal
+// @Description  Creates a new meal with ingredients
+// @Tags         meals
+// @Accept       json
+// @Produce      json
+// @Param        meal  body      model.Meal  true  "Meal to create"
+// @Success      201   {object}  model.Meal
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /meals [post]
 func (h *MealHandler) Create(c *gin.Context) {
 	var m model.Meal
 	if err := c.ShouldBindJSON(&m); err != nil {
@@ -99,6 +119,16 @@ func (h *MealHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, m)
 }
 
+// Get godoc
+// @Summary      Get meal
+// @Description  Returns a single meal with ingredients by ID
+// @Tags         meals
+// @Produce      json
+// @Param        id   path      int  true  "Meal ID"
+// @Success      200  {object}  model.Meal
+// @Failure      400  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Router       /meals/{id} [get]
 func (h *MealHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -142,6 +172,19 @@ func (h *MealHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, m)
 }
 
+// Update godoc
+// @Summary      Update meal
+// @Description  Replaces a meal and its ingredients by ID
+// @Tags         meals
+// @Accept       json
+// @Produce      json
+// @Param        id   path      int        true  "Meal ID"
+// @Param        meal body      model.Meal true  "Updated meal"
+// @Success      200  {object}  model.Meal
+// @Failure      400  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /meals/{id} [put]
 func (h *MealHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -207,6 +250,16 @@ func (h *MealHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, m)
 }
 
+// Delete godoc
+// @Summary      Delete meal
+// @Description  Deletes a meal and its ingredients by ID
+// @Tags         meals
+// @Param        id   path  int  true  "Meal ID"
+// @Success      204
+// @Failure      400  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /meals/{id} [delete]
 func (h *MealHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {

@@ -2,6 +2,7 @@ package model
 
 import "time"
 
+// Ingredient represents a food ingredient with nutritional info per 100g.
 type Ingredient struct {
 	ID                 int64     `json:"id"`
 	Name               string    `json:"name" binding:"required"`

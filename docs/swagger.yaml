@@ -1,0 +1,768 @@
+basePath: /
+definitions:
+  handler.mealPlanRequest:
+    properties:
+      created_at:
+        type: string
+      end_date:
+        description: YYYY-MM-DD
+        type: string
+      entries:
+        items:
+          $ref: '#/definitions/model.MealPlanEntry'
+        type: array
+      id:
+        type: integer
+      name:
+        type: string
+      start_date:
+        description: YYYY-MM-DD
+        type: string
+      updated_at:
+        type: string
+    required:
+    - end_date
+    - name
+    - start_date
+    type: object
+  model.Ingredient:
+    properties:
+      base_unit:
+        enum:
+        - g
+        - ml
+        - pcs
+        type: string
+      calories_per_100:
+        type: number
+      carbs_per_100:
+        type: number
+      category:
+        enum:
+        - Owoce
+        - Warzywa
+        - Mięso
+        - Ryby
+        - Nabiał
+        - Pieczywo
+        - Produkty zbożowe
+        - Przyprawy
+        - Napoje
+        - Słodycze
+        - Tłuszcze
+        - Inne
+        type: string
+      created_at:
+        type: string
+      fat_per_100:
+        type: number
+      fiber_per_100:
+        type: number
+      id:
+        type: integer
+      name:
+        type: string
+      package_size:
+        type: number
+      protein_per_100:
+        type: number
+      salt_per_100:
+        type: number
+      saturated_fat_per_100:
+        type: number
+      sugars_per_100:
+        type: number
+      updated_at:
+        type: string
+    required:
+    - base_unit
+    - calories_per_100
+    - category
+    - name
+    type: object
+  model.Meal:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      ingredients:
+        items:
+          $ref: '#/definitions/model.MealIngredient'
+        type: array
+      instructions:
+        type: string
+      meal_type:
+        enum:
+        - breakfast
+        - lunch
+        - dinner
+        - snack
+        type: string
+      name:
+        type: string
+      updated_at:
+        type: string
+    required:
+    - meal_type
+    - name
+    type: object
+  model.MealIngredient:
+    properties:
+      id:
+        type: integer
+      ingredient_id:
+        type: integer
+      meal_id:
+        type: integer
+      quantity:
+        type: number
+      unit:
+        enum:
+        - g
+        - ml
+        - l
+        - pcs
+        - pkg
+        type: string
+    required:
+    - ingredient_id
+    - quantity
+    - unit
+    type: object
+  model.MealPlan:
+    properties:
+      created_at:
+        type: string
+      end_date:
+        description: YYYY-MM-DD
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      start_date:
+        description: YYYY-MM-DD
+        type: string
+      updated_at:
+        type: string
+    required:
+    - end_date
+    - name
+    - start_date
+    type: object
+  model.MealPlanEntry:
+    properties:
+      created_at:
+        type: string
+      date:
+        description: YYYY-MM-DD
+        type: string
+      id:
+        type: integer
+      meal_id:
+        type: integer
+      meal_plan_id:
+        type: integer
+      meal_type:
+        enum:
+        - breakfast
+        - lunch
+        - dinner
+        - snack
+        type: string
+      updated_at:
+        type: string
+    required:
+    - date
+    - meal_id
+    - meal_type
+    type: object
+  model.ShoppingCategory:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/model.ShoppingItem'
+        type: array
+      name:
+        type: string
+    type: object
+  model.ShoppingItem:
+    properties:
+      ingredient_id:
+        type: integer
+      ingredient_name:
+        type: string
+      total_quantity:
+        type: number
+      unit:
+        type: string
+    type: object
+  model.ShoppingList:
+    properties:
+      categories:
+        items:
+          $ref: '#/definitions/model.ShoppingCategory'
+        type: array
+      from_date:
+        type: string
+      meal_plan_id:
+        type: integer
+      to_date:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: REST API for meal planning, ingredients, and shopping lists.
+  title: MealPlanner API
+  version: "1.0"
+paths:
+  /ingredients:
+    get:
+      description: Returns all ingredients, optionally filtered by name
+      parameters:
+      - description: Filter by name (substring match)
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.Ingredient'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List ingredients
+      tags:
+      - ingredients
+    post:
+      consumes:
+      - application/json
+      description: Creates a new ingredient
+      parameters:
+      - description: Ingredient to create
+        in: body
+        name: ingredient
+        required: true
+        schema:
+          $ref: '#/definitions/model.Ingredient'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.Ingredient'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create ingredient
+      tags:
+      - ingredients
+  /ingredients/{id}:
+    delete:
+      description: Deletes an ingredient by ID
+      parameters:
+      - description: Ingredient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete ingredient
+      tags:
+      - ingredients
+    get:
+      description: Returns a single ingredient by ID
+      parameters:
+      - description: Ingredient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Ingredient'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get ingredient
+      tags:
+      - ingredients
+    put:
+      consumes:
+      - application/json
+      description: Replaces an ingredient by ID
+      parameters:
+      - description: Ingredient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Updated ingredient
+        in: body
+        name: ingredient
+        required: true
+        schema:
+          $ref: '#/definitions/model.Ingredient'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Ingredient'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update ingredient
+      tags:
+      - ingredients
+  /meal-plans:
+    get:
+      description: Returns all meal plans ordered by start date descending
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.MealPlan'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List meal plans
+      tags:
+      - meal-plans
+    post:
+      consumes:
+      - application/json
+      description: Creates a new meal plan with optional entries
+      parameters:
+      - description: Meal plan to create
+        in: body
+        name: plan
+        required: true
+        schema:
+          $ref: '#/definitions/handler.mealPlanRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.mealPlanRequest'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create meal plan
+      tags:
+      - meal-plans
+  /meal-plans/{id}:
+    delete:
+      description: Deletes a meal plan and its entries by ID
+      parameters:
+      - description: Meal plan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete meal plan
+      tags:
+      - meal-plans
+    get:
+      description: Returns a meal plan with its entries (including meal names)
+      parameters:
+      - description: Meal plan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get meal plan
+      tags:
+      - meal-plans
+    put:
+      consumes:
+      - application/json
+      description: Replaces a meal plan and its entries by ID
+      parameters:
+      - description: Meal plan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Updated meal plan
+        in: body
+        name: plan
+        required: true
+        schema:
+          $ref: '#/definitions/handler.mealPlanRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.mealPlanRequest'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update meal plan
+      tags:
+      - meal-plans
+  /meal-plans/{id}/shopping-list:
+    get:
+      description: Returns an aggregated shopping list for a meal plan, grouped by
+        category
+      parameters:
+      - description: Meal plan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Start date (YYYY-MM-DD, defaults to plan start)
+        in: query
+        name: from_date
+        type: string
+      - description: End date (YYYY-MM-DD, defaults to plan end)
+        in: query
+        name: to_date
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.ShoppingList'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Generate shopping list
+      tags:
+      - shopping-list
+  /meals:
+    get:
+      description: Returns all meals, optionally filtered by type
+      parameters:
+      - description: Filter by type
+        enum:
+        - breakfast
+        - lunch
+        - dinner
+        - snack
+        in: query
+        name: meal_type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.Meal'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List meals
+      tags:
+      - meals
+    post:
+      consumes:
+      - application/json
+      description: Creates a new meal with ingredients
+      parameters:
+      - description: Meal to create
+        in: body
+        name: meal
+        required: true
+        schema:
+          $ref: '#/definitions/model.Meal'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.Meal'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create meal
+      tags:
+      - meals
+  /meals/{id}:
+    delete:
+      description: Deletes a meal and its ingredients by ID
+      parameters:
+      - description: Meal ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete meal
+      tags:
+      - meals
+    get:
+      description: Returns a single meal with ingredients by ID
+      parameters:
+      - description: Meal ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Meal'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get meal
+      tags:
+      - meals
+    put:
+      consumes:
+      - application/json
+      description: Replaces a meal and its ingredients by ID
+      parameters:
+      - description: Meal ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Updated meal
+        in: body
+        name: meal
+        required: true
+        schema:
+          $ref: '#/definitions/model.Meal'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Meal'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update meal
+      tags:
+      - meals
+schemes:
+- http
+swagger: "2.0"

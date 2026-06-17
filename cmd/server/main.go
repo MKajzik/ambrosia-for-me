@@ -1,12 +1,21 @@
+// @title           MealPlanner API
+// @version         1.0
+// @description     REST API for meal planning, ingredients, and shopping lists.
+// @host            localhost:8080
+// @BasePath        /
+// @schemes         http
 package main
 
 import (
 	"log"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"github.com/kazik/mealPlanner/internal/config"
 	"github.com/kazik/mealPlanner/internal/db"
 	"github.com/kazik/mealPlanner/internal/handler"
+	_ "github.com/kazik/mealPlanner/docs"
 )
 
 func main() {
@@ -23,6 +32,8 @@ func main() {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+
+	r.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	ingredientHandler := handler.NewIngredientHandler(database)
 	mealHandler := handler.NewMealHandler(database)

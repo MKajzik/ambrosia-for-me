@@ -1,4 +1,4 @@
-.PHONY: build run dev test lint clean
+.PHONY: build run dev test lint clean swagger
 
 BINARY := mealPlanner
 
@@ -16,6 +16,9 @@ test:
 
 lint:
 	golangci-lint run ./...
+
+swagger:
+	swag init -g cmd/server/main.go -o docs
 
 clean:
 	rm -f $(BINARY) *.db

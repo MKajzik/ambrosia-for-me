@@ -2,6 +2,7 @@ package model
 
 import "time"
 
+// MealPlan represents a named meal plan covering a date range.
 type MealPlan struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name" binding:"required"`
@@ -11,6 +12,7 @@ type MealPlan struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// MealPlanEntry is a single assignment of a meal to a date+slot.
 type MealPlanEntry struct {
 	ID         int64     `json:"id"`
 	MealPlanID int64     `json:"meal_plan_id"`
@@ -21,6 +23,7 @@ type MealPlanEntry struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+// MealPlanEntryWithMeal extends MealPlanEntry with the meal name and recipe.
 type MealPlanEntryWithMeal struct {
 	MealPlanEntry
 	MealName   string `json:"meal_name"`
