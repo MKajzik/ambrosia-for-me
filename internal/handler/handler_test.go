@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -29,54 +30,90 @@ func setupTestDB(t *testing.T) *sql.DB {
 func setupRouter(database *sql.DB) *gin.Engine {
 	r := gin.New()
 
+	ah := NewAuthHandler(database, "test-secret")
+	rl := NewRateLimiter(100, 200) // high limits for tests
+	auth := r.Group("/auth")
+	{
+		auth.POST("/register", RateLimitMiddleware(rl), ah.Register)
+		auth.POST("/login", RateLimitMiddleware(rl), ah.Login)
+		auth.POST("/refresh", ah.Refresh)
+		auth.POST("/logout", ah.Logout)
+		auth.DELETE("/account", AuthMiddleware("test-secret"), ah.Delete)
+	}
+
 	ih := NewIngredientHandler(database)
-	ingredients := r.Group("/ingredients")
-	{
-		ingredients.GET("", ih.List)
-		ingredients.POST("", ih.Create)
-		ingredients.GET("/:id", ih.Get)
-		ingredients.PUT("/:id", ih.Update)
-		ingredients.DELETE("/:id", ih.Delete)
-	}
-
 	mh := NewMealHandler(database)
-	meals := r.Group("/meals")
-	{
-		meals.GET("", mh.List)
-		meals.POST("", mh.Create)
-		meals.GET("/:id", mh.Get)
-		meals.PUT("/:id", mh.Update)
-		meals.DELETE("/:id", mh.Delete)
-	}
-
 	mph := NewMealPlanHandler(database)
 	sh := NewShoppingListHandler(database)
-	mealPlans := r.Group("/meal-plans")
+
+	protected := r.Group("", AuthMiddleware("test-secret"))
 	{
-		mealPlans.GET("", mph.List)
-		mealPlans.POST("", mph.Create)
-		mealPlans.GET("/:id", mph.Get)
-		mealPlans.PUT("/:id", mph.Update)
-		mealPlans.DELETE("/:id", mph.Delete)
-		mealPlans.GET("/:id/shopping-list", sh.Generate)
+		ingredients := protected.Group("/ingredients")
+		{
+			ingredients.GET("", ih.List)
+			ingredients.POST("", ih.Create)
+			ingredients.GET("/:id", ih.Get)
+			ingredients.PUT("/:id", ih.Update)
+			ingredients.DELETE("/:id", ih.Delete)
+		}
+
+		meals := protected.Group("/meals")
+		{
+			meals.GET("", mh.List)
+			meals.POST("", mh.Create)
+			meals.GET("/:id", mh.Get)
+			meals.PUT("/:id", mh.Update)
+			meals.DELETE("/:id", mh.Delete)
+		}
+
+		mealPlans := protected.Group("/meal-plans")
+		{
+			mealPlans.GET("", mph.List)
+			mealPlans.POST("", mph.Create)
+			mealPlans.GET("/:id", mph.Get)
+			mealPlans.PUT("/:id", mph.Update)
+			mealPlans.DELETE("/:id", mph.Delete)
+			mealPlans.GET("/:id/shopping-list", sh.Generate)
+		}
 	}
 
 	return r
 }
 
 func doJSON(r *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {
+	return doJSONAuth(r, method, path, body, "")
+}
+
+func doJSONAuth(r *gin.Engine, method, path string, body any, token string) *httptest.ResponseRecorder {
 	var buf bytes.Buffer
 	if body != nil {
 		json.NewEncoder(&buf).Encode(body)
 	}
 	req := httptest.NewRequest(method, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
 }
 
-func createIngredient(t *testing.T, r *gin.Engine, name string) int64 {
+func registerAndLogin(t *testing.T, r *gin.Engine, username, password string) string {
+	t.Helper()
+	w := doJSON(r, http.MethodPost, "/auth/register", map[string]any{
+		"username": username,
+		"password": password,
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("register %q: status = %d, body = %s", username, w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	return resp["access_token"].(string)
+}
+
+func createIngredient(t *testing.T, r *gin.Engine, token, name string) int64 {
 	t.Helper()
 	body := map[string]any{
 		"name":               name,
@@ -91,7 +128,7 @@ func createIngredient(t *testing.T, r *gin.Engine, name string) int64 {
 		"sugars_per_100":     3,
 		"saturated_fat_per_100": 1,
 	}
-	w := doJSON(r, http.MethodPost, "/ingredients", body)
+	w := doJSONAuth(r, http.MethodPost, "/ingredients", body, token)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create ingredient %q: status = %d, body = %s", name, w.Code, w.Body.String())
 	}
@@ -100,7 +137,7 @@ func createIngredient(t *testing.T, r *gin.Engine, name string) int64 {
 	return int64(resp["id"].(float64))
 }
 
-func createMeal(t *testing.T, r *gin.Engine, name, mealType string, ingredients []map[string]any) int64 {
+func createMeal(t *testing.T, r *gin.Engine, token, name, mealType string, ingredients []map[string]any) int64 {
 	t.Helper()
 	body := map[string]any{
 		"name":        name,
@@ -110,7 +147,7 @@ func createMeal(t *testing.T, r *gin.Engine, name, mealType string, ingredients 
 	if ingredients != nil {
 		body["ingredients"] = ingredients
 	}
-	w := doJSON(r, http.MethodPost, "/meals", body)
+	w := doJSONAuth(r, http.MethodPost, "/meals", body, token)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create meal %q: status = %d, body = %s", name, w.Code, w.Body.String())
 	}
@@ -124,6 +161,7 @@ func createMeal(t *testing.T, r *gin.Engine, name, mealType string, ingredients 
 func TestIngredientCreate(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
 	body := map[string]any{
 		"name":               "Chicken Breast",
@@ -138,7 +176,7 @@ func TestIngredientCreate(t *testing.T) {
 		"sugars_per_100":     0,
 		"saturated_fat_per_100": 1,
 	}
-	w := doJSON(r, http.MethodPost, "/ingredients", body)
+	w := doJSONAuth(r, http.MethodPost, "/ingredients", body, token)
 
 	if w.Code != http.StatusCreated {
 		t.Errorf("status = %d, want %d. body: %s", w.Code, http.StatusCreated, w.Body.String())
@@ -157,9 +195,10 @@ func TestIngredientCreate(t *testing.T) {
 func TestIngredientCreateValidation(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
 	body := map[string]any{"name": "Test"} // missing required fields
-	w := doJSON(r, http.MethodPost, "/ingredients", body)
+	w := doJSONAuth(r, http.MethodPost, "/ingredients", body, token)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
@@ -168,11 +207,12 @@ func TestIngredientCreateValidation(t *testing.T) {
 func TestIngredientList(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	createIngredient(t, r, "Apple")
-	createIngredient(t, r, "Banana")
+	createIngredient(t, r, token, "Apple")
+	createIngredient(t, r, token, "Banana")
 
-	w := doJSON(r, http.MethodGet, "/ingredients", nil)
+	w := doJSONAuth(r, http.MethodGet, "/ingredients", nil, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
@@ -187,11 +227,12 @@ func TestIngredientList(t *testing.T) {
 func TestIngredientListSearch(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	createIngredient(t, r, "Apple")
-	createIngredient(t, r, "Banana")
+	createIngredient(t, r, token, "Apple")
+	createIngredient(t, r, token, "Banana")
 
-	w := doJSON(r, http.MethodGet, "/ingredients?search=App", nil)
+	w := doJSONAuth(r, http.MethodGet, "/ingredients?search=App", nil, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
@@ -206,10 +247,11 @@ func TestIngredientListSearch(t *testing.T) {
 func TestIngredientGet(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	id := createIngredient(t, r, "Rice")
+	id := createIngredient(t, r, token, "Rice")
 
-	w := doJSON(r, http.MethodGet, "/ingredients/1", nil) // first insert gets id=1
+	w := doJSONAuth(r, http.MethodGet, "/ingredients/1", nil, token) // first insert gets id=1
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d. body: %s", w.Code, http.StatusOK, w.Body.String())
 	}
@@ -225,8 +267,9 @@ func TestIngredientGet(t *testing.T) {
 func TestIngredientGetNotFound(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	w := doJSON(r, http.MethodGet, "/ingredients/999", nil)
+	w := doJSONAuth(r, http.MethodGet, "/ingredients/999", nil, token)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
@@ -235,8 +278,9 @@ func TestIngredientGetNotFound(t *testing.T) {
 func TestIngredientGetInvalidID(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	w := doJSON(r, http.MethodGet, "/ingredients/abc", nil)
+	w := doJSONAuth(r, http.MethodGet, "/ingredients/abc", nil, token)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
@@ -245,8 +289,9 @@ func TestIngredientGetInvalidID(t *testing.T) {
 func TestIngredientUpdate(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	createIngredient(t, r, "Rice")
+	createIngredient(t, r, token, "Rice")
 
 	body := map[string]any{
 		"name":               "Brown Rice",
@@ -261,7 +306,7 @@ func TestIngredientUpdate(t *testing.T) {
 		"sugars_per_100":     0.4,
 		"saturated_fat_per_100": 0.3,
 	}
-	w := doJSON(r, http.MethodPut, "/ingredients/1", body)
+	w := doJSONAuth(r, http.MethodPut, "/ingredients/1", body, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -276,6 +321,7 @@ func TestIngredientUpdate(t *testing.T) {
 func TestIngredientUpdateNotFound(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
 	body := map[string]any{
 		"name":               "X",
@@ -283,7 +329,7 @@ func TestIngredientUpdateNotFound(t *testing.T) {
 		"category":           "Inne",
 		"calories_per_100":   100,
 	}
-	w := doJSON(r, http.MethodPut, "/ingredients/999", body)
+	w := doJSONAuth(r, http.MethodPut, "/ingredients/999", body, token)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
@@ -292,15 +338,16 @@ func TestIngredientUpdateNotFound(t *testing.T) {
 func TestIngredientDelete(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	createIngredient(t, r, "Rice")
+	createIngredient(t, r, token, "Rice")
 
-	w := doJSON(r, http.MethodDelete, "/ingredients/1", nil)
+	w := doJSONAuth(r, http.MethodDelete, "/ingredients/1", nil, token)
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNoContent)
 	}
 
-	w = doJSON(r, http.MethodGet, "/ingredients/1", nil)
+	w = doJSONAuth(r, http.MethodGet, "/ingredients/1", nil, token)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("after delete: status = %d, want %d", w.Code, http.StatusNotFound)
 	}
@@ -309,8 +356,9 @@ func TestIngredientDelete(t *testing.T) {
 func TestIngredientDeleteNotFound(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	w := doJSON(r, http.MethodDelete, "/ingredients/999", nil)
+	w := doJSONAuth(r, http.MethodDelete, "/ingredients/999", nil, token)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
@@ -321,13 +369,14 @@ func TestIngredientDeleteNotFound(t *testing.T) {
 func TestMealCreate(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
 	body := map[string]any{
 		"name":         "Oatmeal",
 		"meal_type":    "breakfast",
 		"instructions": "Cook oats with milk",
 	}
-	w := doJSON(r, http.MethodPost, "/meals", body)
+	w := doJSONAuth(r, http.MethodPost, "/meals", body, token)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -346,8 +395,9 @@ func TestMealCreate(t *testing.T) {
 func TestMealCreateWithIngredients(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	ingID := createIngredient(t, r, "Oats")
+	ingID := createIngredient(t, r, token, "Oats")
 
 	body := map[string]any{
 		"name":         "Oatmeal",
@@ -357,7 +407,7 @@ func TestMealCreateWithIngredients(t *testing.T) {
 			{"ingredient_id": ingID, "quantity": 100, "unit": "g"},
 		},
 	}
-	w := doJSON(r, http.MethodPost, "/meals", body)
+	w := doJSONAuth(r, http.MethodPost, "/meals", body, token)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -377,9 +427,10 @@ func TestMealCreateWithIngredients(t *testing.T) {
 func TestMealCreateValidation(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
 	body := map[string]any{"name": "Test"} // missing meal_type
-	w := doJSON(r, http.MethodPost, "/meals", body)
+	w := doJSONAuth(r, http.MethodPost, "/meals", body, token)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
@@ -388,11 +439,12 @@ func TestMealCreateValidation(t *testing.T) {
 func TestMealList(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	createMeal(t, r, "Oatmeal", "breakfast", nil)
-	createMeal(t, r, "Salad", "lunch", nil)
+	createMeal(t, r, token, "Oatmeal", "breakfast", nil)
+	createMeal(t, r, token, "Salad", "lunch", nil)
 
-	w := doJSON(r, http.MethodGet, "/meals", nil)
+	w := doJSONAuth(r, http.MethodGet, "/meals", nil, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
@@ -407,11 +459,12 @@ func TestMealList(t *testing.T) {
 func TestMealListFilter(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	createMeal(t, r, "Oatmeal", "breakfast", nil)
-	createMeal(t, r, "Salad", "lunch", nil)
+	createMeal(t, r, token, "Oatmeal", "breakfast", nil)
+	createMeal(t, r, token, "Salad", "lunch", nil)
 
-	w := doJSON(r, http.MethodGet, "/meals?meal_type=breakfast", nil)
+	w := doJSONAuth(r, http.MethodGet, "/meals?meal_type=breakfast", nil, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
@@ -426,13 +479,14 @@ func TestMealListFilter(t *testing.T) {
 func TestMealGet(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	ingID := createIngredient(t, r, "Oats")
-	mealID := createMeal(t, r, "Oatmeal", "breakfast", []map[string]any{
+	ingID := createIngredient(t, r, token, "Oats")
+	mealID := createMeal(t, r, token, "Oatmeal", "breakfast", []map[string]any{
 		{"ingredient_id": ingID, "quantity": 80, "unit": "g"},
 	})
 
-	w := doJSON(r, http.MethodGet, "/meals/1", nil)
+	w := doJSONAuth(r, http.MethodGet, "/meals/1", nil, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -452,8 +506,9 @@ func TestMealGet(t *testing.T) {
 func TestMealGetNotFound(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	w := doJSON(r, http.MethodGet, "/meals/999", nil)
+	w := doJSONAuth(r, http.MethodGet, "/meals/999", nil, token)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
@@ -462,9 +517,10 @@ func TestMealGetNotFound(t *testing.T) {
 func TestMealUpdate(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	ingID := createIngredient(t, r, "Oats")
-	createMeal(t, r, "Oatmeal", "breakfast", []map[string]any{
+	ingID := createIngredient(t, r, token, "Oats")
+	createMeal(t, r, token, "Oatmeal", "breakfast", []map[string]any{
 		{"ingredient_id": ingID, "quantity": 80, "unit": "g"},
 	})
 
@@ -476,7 +532,7 @@ func TestMealUpdate(t *testing.T) {
 			{"ingredient_id": ingID, "quantity": 100, "unit": "g"},
 		},
 	}
-	w := doJSON(r, http.MethodPut, "/meals/1", body)
+	w := doJSONAuth(r, http.MethodPut, "/meals/1", body, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -491,12 +547,13 @@ func TestMealUpdate(t *testing.T) {
 func TestMealUpdateNotFound(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
 	body := map[string]any{
 		"name":      "X",
 		"meal_type": "breakfast",
 	}
-	w := doJSON(r, http.MethodPut, "/meals/999", body)
+	w := doJSONAuth(r, http.MethodPut, "/meals/999", body, token)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
@@ -505,13 +562,14 @@ func TestMealUpdateNotFound(t *testing.T) {
 func TestMealDelete(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	ingID := createIngredient(t, r, "Oats")
-	createMeal(t, r, "Oatmeal", "breakfast", []map[string]any{
+	ingID := createIngredient(t, r, token, "Oats")
+	createMeal(t, r, token, "Oatmeal", "breakfast", []map[string]any{
 		{"ingredient_id": ingID, "quantity": 80, "unit": "g"},
 	})
 
-	w := doJSON(r, http.MethodDelete, "/meals/1", nil)
+	w := doJSONAuth(r, http.MethodDelete, "/meals/1", nil, token)
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNoContent)
 	}
@@ -527,8 +585,9 @@ func TestMealDelete(t *testing.T) {
 func TestMealDeleteNotFound(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	w := doJSON(r, http.MethodDelete, "/meals/999", nil)
+	w := doJSONAuth(r, http.MethodDelete, "/meals/999", nil, token)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
@@ -539,13 +598,14 @@ func TestMealDeleteNotFound(t *testing.T) {
 func TestMealPlanCreate(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
 	body := map[string]any{
 		"name":       "Week 1",
 		"start_date": "2025-01-06",
 		"end_date":   "2025-01-12",
 	}
-	w := doJSON(r, http.MethodPost, "/meal-plans", body)
+	w := doJSONAuth(r, http.MethodPost, "/meal-plans", body, token)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -560,8 +620,9 @@ func TestMealPlanCreate(t *testing.T) {
 func TestMealPlanCreateWithEntries(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	mealID := createMeal(t, r, "Oatmeal", "breakfast", nil)
+	mealID := createMeal(t, r, token, "Oatmeal", "breakfast", nil)
 
 	body := map[string]any{
 		"name":       "Week 1",
@@ -571,7 +632,7 @@ func TestMealPlanCreateWithEntries(t *testing.T) {
 			{"date": "2025-01-06", "meal_type": "breakfast", "meal_id": mealID},
 		},
 	}
-	w := doJSON(r, http.MethodPost, "/meal-plans", body)
+	w := doJSONAuth(r, http.MethodPost, "/meal-plans", body, token)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -580,13 +641,14 @@ func TestMealPlanCreateWithEntries(t *testing.T) {
 func TestMealPlanCreateInvalidDates(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
 	body := map[string]any{
 		"name":       "Bad Plan",
 		"start_date": "2025-01-12",
 		"end_date":   "2025-01-06",
 	}
-	w := doJSON(r, http.MethodPost, "/meal-plans", body)
+	w := doJSONAuth(r, http.MethodPost, "/meal-plans", body, token)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
@@ -595,8 +657,9 @@ func TestMealPlanCreateInvalidDates(t *testing.T) {
 func TestMealPlanCreateEntryOutOfRange(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	mealID := createMeal(t, r, "Oatmeal", "breakfast", nil)
+	mealID := createMeal(t, r, token, "Oatmeal", "breakfast", nil)
 
 	body := map[string]any{
 		"name":       "Week 1",
@@ -606,7 +669,7 @@ func TestMealPlanCreateEntryOutOfRange(t *testing.T) {
 			{"date": "2025-01-15", "meal_type": "breakfast", "meal_id": mealID},
 		},
 	}
-	w := doJSON(r, http.MethodPost, "/meal-plans", body)
+	w := doJSONAuth(r, http.MethodPost, "/meal-plans", body, token)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
@@ -615,15 +678,16 @@ func TestMealPlanCreateEntryOutOfRange(t *testing.T) {
 func TestMealPlanList(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	doJSON(r, http.MethodPost, "/meal-plans", map[string]any{
+	doJSONAuth(r, http.MethodPost, "/meal-plans", map[string]any{
 		"name": "Plan A", "start_date": "2025-01-01", "end_date": "2025-01-07",
-	})
-	doJSON(r, http.MethodPost, "/meal-plans", map[string]any{
+	}, token)
+	doJSONAuth(r, http.MethodPost, "/meal-plans", map[string]any{
 		"name": "Plan B", "start_date": "2025-02-01", "end_date": "2025-02-07",
-	})
+	}, token)
 
-	w := doJSON(r, http.MethodGet, "/meal-plans", nil)
+	w := doJSONAuth(r, http.MethodGet, "/meal-plans", nil, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
@@ -638,17 +702,18 @@ func TestMealPlanList(t *testing.T) {
 func TestMealPlanGet(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	mealID := createMeal(t, r, "Oatmeal", "breakfast", nil)
+	mealID := createMeal(t, r, token, "Oatmeal", "breakfast", nil)
 
-	doJSON(r, http.MethodPost, "/meal-plans", map[string]any{
+	doJSONAuth(r, http.MethodPost, "/meal-plans", map[string]any{
 		"name": "Week 1", "start_date": "2025-01-06", "end_date": "2025-01-07",
 		"entries": []map[string]any{
 			{"date": "2025-01-06", "meal_type": "breakfast", "meal_id": mealID},
 		},
-	})
+	}, token)
 
-	w := doJSON(r, http.MethodGet, "/meal-plans/1", nil)
+	w := doJSONAuth(r, http.MethodGet, "/meal-plans/1", nil, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -668,8 +733,9 @@ func TestMealPlanGet(t *testing.T) {
 func TestMealPlanGetNotFound(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	w := doJSON(r, http.MethodGet, "/meal-plans/999", nil)
+	w := doJSONAuth(r, http.MethodGet, "/meal-plans/999", nil, token)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
@@ -678,15 +744,16 @@ func TestMealPlanGetNotFound(t *testing.T) {
 func TestMealPlanUpdate(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	mealID := createMeal(t, r, "Oatmeal", "breakfast", nil)
+	mealID := createMeal(t, r, token, "Oatmeal", "breakfast", nil)
 
-	doJSON(r, http.MethodPost, "/meal-plans", map[string]any{
+	doJSONAuth(r, http.MethodPost, "/meal-plans", map[string]any{
 		"name": "Week 1", "start_date": "2025-01-06", "end_date": "2025-01-07",
 		"entries": []map[string]any{
 			{"date": "2025-01-06", "meal_type": "breakfast", "meal_id": mealID},
 		},
-	})
+	}, token)
 
 	body := map[string]any{
 		"name":       "Updated Week 1",
@@ -697,7 +764,7 @@ func TestMealPlanUpdate(t *testing.T) {
 			{"date": "2025-01-07", "meal_type": "lunch", "meal_id": mealID},
 		},
 	}
-	w := doJSON(r, http.MethodPut, "/meal-plans/1", body)
+	w := doJSONAuth(r, http.MethodPut, "/meal-plans/1", body, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -713,11 +780,12 @@ func TestMealPlanUpdate(t *testing.T) {
 func TestMealPlanUpdateNotFound(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
 	body := map[string]any{
 		"name": "X", "start_date": "2025-01-01", "end_date": "2025-01-02",
 	}
-	w := doJSON(r, http.MethodPut, "/meal-plans/999", body)
+	w := doJSONAuth(r, http.MethodPut, "/meal-plans/999", body, token)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
@@ -726,17 +794,18 @@ func TestMealPlanUpdateNotFound(t *testing.T) {
 func TestMealPlanDelete(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	mealID := createMeal(t, r, "Oatmeal", "breakfast", nil)
+	mealID := createMeal(t, r, token, "Oatmeal", "breakfast", nil)
 
-	doJSON(r, http.MethodPost, "/meal-plans", map[string]any{
+	doJSONAuth(r, http.MethodPost, "/meal-plans", map[string]any{
 		"name": "Week 1", "start_date": "2025-01-06", "end_date": "2025-01-07",
 		"entries": []map[string]any{
 			{"date": "2025-01-06", "meal_type": "breakfast", "meal_id": mealID},
 		},
-	})
+	}, token)
 
-	w := doJSON(r, http.MethodDelete, "/meal-plans/1", nil)
+	w := doJSONAuth(r, http.MethodDelete, "/meal-plans/1", nil, token)
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNoContent)
 	}
@@ -751,8 +820,9 @@ func TestMealPlanDelete(t *testing.T) {
 func TestMealPlanDeleteNotFound(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	w := doJSON(r, http.MethodDelete, "/meal-plans/999", nil)
+	w := doJSONAuth(r, http.MethodDelete, "/meal-plans/999", nil, token)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
@@ -763,21 +833,22 @@ func TestMealPlanDeleteNotFound(t *testing.T) {
 func TestShoppingListGenerate(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	ingID := createIngredient(t, r, "Oats")
-	mealID := createMeal(t, r, "Oatmeal", "breakfast", []map[string]any{
+	ingID := createIngredient(t, r, token, "Oats")
+	mealID := createMeal(t, r, token, "Oatmeal", "breakfast", []map[string]any{
 		{"ingredient_id": ingID, "quantity": 80, "unit": "g"},
 	})
 
-	doJSON(r, http.MethodPost, "/meal-plans", map[string]any{
+	doJSONAuth(r, http.MethodPost, "/meal-plans", map[string]any{
 		"name": "Week 1", "start_date": "2025-01-06", "end_date": "2025-01-07",
 		"entries": []map[string]any{
 			{"date": "2025-01-06", "meal_type": "breakfast", "meal_id": mealID},
 			{"date": "2025-01-07", "meal_type": "breakfast", "meal_id": mealID},
 		},
-	})
+	}, token)
 
-	w := doJSON(r, http.MethodGet, "/meal-plans/1/shopping-list", nil)
+	w := doJSONAuth(r, http.MethodGet, "/meal-plans/1/shopping-list", nil, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -808,22 +879,23 @@ func TestShoppingListGenerate(t *testing.T) {
 func TestShoppingListGenerateWithDateRange(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	ingID := createIngredient(t, r, "Oats")
-	mealID := createMeal(t, r, "Oatmeal", "breakfast", []map[string]any{
+	ingID := createIngredient(t, r, token, "Oats")
+	mealID := createMeal(t, r, token, "Oatmeal", "breakfast", []map[string]any{
 		{"ingredient_id": ingID, "quantity": 80, "unit": "g"},
 	})
 
-	doJSON(r, http.MethodPost, "/meal-plans", map[string]any{
+	doJSONAuth(r, http.MethodPost, "/meal-plans", map[string]any{
 		"name": "Week 1", "start_date": "2025-01-06", "end_date": "2025-01-08",
 		"entries": []map[string]any{
 			{"date": "2025-01-06", "meal_type": "breakfast", "meal_id": mealID},
 			{"date": "2025-01-07", "meal_type": "breakfast", "meal_id": mealID},
 			{"date": "2025-01-08", "meal_type": "breakfast", "meal_id": mealID},
 		},
-	})
+	}, token)
 
-	w := doJSON(r, http.MethodGet, "/meal-plans/1/shopping-list?from_date=2025-01-06&to_date=2025-01-07", nil)
+	w := doJSONAuth(r, http.MethodGet, "/meal-plans/1/shopping-list?from_date=2025-01-06&to_date=2025-01-07", nil, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -843,8 +915,9 @@ func TestShoppingListGenerateWithDateRange(t *testing.T) {
 func TestShoppingListGenerateNotFound(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	w := doJSON(r, http.MethodGet, "/meal-plans/999/shopping-list", nil)
+	w := doJSONAuth(r, http.MethodGet, "/meal-plans/999/shopping-list", nil, token)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
@@ -853,20 +926,21 @@ func TestShoppingListGenerateNotFound(t *testing.T) {
 func TestShoppingListUnitConversion(t *testing.T) {
 	database := setupTestDB(t)
 	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
 
-	ingID := createIngredient(t, r, "Milk")
-	mealID := createMeal(t, r, "Cereal", "breakfast", []map[string]any{
+	ingID := createIngredient(t, r, token, "Milk")
+	mealID := createMeal(t, r, token, "Cereal", "breakfast", []map[string]any{
 		{"ingredient_id": ingID, "quantity": 0.5, "unit": "l"},
 	})
 
-	doJSON(r, http.MethodPost, "/meal-plans", map[string]any{
+	doJSONAuth(r, http.MethodPost, "/meal-plans", map[string]any{
 		"name": "Week 1", "start_date": "2025-01-06", "end_date": "2025-01-06",
 		"entries": []map[string]any{
 			{"date": "2025-01-06", "meal_type": "breakfast", "meal_id": mealID},
 		},
-	})
+	}, token)
 
-	w := doJSON(r, http.MethodGet, "/meal-plans/1/shopping-list", nil)
+	w := doJSONAuth(r, http.MethodGet, "/meal-plans/1/shopping-list", nil, token)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
@@ -880,6 +954,293 @@ func TestShoppingListUnitConversion(t *testing.T) {
 	if item["total_quantity"].(float64) != 500 {
 		t.Errorf("total_quantity = %v, want 500 (0.5L -> 500ml)", item["total_quantity"])
 	}
+}
+
+// --- Auth Tests ---
+
+func TestRegister(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	w := doJSON(r, http.MethodPost, "/auth/register", map[string]any{
+		"username": "testuser",
+		"password": "password123",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["access_token"] == nil {
+		t.Error("response missing access_token")
+	}
+	if resp["refresh_token"] == nil {
+		t.Error("response missing refresh_token")
+	}
+	user := resp["user"].(map[string]any)
+	if user["username"] != "testuser" {
+		t.Errorf("username = %v, want testuser", user["username"])
+	}
+}
+
+func TestRegisterDuplicate(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	doJSON(r, http.MethodPost, "/auth/register", map[string]any{
+		"username": "testuser", "password": "password123",
+	})
+	w := doJSON(r, http.MethodPost, "/auth/register", map[string]any{
+		"username": "testuser", "password": "password456",
+	})
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusConflict)
+	}
+}
+
+func TestRegisterValidation(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	w := doJSON(r, http.MethodPost, "/auth/register", map[string]any{
+		"username": "ab", "password": "short",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestLogin(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	doJSON(r, http.MethodPost, "/auth/register", map[string]any{
+		"username": "testuser", "password": "password123",
+	})
+
+	w := doJSON(r, http.MethodPost, "/auth/login", map[string]any{
+		"username": "testuser", "password": "password123",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["access_token"] == nil {
+		t.Error("response missing access_token")
+	}
+	if resp["refresh_token"] == nil {
+		t.Error("response missing refresh_token")
+	}
+}
+
+func TestLoginWrongPassword(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	doJSON(r, http.MethodPost, "/auth/register", map[string]any{
+		"username": "testuser", "password": "password123",
+	})
+
+	w := doJSON(r, http.MethodPost, "/auth/login", map[string]any{
+		"username": "testuser", "password": "wrongpassword",
+	})
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestLoginNonexistentUser(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	w := doJSON(r, http.MethodPost, "/auth/login", map[string]any{
+		"username": "nobody", "password": "password123",
+	})
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestRefreshToken(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	w := doJSON(r, http.MethodPost, "/auth/register", map[string]any{
+		"username": "testuser", "password": "password123",
+	})
+	var regResp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &regResp)
+	refreshToken := regResp["refresh_token"].(string)
+
+	w = doJSON(r, http.MethodPost, "/auth/refresh", map[string]any{
+		"refresh_token": refreshToken,
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["access_token"] == nil {
+		t.Error("response missing access_token")
+	}
+	if resp["refresh_token"] == nil {
+		t.Error("response missing refresh_token")
+	}
+	// old refresh token should be rotated (invalidated)
+	w = doJSON(r, http.MethodPost, "/auth/refresh", map[string]any{
+		"refresh_token": refreshToken,
+	})
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("rotated token: status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestRefreshTokenInvalid(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	w := doJSON(r, http.MethodPost, "/auth/refresh", map[string]any{
+		"refresh_token": "invalidtoken",
+	})
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestLogout(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	w := doJSON(r, http.MethodPost, "/auth/register", map[string]any{
+		"username": "testuser", "password": "password123",
+	})
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	refreshToken := resp["refresh_token"].(string)
+
+	w = doJSON(r, http.MethodPost, "/auth/logout", map[string]any{
+		"refresh_token": refreshToken,
+	})
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+
+	w = doJSON(r, http.MethodPost, "/auth/refresh", map[string]any{
+		"refresh_token": refreshToken,
+	})
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("after logout: status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestDeleteAccount(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	token := registerAndLogin(t, r, "testuser", "password123")
+
+	w := doJSONAuth(r, http.MethodDelete, "/auth/account", nil, token)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+
+	w = doJSON(r, http.MethodPost, "/auth/login", map[string]any{
+		"username": "testuser", "password": "password123",
+	})
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("after delete: login status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestDeleteAccountNoAuth(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	w := doJSON(r, http.MethodDelete, "/auth/account", nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestProtectedRouteNoAuth(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	w := doJSON(r, http.MethodGet, "/ingredients", nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+// --- Cross-User Ownership Tests ---
+
+func TestCrossUserIngredientIsolation(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	token1 := registerAndLogin(t, r, "user1", "password123")
+	token2 := registerAndLogin(t, r, "user2", "password456")
+
+	id := createIngredient(t, r, token1, "User1 Ingredient")
+
+	w := doJSONAuth(r, http.MethodGet, "/ingredients/"+itoa(id), nil, token2)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("cross-user get: status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+
+	w = doJSONAuth(r, http.MethodGet, "/ingredients", nil, token2)
+	var resp []map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if len(resp) != 0 {
+		t.Errorf("cross-user list: count = %d, want 0", len(resp))
+	}
+}
+
+func TestCrossUserMealIsolation(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	token1 := registerAndLogin(t, r, "user1", "password123")
+	token2 := registerAndLogin(t, r, "user2", "password456")
+
+	id := createMeal(t, r, token1, "User1 Meal", "breakfast", nil)
+
+	w := doJSONAuth(r, http.MethodGet, "/meals/"+itoa(id), nil, token2)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("cross-user get: status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestCrossUserMealPlanIsolation(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+
+	token1 := registerAndLogin(t, r, "user1", "password123")
+	token2 := registerAndLogin(t, r, "user2", "password456")
+
+	doJSONAuth(r, http.MethodPost, "/meal-plans", map[string]any{
+		"name": "Plan", "start_date": "2025-01-01", "end_date": "2025-01-07",
+	}, token1)
+
+	w := doJSONAuth(r, http.MethodGet, "/meal-plans/1", nil, token2)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("cross-user get: status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+
+	w = doJSONAuth(r, http.MethodGet, "/meal-plans", nil, token2)
+	var resp []map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if len(resp) != 0 {
+		t.Errorf("cross-user list: count = %d, want 0", len(resp))
+	}
+}
+
+func itoa(id int64) string {
+	return strconv.FormatInt(id, 10)
 }
 
 // --- normalizeToBase Tests ---

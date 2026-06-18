@@ -4,6 +4,9 @@
 // @host            localhost:8080
 // @BasePath        /
 // @schemes         http
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
 package main
 
 import (
@@ -35,37 +38,52 @@ func main() {
 
 	r.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
+	authHandler := handler.NewAuthHandler(database, cfg.JWTSecret)
 	ingredientHandler := handler.NewIngredientHandler(database)
 	mealHandler := handler.NewMealHandler(database)
 	mealPlanHandler := handler.NewMealPlanHandler(database)
 	shoppingListHandler := handler.NewShoppingListHandler(database)
 
-	ingredients := r.Group("/ingredients")
+	authLimiter := handler.NewRateLimiter(5, 10)
+
+	auth := r.Group("/auth")
 	{
-		ingredients.GET("", ingredientHandler.List)
-		ingredients.POST("", ingredientHandler.Create)
-		ingredients.GET("/:id", ingredientHandler.Get)
-		ingredients.PUT("/:id", ingredientHandler.Update)
-		ingredients.DELETE("/:id", ingredientHandler.Delete)
+		auth.POST("/register", handler.RateLimitMiddleware(authLimiter), authHandler.Register)
+		auth.POST("/login", handler.RateLimitMiddleware(authLimiter), authHandler.Login)
+		auth.POST("/refresh", authHandler.Refresh)
+		auth.POST("/logout", authHandler.Logout)
+		auth.DELETE("/account", handler.AuthMiddleware(cfg.JWTSecret), authHandler.Delete)
 	}
 
-	meals := r.Group("/meals")
+	protected := r.Group("", handler.AuthMiddleware(cfg.JWTSecret))
 	{
-		meals.GET("", mealHandler.List)
-		meals.POST("", mealHandler.Create)
-		meals.GET("/:id", mealHandler.Get)
-		meals.PUT("/:id", mealHandler.Update)
-		meals.DELETE("/:id", mealHandler.Delete)
-	}
+		ingredients := protected.Group("/ingredients")
+		{
+			ingredients.GET("", ingredientHandler.List)
+			ingredients.POST("", ingredientHandler.Create)
+			ingredients.GET("/:id", ingredientHandler.Get)
+			ingredients.PUT("/:id", ingredientHandler.Update)
+			ingredients.DELETE("/:id", ingredientHandler.Delete)
+		}
 
-	mealPlans := r.Group("/meal-plans")
-	{
-		mealPlans.GET("", mealPlanHandler.List)
-		mealPlans.POST("", mealPlanHandler.Create)
-		mealPlans.GET("/:id", mealPlanHandler.Get)
-		mealPlans.PUT("/:id", mealPlanHandler.Update)
-		mealPlans.DELETE("/:id", mealPlanHandler.Delete)
-		mealPlans.GET("/:id/shopping-list", shoppingListHandler.Generate)
+		meals := protected.Group("/meals")
+		{
+			meals.GET("", mealHandler.List)
+			meals.POST("", mealHandler.Create)
+			meals.GET("/:id", mealHandler.Get)
+			meals.PUT("/:id", mealHandler.Update)
+			meals.DELETE("/:id", mealHandler.Delete)
+		}
+
+		mealPlans := protected.Group("/meal-plans")
+		{
+			mealPlans.GET("", mealPlanHandler.List)
+			mealPlans.POST("", mealPlanHandler.Create)
+			mealPlans.GET("/:id", mealPlanHandler.Get)
+			mealPlans.PUT("/:id", mealPlanHandler.Update)
+			mealPlans.DELETE("/:id", mealPlanHandler.Delete)
+			mealPlans.GET("/:id/shopping-list", shoppingListHandler.Generate)
+		}
 	}
 
 	log.Printf("starting server on :%s", cfg.Port)

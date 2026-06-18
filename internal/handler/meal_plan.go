@@ -19,15 +19,20 @@ func NewMealPlanHandler(db *sql.DB) *MealPlanHandler {
 
 // List godoc
 // @Summary      List meal plans
-// @Description  Returns all meal plans ordered by start date descending
+// @Description  Returns all meal plans for the authenticated user ordered by start date descending
 // @Tags         meal-plans
+// @Security     BearerAuth
 // @Produce      json
 // @Success      200  {array}   model.MealPlan
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /meal-plans [get]
 func (h *MealPlanHandler) List(c *gin.Context) {
+	userID := c.GetInt64("userID")
+
 	rows, err := h.db.Query(
-		"SELECT id, name, start_date, end_date, created_at, updated_at FROM meal_plans ORDER BY start_date DESC",
+		"SELECT id, name, start_date, end_date, created_at, updated_at FROM meal_plans WHERE user_id = ? ORDER BY start_date DESC",
+		userID,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -55,16 +60,20 @@ type mealPlanRequest struct {
 
 // Create godoc
 // @Summary      Create meal plan
-// @Description  Creates a new meal plan with optional entries
+// @Description  Creates a new meal plan with optional entries for the authenticated user
 // @Tags         meal-plans
+// @Security     BearerAuth
 // @Accept       json
 // @Produce      json
 // @Param        plan  body      mealPlanRequest  true  "Meal plan to create"
 // @Success      201   {object}  mealPlanRequest
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /meal-plans [post]
 func (h *MealPlanHandler) Create(c *gin.Context) {
+	userID := c.GetInt64("userID")
+
 	var req mealPlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -84,8 +93,8 @@ func (h *MealPlanHandler) Create(c *gin.Context) {
 	defer func() { _ = tx.Rollback() }()
 
 	result, err := tx.Exec(
-		"INSERT INTO meal_plans (name, start_date, end_date) VALUES (?, ?, ?)",
-		req.Name, req.StartDate, req.EndDate,
+		"INSERT INTO meal_plans (user_id, name, start_date, end_date) VALUES (?, ?, ?, ?)",
+		userID, req.Name, req.StartDate, req.EndDate,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -125,15 +134,18 @@ func (h *MealPlanHandler) Create(c *gin.Context) {
 
 // Get godoc
 // @Summary      Get meal plan
-// @Description  Returns a meal plan with its entries (including meal names)
+// @Description  Returns a meal plan with its entries (including meal names) - own only
 // @Tags         meal-plans
+// @Security     BearerAuth
 // @Produce      json
 // @Param        id   path      int  true  "Meal plan ID"
 // @Success      200  {object}  map[string]interface{}
 // @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Router       /meal-plans/{id} [get]
 func (h *MealPlanHandler) Get(c *gin.Context) {
+	userID := c.GetInt64("userID")
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
@@ -142,7 +154,7 @@ func (h *MealPlanHandler) Get(c *gin.Context) {
 
 	var p model.MealPlan
 	err = h.db.QueryRow(
-		"SELECT id, name, start_date, end_date, created_at, updated_at FROM meal_plans WHERE id = ?", id,
+		"SELECT id, name, start_date, end_date, created_at, updated_at FROM meal_plans WHERE id = ? AND user_id = ?", id, userID,
 	).Scan(&p.ID, &p.Name, &p.StartDate, &p.EndDate, &p.CreatedAt, &p.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -194,18 +206,21 @@ func (h *MealPlanHandler) Get(c *gin.Context) {
 
 // Update godoc
 // @Summary      Update meal plan
-// @Description  Replaces a meal plan and its entries by ID
+// @Description  Replaces a meal plan and its entries by ID (own only)
 // @Tags         meal-plans
+// @Security     BearerAuth
 // @Accept       json
 // @Produce      json
 // @Param        id   path      int               true  "Meal plan ID"
 // @Param        plan body      mealPlanRequest   true  "Updated meal plan"
 // @Success      200  {object}  mealPlanRequest
 // @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /meal-plans/{id} [put]
 func (h *MealPlanHandler) Update(c *gin.Context) {
+	userID := c.GetInt64("userID")
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
@@ -231,8 +246,8 @@ func (h *MealPlanHandler) Update(c *gin.Context) {
 	defer func() { _ = tx.Rollback() }()
 
 	result, err := tx.Exec(
-		"UPDATE meal_plans SET name=?, start_date=?, end_date=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-		req.Name, req.StartDate, req.EndDate, id,
+		"UPDATE meal_plans SET name=?, start_date=?, end_date=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?",
+		req.Name, req.StartDate, req.EndDate, id, userID,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -281,22 +296,24 @@ func (h *MealPlanHandler) Update(c *gin.Context) {
 
 // Delete godoc
 // @Summary      Delete meal plan
-// @Description  Deletes a meal plan and its entries by ID
+// @Description  Deletes a meal plan and its entries by ID (own only)
 // @Tags         meal-plans
+// @Security     BearerAuth
 // @Param        id   path  int  true  "Meal plan ID"
 // @Success      204
 // @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Failure      500  {object}  map[string]string
 // @Router       /meal-plans/{id} [delete]
 func (h *MealPlanHandler) Delete(c *gin.Context) {
+	userID := c.GetInt64("userID")
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 
-	result, err := h.db.Exec("DELETE FROM meal_plans WHERE id=?", id)
+	result, err := h.db.Exec("DELETE FROM meal_plans WHERE id=? AND user_id=?", id, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

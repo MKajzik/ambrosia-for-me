@@ -30,8 +30,28 @@ func Open(path string) (*sql.DB, error) {
 
 func migrate(db *sql.DB) error {
 	schema := `
+	CREATE TABLE IF NOT EXISTS users (
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		username      TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS refresh_tokens (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		token_hash TEXT NOT NULL UNIQUE,
+		expires_at DATETIME NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+	CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+
 	CREATE TABLE IF NOT EXISTS ingredients (
 		id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id               INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		name                  TEXT NOT NULL,
 		base_unit             TEXT NOT NULL CHECK(base_unit IN ('g', 'ml', 'pcs')),
 		category              TEXT NOT NULL DEFAULT 'Inne' CHECK(category IN (
@@ -51,14 +71,19 @@ func migrate(db *sql.DB) error {
 		updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
+	CREATE INDEX IF NOT EXISTS idx_ingredients_user ON ingredients(user_id);
+
 	CREATE TABLE IF NOT EXISTS meals (
 		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		name         TEXT NOT NULL,
 		meal_type    TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner', 'snack')),
 		instructions TEXT DEFAULT '',
 		created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	CREATE INDEX IF NOT EXISTS idx_meals_user ON meals(user_id);
 
 	CREATE TABLE IF NOT EXISTS meal_ingredients (
 		id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,12 +100,15 @@ func migrate(db *sql.DB) error {
 
 	CREATE TABLE IF NOT EXISTS meal_plans (
 		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		name       TEXT NOT NULL,
 		start_date TEXT NOT NULL,
 		end_date   TEXT NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	CREATE INDEX IF NOT EXISTS idx_meal_plans_user ON meal_plans(user_id);
 
 	CREATE TABLE IF NOT EXISTS meal_plan_entries (
 		id           INTEGER PRIMARY KEY AUTOINCREMENT,

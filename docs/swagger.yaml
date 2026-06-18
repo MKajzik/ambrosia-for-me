@@ -1,5 +1,24 @@
 basePath: /
 definitions:
+  handler.authResponse:
+    properties:
+      access_token:
+        type: string
+      refresh_token:
+        type: string
+      user:
+        $ref: '#/definitions/model.User'
+    type: object
+  handler.loginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    required:
+    - password
+    - username
+    type: object
   handler.mealPlanRequest:
     properties:
       created_at:
@@ -24,6 +43,33 @@ definitions:
     - end_date
     - name
     - start_date
+    type: object
+  handler.refreshRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  handler.registerRequest:
+    properties:
+      password:
+        minLength: 8
+        type: string
+      username:
+        maxLength: 50
+        minLength: 3
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  handler.tokenResponse:
+    properties:
+      access_token:
+        type: string
+      refresh_token:
+        type: string
     type: object
   model.Ingredient:
     properties:
@@ -211,6 +257,21 @@ definitions:
       to_date:
         type: string
     type: object
+  model.User:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      updated_at:
+        type: string
+      username:
+        maxLength: 50
+        minLength: 3
+        type: string
+    required:
+    - username
+    type: object
 host: localhost:8080
 info:
   contact: {}
@@ -218,9 +279,191 @@ info:
   title: MealPlanner API
   version: "1.0"
 paths:
+  /auth/account:
+    delete:
+      description: Deletes the authenticated user's account and all associated data
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete own account
+      tags:
+      - auth
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user and returns JWT tokens
+      parameters:
+      - description: Username and password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.authResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Login
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Invalidates the refresh token
+      parameters:
+      - description: Refresh token to invalidate
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.refreshRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Logout
+      tags:
+      - auth
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Uses a refresh token to get a new access+refresh token pair
+      parameters:
+      - description: Refresh token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.refreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.tokenResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Refresh access token
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new user account
+      parameters:
+      - description: Username and password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.registerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.authResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Register a new user
+      tags:
+      - auth
   /ingredients:
     get:
-      description: Returns all ingredients, optionally filtered by name
+      description: Returns all ingredients for the authenticated user, optionally
+        filtered by name
       parameters:
       - description: Filter by name (substring match)
         in: query
@@ -235,19 +478,27 @@ paths:
             items:
               $ref: '#/definitions/model.Ingredient'
             type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal Server Error
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: List ingredients
       tags:
       - ingredients
     post:
       consumes:
       - application/json
-      description: Creates a new ingredient
+      description: Creates a new ingredient for the authenticated user
       parameters:
       - description: Ingredient to create
         in: body
@@ -268,18 +519,26 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal Server Error
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: Create ingredient
       tags:
       - ingredients
   /ingredients/{id}:
     delete:
-      description: Deletes an ingredient by ID
+      description: Deletes an ingredient by ID (own only)
       parameters:
       - description: Ingredient ID
         in: path
@@ -295,23 +554,25 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Not Found
           schema:
             additionalProperties:
               type: string
             type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
+      security:
+      - BearerAuth: []
       summary: Delete ingredient
       tags:
       - ingredients
     get:
-      description: Returns a single ingredient by ID
+      description: Returns a single ingredient by ID (own only)
       parameters:
       - description: Ingredient ID
         in: path
@@ -331,19 +592,27 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Not Found
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: Get ingredient
       tags:
       - ingredients
     put:
       consumes:
       - application/json
-      description: Replaces an ingredient by ID
+      description: Replaces an ingredient by ID (own only)
       parameters:
       - description: Ingredient ID
         in: path
@@ -369,6 +638,12 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Not Found
           schema:
@@ -381,12 +656,15 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: Update ingredient
       tags:
       - ingredients
   /meal-plans:
     get:
-      description: Returns all meal plans ordered by start date descending
+      description: Returns all meal plans for the authenticated user ordered by start
+        date descending
       produces:
       - application/json
       responses:
@@ -396,19 +674,28 @@ paths:
             items:
               $ref: '#/definitions/model.MealPlan'
             type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal Server Error
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: List meal plans
       tags:
       - meal-plans
     post:
       consumes:
       - application/json
-      description: Creates a new meal plan with optional entries
+      description: Creates a new meal plan with optional entries for the authenticated
+        user
       parameters:
       - description: Meal plan to create
         in: body
@@ -429,18 +716,26 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal Server Error
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: Create meal plan
       tags:
       - meal-plans
   /meal-plans/{id}:
     delete:
-      description: Deletes a meal plan and its entries by ID
+      description: Deletes a meal plan and its entries by ID (own only)
       parameters:
       - description: Meal plan ID
         in: path
@@ -456,23 +751,26 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Not Found
           schema:
             additionalProperties:
               type: string
             type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
+      security:
+      - BearerAuth: []
       summary: Delete meal plan
       tags:
       - meal-plans
     get:
-      description: Returns a meal plan with its entries (including meal names)
+      description: Returns a meal plan with its entries (including meal names) - own
+        only
       parameters:
       - description: Meal plan ID
         in: path
@@ -493,19 +791,27 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Not Found
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: Get meal plan
       tags:
       - meal-plans
     put:
       consumes:
       - application/json
-      description: Replaces a meal plan and its entries by ID
+      description: Replaces a meal plan and its entries by ID (own only)
       parameters:
       - description: Meal plan ID
         in: path
@@ -531,6 +837,12 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Not Found
           schema:
@@ -543,13 +855,15 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: Update meal plan
       tags:
       - meal-plans
   /meal-plans/{id}/shopping-list:
     get:
       description: Returns an aggregated shopping list for a meal plan, grouped by
-        category
+        category (own only)
       parameters:
       - description: Meal plan ID
         in: path
@@ -577,6 +891,12 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Not Found
           schema:
@@ -589,12 +909,15 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: Generate shopping list
       tags:
       - shopping-list
   /meals:
     get:
-      description: Returns all meals, optionally filtered by type
+      description: Returns all meals for the authenticated user, optionally filtered
+        by type
       parameters:
       - description: Filter by type
         enum:
@@ -614,19 +937,27 @@ paths:
             items:
               $ref: '#/definitions/model.Meal'
             type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal Server Error
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: List meals
       tags:
       - meals
     post:
       consumes:
       - application/json
-      description: Creates a new meal with ingredients
+      description: Creates a new meal with ingredients for the authenticated user
       parameters:
       - description: Meal to create
         in: body
@@ -647,18 +978,26 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal Server Error
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: Create meal
       tags:
       - meals
   /meals/{id}:
     delete:
-      description: Deletes a meal and its ingredients by ID
+      description: Deletes a meal and its ingredients by ID (own only)
       parameters:
       - description: Meal ID
         in: path
@@ -674,23 +1013,25 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Not Found
           schema:
             additionalProperties:
               type: string
             type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
+      security:
+      - BearerAuth: []
       summary: Delete meal
       tags:
       - meals
     get:
-      description: Returns a single meal with ingredients by ID
+      description: Returns a single meal with ingredients by ID (own only)
       parameters:
       - description: Meal ID
         in: path
@@ -710,19 +1051,27 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Not Found
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: Get meal
       tags:
       - meals
     put:
       consumes:
       - application/json
-      description: Replaces a meal and its ingredients by ID
+      description: Replaces a meal and its ingredients by ID (own only)
       parameters:
       - description: Meal ID
         in: path
@@ -748,6 +1097,12 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Not Found
           schema:
@@ -760,9 +1115,16 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BearerAuth: []
       summary: Update meal
       tags:
       - meals
 schemes:
 - http
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"
