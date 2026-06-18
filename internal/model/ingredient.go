@@ -4,7 +4,7 @@ import "time"
 
 // Ingredient represents a food ingredient with nutritional info per 100g.
 type Ingredient struct {
-	ID                 int64     `json:"id"`
+	ID                 int64     `json:"id" readOnly:"true"`
 	Name               string    `json:"name" binding:"required"`
 	BaseUnit           string    `json:"base_unit" binding:"required,oneof=g ml pcs"`
 	Category           string    `json:"category" binding:"required,oneof=Owoce Warzywa Mięso Ryby Nabiał Pieczywo 'Produkty zbożowe' Przyprawy Napoje Słodycze Tłuszcze Inne"`
@@ -17,12 +17,12 @@ type Ingredient struct {
 	SugarsPer100       float64   `json:"sugars_per_100"`
 	SaturatedFatPer100 float64   `json:"saturated_fat_per_100"`
 	PackageSize        *float64  `json:"package_size"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	CreatedAt          time.Time `json:"created_at" readOnly:"true"`
+	UpdatedAt          time.Time `json:"updated_at" readOnly:"true"`
 }
 
 type MealIngredient struct {
-	ID           int64   `json:"id"`
+	ID           int64   `json:"id" readOnly:"true"`
 	MealID       int64   `json:"meal_id"`
 	IngredientID int64   `json:"ingredient_id" binding:"required"`
 	Quantity     float64 `json:"quantity" binding:"required,gt=0"`
