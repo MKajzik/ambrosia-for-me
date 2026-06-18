@@ -43,6 +43,7 @@ func main() {
 	mealHandler := handler.NewMealHandler(database)
 	mealPlanHandler := handler.NewMealPlanHandler(database)
 	shoppingListHandler := handler.NewShoppingListHandler(database)
+	partnerHandler := handler.NewPartnerHandler(database)
 
 	authLimiter := handler.NewRateLimiter(5, 10)
 
@@ -83,6 +84,21 @@ func main() {
 			mealPlans.PUT("/:id", mealPlanHandler.Update)
 			mealPlans.DELETE("/:id", mealPlanHandler.Delete)
 			mealPlans.GET("/:id/shopping-list", shoppingListHandler.Generate)
+			mealPlans.POST("/:id/shopping-list/save", shoppingListHandler.Save)
+		}
+
+		shoppingLists := protected.Group("/shopping-lists")
+		{
+			shoppingLists.GET("/:id", shoppingListHandler.GetSaved)
+			shoppingLists.PATCH("/:id/items/:itemId", shoppingListHandler.CheckItem)
+		}
+
+		partner := protected.Group("/partner")
+		{
+			partner.POST("/invite", partnerHandler.Invite)
+			partner.POST("/accept", partnerHandler.Accept)
+			partner.GET("", partnerHandler.Get)
+			partner.DELETE("", partnerHandler.Disconnect)
 		}
 	}
 

@@ -46,6 +46,8 @@ func setupRouter(database *sql.DB) *gin.Engine {
 	mph := NewMealPlanHandler(database)
 	sh := NewShoppingListHandler(database)
 
+	ph := NewPartnerHandler(database)
+
 	protected := r.Group("", AuthMiddleware("test-secret"))
 	{
 		ingredients := protected.Group("/ingredients")
@@ -74,6 +76,21 @@ func setupRouter(database *sql.DB) *gin.Engine {
 			mealPlans.PUT("/:id", mph.Update)
 			mealPlans.DELETE("/:id", mph.Delete)
 			mealPlans.GET("/:id/shopping-list", sh.Generate)
+			mealPlans.POST("/:id/shopping-list/save", sh.Save)
+		}
+
+		shoppingLists := protected.Group("/shopping-lists")
+		{
+			shoppingLists.GET("/:id", sh.GetSaved)
+			shoppingLists.PATCH("/:id/items/:itemId", sh.CheckItem)
+		}
+
+		partner := protected.Group("/partner")
+		{
+			partner.POST("/invite", ph.Invite)
+			partner.POST("/accept", ph.Accept)
+			partner.GET("", ph.Get)
+			partner.DELETE("", ph.Disconnect)
 		}
 	}
 
@@ -1294,5 +1311,271 @@ func TestHealthEndpoint(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["status"] != "ok" {
 		t.Errorf("status = %v, want ok", resp["status"])
+	}
+}
+
+// --- Partner Tests ---
+
+func TestPartnerInvite(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
+
+	w := doJSONAuth(r, http.MethodPost, "/partner/invite", nil, token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	code, ok := resp["invite_code"].(string)
+	if !ok || len(code) != 8 {
+		t.Errorf("invite_code = %q, want 8-char hex", code)
+	}
+}
+
+func TestPartnerAccept(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+	token1 := registerAndLogin(t, r, "user1", "password123")
+	token2 := registerAndLogin(t, r, "user2", "password456")
+
+	// user1 generates invite
+	w := doJSONAuth(r, http.MethodPost, "/partner/invite", nil, token1)
+	var invResp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &invResp)
+	code := invResp["invite_code"].(string)
+
+	// user2 accepts
+	w = doJSONAuth(r, http.MethodPost, "/partner/accept", map[string]any{"invite_code": code}, token2)
+	if w.Code != http.StatusOK {
+		t.Fatalf("accept: status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["partner_name"] != "user1" {
+		t.Errorf("partner_name = %v, want user1", resp["partner_name"])
+	}
+
+	// verify both see each other
+	w = doJSONAuth(r, http.MethodGet, "/partner", nil, token1)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get partner1: status = %d", w.Code)
+	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["partner_name"] != "user2" {
+		t.Errorf("user1's partner_name = %v, want user2", resp["partner_name"])
+	}
+}
+
+func TestPartnerAcceptInvalidCode(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
+
+	w := doJSONAuth(r, http.MethodPost, "/partner/accept", map[string]any{"invite_code": "badcode0"}, token)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestPartnerGet(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+	token := registerAndLogin(t, r, "testuser", "testpass123")
+
+	w := doJSONAuth(r, http.MethodGet, "/partner", nil, token)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("no partner: status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestPartnerDisconnect(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+	token1 := registerAndLogin(t, r, "user1", "password123")
+	token2 := registerAndLogin(t, r, "user2", "password456")
+
+	// link
+	w := doJSONAuth(r, http.MethodPost, "/partner/invite", nil, token1)
+	var invResp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &invResp)
+	code := invResp["invite_code"].(string)
+	doJSONAuth(r, http.MethodPost, "/partner/accept", map[string]any{"invite_code": code}, token2)
+
+	// disconnect
+	w = doJSONAuth(r, http.MethodDelete, "/partner", nil, token1)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("disconnect: status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	// verify no partner
+	w = doJSONAuth(r, http.MethodGet, "/partner", nil, token1)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("after disconnect: status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestPartnerMealVisibility(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+	token1 := registerAndLogin(t, r, "user1", "password123")
+	token2 := registerAndLogin(t, r, "user2", "password456")
+
+	createMeal(t, r, token1, "User1 Meal", "breakfast", nil)
+	createMeal(t, r, token2, "User2 Meal", "lunch", nil)
+
+	// before linking, user1 only sees own meals
+	w := doJSONAuth(r, http.MethodGet, "/meals?include_partner=true", nil, token1)
+	var meals []map[string]any
+	json.Unmarshal(w.Body.Bytes(), &meals)
+	if len(meals) != 1 {
+		t.Fatalf("before link: count = %d, want 1", len(meals))
+	}
+
+	// link users
+	w = doJSONAuth(r, http.MethodPost, "/partner/invite", nil, token1)
+	var invResp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &invResp)
+	code := invResp["invite_code"].(string)
+	doJSONAuth(r, http.MethodPost, "/partner/accept", map[string]any{"invite_code": code}, token2)
+
+	// now user1 sees both meals with include_partner=true
+	w = doJSONAuth(r, http.MethodGet, "/meals?include_partner=true", nil, token1)
+	json.Unmarshal(w.Body.Bytes(), &meals)
+	if len(meals) != 2 {
+		t.Fatalf("after link: count = %d, want 2", len(meals))
+	}
+
+	// find the partner meal
+	found := false
+	for _, m := range meals {
+		if m["name"] == "User2 Meal" {
+			if m["owner"] != "user2" {
+				t.Errorf("owner = %v, want user2", m["owner"])
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("partner meal not found in results")
+	}
+
+	// without include_partner, only own meals
+	w = doJSONAuth(r, http.MethodGet, "/meals", nil, token1)
+	json.Unmarshal(w.Body.Bytes(), &meals)
+	if len(meals) != 1 {
+		t.Fatalf("without flag: count = %d, want 1", len(meals))
+	}
+}
+
+func TestSharedShoppingList(t *testing.T) {
+	database := setupTestDB(t)
+	r := setupRouter(database)
+	token1 := registerAndLogin(t, r, "user1", "password123")
+	token2 := registerAndLogin(t, r, "user2", "password456")
+
+	// link users
+	w := doJSONAuth(r, http.MethodPost, "/partner/invite", nil, token1)
+	var invResp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &invResp)
+	code := invResp["invite_code"].(string)
+	doJSONAuth(r, http.MethodPost, "/partner/accept", map[string]any{"invite_code": code}, token2)
+
+	// user1 creates ingredient + meal + plan
+	ingID := createIngredient(t, r, token1, "Oats")
+	mealID := createMeal(t, r, token1, "Oatmeal", "breakfast", []map[string]any{
+		{"ingredient_id": ingID, "quantity": 80, "unit": "g"},
+	})
+	doJSONAuth(r, http.MethodPost, "/meal-plans", map[string]any{
+		"name": "Plan1", "start_date": "2025-01-06", "end_date": "2025-01-07",
+		"entries": []map[string]any{
+			{"date": "2025-01-06", "meal_type": "breakfast", "meal_id": mealID},
+		},
+	}, token1)
+
+	// user2 creates ingredient + meal + plan (same dates)
+	ingID2 := createIngredient(t, r, token2, "Milk")
+	mealID2 := createMeal(t, r, token2, "Cereal", "breakfast", []map[string]any{
+		{"ingredient_id": ingID2, "quantity": 0.25, "unit": "l"},
+	})
+	doJSONAuth(r, http.MethodPost, "/meal-plans", map[string]any{
+		"name": "Plan2", "start_date": "2025-01-06", "end_date": "2025-01-07",
+		"entries": []map[string]any{
+			{"date": "2025-01-06", "meal_type": "breakfast", "meal_id": mealID2},
+		},
+	}, token2)
+
+	// save shared list from user1's plan
+	w = doJSONAuth(r, http.MethodPost, "/meal-plans/1/shopping-list/save?shared=true", nil, token1)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("save shared: status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var saved map[string]any
+	json.Unmarshal(w.Body.Bytes(), &saved)
+	if saved["shared"] != true {
+		t.Errorf("shared = %v, want true", saved["shared"])
+	}
+
+	categories := saved["categories"].([]any)
+	totalItems := 0
+	for _, cat := range categories {
+		items := cat.(map[string]any)["items"].([]any)
+		totalItems += len(items)
+	}
+	if totalItems < 2 {
+		t.Fatalf("shared list items = %d, want >=2 (oats + milk)", totalItems)
+	}
+
+	// get saved list
+	listID := int64(saved["id"].(float64))
+	w = doJSONAuth(r, http.MethodGet, "/shopping-lists/"+itoa(listID), nil, token1)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get saved: status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var fetched map[string]any
+	json.Unmarshal(w.Body.Bytes(), &fetched)
+	categories = fetched["categories"].([]any)
+	totalItems = 0
+	var firstItemID float64
+	for _, cat := range categories {
+		items := cat.(map[string]any)["items"].([]any)
+		totalItems += len(items)
+		if firstItemID == 0 && len(items) > 0 {
+			firstItemID = items[0].(map[string]any)["id"].(float64)
+		}
+	}
+	if totalItems < 2 {
+		t.Fatalf("fetched items = %d, want >=2", totalItems)
+	}
+
+	// check item
+	w = doJSONAuth(r, http.MethodPatch, "/shopping-lists/"+itoa(listID)+"/items/"+itoa(int64(firstItemID)), map[string]any{"checked": true}, token1)
+	if w.Code != http.StatusOK {
+		t.Fatalf("check item: status = %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var checkResp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &checkResp)
+	if checkResp["checked"] != true {
+		t.Errorf("checked = %v, want true", checkResp["checked"])
+	}
+
+	// verify checked status persisted
+	w = doJSONAuth(r, http.MethodGet, "/shopping-lists/"+itoa(listID), nil, token1)
+	json.Unmarshal(w.Body.Bytes(), &fetched)
+	categories = fetched["categories"].([]any)
+	for _, cat := range categories {
+		items := cat.(map[string]any)["items"].([]any)
+		for _, item := range items {
+			if item.(map[string]any)["id"].(float64) == firstItemID {
+				if item.(map[string]any)["checked"] != true {
+					t.Error("checked not persisted")
+				}
+			}
+		}
 	}
 }

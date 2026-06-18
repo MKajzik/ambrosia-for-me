@@ -31,14 +31,30 @@ func NewMealHandler(db *sql.DB) *MealHandler {
 func (h *MealHandler) List(c *gin.Context) {
 	userID := c.GetInt64("userID")
 	mealType := c.Query("meal_type")
+	includePartner := c.Query("include_partner") == "true"
 
-	query := "SELECT id, name, meal_type, instructions, created_at, updated_at FROM meals WHERE user_id = ?"
+	query := "SELECT m.id, m.name, m.meal_type, m.instructions, m.created_at, m.updated_at, '' FROM meals m WHERE m.user_id = ?"
 	args := []any{userID}
 	if mealType != "" {
-		query += " AND meal_type = ?"
+		query += " AND m.meal_type = ?"
 		args = append(args, mealType)
 	}
-	query += " ORDER BY name"
+
+	if includePartner {
+		var partnerID *int64
+		h.db.QueryRow("SELECT partner_id FROM users WHERE id = ?", userID).Scan(&partnerID)
+		if partnerID != nil {
+			query = `SELECT m.id, m.name, m.meal_type, m.instructions, m.created_at, m.updated_at, u.username
+				FROM meals m JOIN users u ON u.id = m.user_id
+				WHERE (m.user_id = ? OR m.user_id = ?)`
+			args = []any{userID, *partnerID}
+			if mealType != "" {
+				query += " AND m.meal_type = ?"
+				args = append(args, mealType)
+			}
+		}
+	}
+	query += " ORDER BY m.name"
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
@@ -47,15 +63,27 @@ func (h *MealHandler) List(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	meals := []model.Meal{}
+	meals := []map[string]any{}
 	for rows.Next() {
 		var m model.Meal
-		if err := rows.Scan(&m.ID, &m.Name, &m.MealType, &m.Instructions, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		var owner string
+		if err := rows.Scan(&m.ID, &m.Name, &m.MealType, &m.Instructions, &m.CreatedAt, &m.UpdatedAt, &owner); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		m.Ingredients = []model.MealIngredient{}
-		meals = append(meals, m)
+		entry := map[string]any{
+			"id":           m.ID,
+			"name":         m.Name,
+			"meal_type":    m.MealType,
+			"instructions": m.Instructions,
+			"created_at":   m.CreatedAt,
+			"updated_at":   m.UpdatedAt,
+			"ingredients":  []model.MealIngredient{},
+		}
+		if includePartner && owner != "" {
+			entry["owner"] = owner
+		}
+		meals = append(meals, entry)
 	}
 
 	c.JSON(http.StatusOK, meals)

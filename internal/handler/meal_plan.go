@@ -29,25 +29,50 @@ func NewMealPlanHandler(db *sql.DB) *MealPlanHandler {
 // @Router       /meal-plans [get]
 func (h *MealPlanHandler) List(c *gin.Context) {
 	userID := c.GetInt64("userID")
+	includePartner := c.Query("include_partner") == "true"
 
-	rows, err := h.db.Query(
-		"SELECT id, name, start_date, end_date, created_at, updated_at FROM meal_plans WHERE user_id = ? ORDER BY start_date DESC",
-		userID,
-	)
+	query := "SELECT mp.id, mp.name, mp.start_date, mp.end_date, mp.created_at, mp.updated_at, '' FROM meal_plans mp WHERE mp.user_id = ?"
+	args := []any{userID}
+
+	if includePartner {
+		var partnerID *int64
+		h.db.QueryRow("SELECT partner_id FROM users WHERE id = ?", userID).Scan(&partnerID)
+		if partnerID != nil {
+			query = `SELECT mp.id, mp.name, mp.start_date, mp.end_date, mp.created_at, mp.updated_at, u.username
+				FROM meal_plans mp JOIN users u ON u.id = mp.user_id
+				WHERE (mp.user_id = ? OR mp.user_id = ?)`
+			args = []any{userID, *partnerID}
+		}
+	}
+	query += " ORDER BY mp.start_date DESC"
+
+	rows, err := h.db.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	defer rows.Close()
 
-	plans := []model.MealPlan{}
+	plans := []map[string]any{}
 	for rows.Next() {
 		var p model.MealPlan
-		if err := rows.Scan(&p.ID, &p.Name, &p.StartDate, &p.EndDate, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		var owner string
+		if err := rows.Scan(&p.ID, &p.Name, &p.StartDate, &p.EndDate, &p.CreatedAt, &p.UpdatedAt, &owner); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		plans = append(plans, p)
+		entry := map[string]any{
+			"id":         p.ID,
+			"name":       p.Name,
+			"start_date": p.StartDate,
+			"end_date":   p.EndDate,
+			"created_at": p.CreatedAt,
+			"updated_at": p.UpdatedAt,
+		}
+		if includePartner && owner != "" {
+			entry["owner"] = owner
+		}
+		plans = append(plans, entry)
 	}
 
 	c.JSON(http.StatusOK, plans)

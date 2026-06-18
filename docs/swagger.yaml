@@ -235,6 +235,10 @@ definitions:
     type: object
   model.ShoppingItem:
     properties:
+      checked:
+        type: boolean
+      id:
+        type: integer
       ingredient_id:
         type: integer
       ingredient_name:
@@ -254,6 +258,23 @@ definitions:
         type: string
       meal_plan_id:
         type: integer
+      to_date:
+        type: string
+    type: object
+  model.ShoppingListSaved:
+    properties:
+      categories:
+        items:
+          $ref: '#/definitions/model.ShoppingCategory'
+        type: array
+      from_date:
+        type: string
+      id:
+        type: integer
+      meal_plan_id:
+        type: integer
+      shared:
+        type: boolean
       to_date:
         type: string
     type: object
@@ -914,6 +935,44 @@ paths:
       summary: Generate shopping list
       tags:
       - shopping-list
+  /meal-plans/{id}/shopping-list/save:
+    post:
+      description: Generates and persists a shopping list for a meal plan. shared=true
+        combines partner's plan ingredients.
+      parameters:
+      - description: Meal plan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Include partner's meal plan
+        in: query
+        name: shared
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.ShoppingListSaved'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Save shopping list
+      tags:
+      - shopping-list
   /meals:
     get:
       description: Returns all meals for the authenticated user, optionally filtered
@@ -1120,6 +1179,189 @@ paths:
       summary: Update meal
       tags:
       - meals
+  /partner:
+    delete:
+      description: Removes partner link from both users and deletes shared shopping
+        lists
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Disconnect partner
+      tags:
+      - partner
+    get:
+      description: Returns the current partner's info or 404
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get partner info
+      tags:
+      - partner
+  /partner/accept:
+    post:
+      consumes:
+      - application/json
+      description: Links two users as partners using an invite code
+      parameters:
+      - description: Invite code
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Accept invite code
+      tags:
+      - partner
+  /partner/invite:
+    post:
+      description: Generates a random invite code for partner linking
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Generate invite code
+      tags:
+      - partner
+  /shopping-lists/{id}:
+    get:
+      description: Returns a persisted shopping list with items and checked status
+      parameters:
+      - description: Shopping list ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.ShoppingListSaved'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get saved shopping list
+      tags:
+      - shopping-list
+  /shopping-lists/{id}/items/{item_id}:
+    patch:
+      consumes:
+      - application/json
+      description: Sets checked status on a shopping list item
+      parameters:
+      - description: Shopping list ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Item ID
+        in: path
+        name: item_id
+        required: true
+        type: integer
+      - description: Checked status
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties:
+            type: boolean
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Toggle shopping list item
+      tags:
+      - shopping-list
 schemes:
 - http
 securityDefinitions:

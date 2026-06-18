@@ -34,6 +34,8 @@ func migrate(db *sql.DB) error {
 		id            INTEGER PRIMARY KEY AUTOINCREMENT,
 		username      TEXT NOT NULL UNIQUE,
 		password_hash TEXT NOT NULL,
+		invite_code   TEXT,
+		partner_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
 		created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -122,6 +124,30 @@ func migrate(db *sql.DB) error {
 
 	CREATE INDEX IF NOT EXISTS idx_meal_plan_entries_plan ON meal_plan_entries(meal_plan_id);
 	CREATE INDEX IF NOT EXISTS idx_meal_plan_entries_date ON meal_plan_entries(date);
+
+	CREATE TABLE IF NOT EXISTS shopping_lists (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		meal_plan_id INTEGER NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
+		shared       INTEGER NOT NULL DEFAULT 0,
+		from_date    TEXT NOT NULL,
+		to_date      TEXT NOT NULL,
+		created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS shopping_list_items (
+		id                INTEGER PRIMARY KEY AUTOINCREMENT,
+		shopping_list_id  INTEGER NOT NULL REFERENCES shopping_lists(id) ON DELETE CASCADE,
+		ingredient_id     INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+		ingredient_name   TEXT NOT NULL,
+		total_quantity    REAL NOT NULL,
+		unit              TEXT NOT NULL,
+		category          TEXT NOT NULL,
+		checked           INTEGER NOT NULL DEFAULT 0,
+		sort_order        INTEGER NOT NULL DEFAULT 0
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_shopping_list_items_list ON shopping_list_items(shopping_list_id);
 	`
 
 	_, err := db.Exec(schema)
