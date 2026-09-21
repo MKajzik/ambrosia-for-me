@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # /healthz has no meaningful client-error response; every other operation must declare one.
+  operation-4xx-response: off
+  # The only server entry is the local development URL.
+  no-server-example.com: off
