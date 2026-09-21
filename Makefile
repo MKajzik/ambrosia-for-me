@@ -3,7 +3,10 @@ REDOCLY := npx --yes @redocly/cli@2.53.3
 GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 OAPICODEGEN := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
 
-.PHONY: help lint-api test-backend lint-backend generate check-generated run-api db-up db-down check
+# Local development database; matches the docker-compose.yml defaults.
+export DATABASE_URL ?= postgres://mealplanner:mealplanner@localhost:5432/mealplanner?sslmode=disable
+
+.PHONY: help lint-api test-backend lint-backend generate check-generated migrate run-api db-up db-down check
 
 help: ## List available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -22,6 +25,9 @@ generate: ## Regenerate backend code from openapi.yaml
 
 check-generated: generate ## Fail if the committed generated code is out of date
 	git diff --exit-code -- backend/internal/api
+
+migrate: ## Apply database migrations to DATABASE_URL
+	cd backend && go run ./cmd/migrate
 
 run-api: ## Run the API locally on :8080
 	cd backend && go run ./cmd/api
