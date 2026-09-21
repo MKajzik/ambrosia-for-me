@@ -1593,7 +1593,7 @@ with
 		}),
 ```
 
-This is temporary. Task 8 replaces the whole file.
+Then run `gofmt -w backend/cmd/api/main.go`: the multi-line value changes how gofmt aligns the neighbouring `Addr:` line, and Step 10's `gofmt -l` check fails otherwise. This edit is temporary. Task 8 replaces the whole file.
 
 - [ ] **Step 10: Tidy, format and run the tests**
 
