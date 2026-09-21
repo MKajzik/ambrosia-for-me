@@ -47,6 +47,11 @@ func TestLoad(t *testing.T) {
 		{name: "jwt secret one byte short", overrides: map[string]string{"JWT_SECRET": strings.Repeat("s", 31)}, wantErr: "JWT_SECRET must be at least 32 bytes"},
 		{name: "jwt secret exactly 32 bytes", overrides: map[string]string{"JWT_SECRET": strings.Repeat("s", 32)},
 			want: config.Config{Addr: ":8080", DatabaseURL: "postgres://x", WebOrigin: "http://localhost:3000", JWTSecret: strings.Repeat("s", 32)}},
+		{name: "public dev secret is refused by default", overrides: map[string]string{"JWT_SECRET": config.DevJWTSecret}, wantErr: "public development value"},
+		{name: "public dev secret is allowed with ALLOW_DEV_JWT_SECRET=1",
+			overrides: map[string]string{"JWT_SECRET": config.DevJWTSecret, "ALLOW_DEV_JWT_SECRET": "1"},
+			want:      config.Config{Addr: ":8080", DatabaseURL: "postgres://x", WebOrigin: "http://localhost:3000", JWTSecret: config.DevJWTSecret}},
+		{name: "ALLOW_DEV_JWT_SECRET must be exactly 1", overrides: map[string]string{"JWT_SECRET": config.DevJWTSecret, "ALLOW_DEV_JWT_SECRET": "true"}, wantErr: "public development value"},
 		{name: "short jwt secret", overrides: map[string]string{"JWT_SECRET": "too-short"}, wantErr: "JWT_SECRET must be at least 32 bytes"},
 		{
 			name:      "origin with port",

@@ -13,6 +13,10 @@ import (
 // maxTrustedProxies bounds TRUSTED_PROXY_COUNT: more hops than this is a typo.
 const maxTrustedProxies = 10
 
+// DevJWTSecret is the public secret `make run-api` uses; Load refuses it unless
+// ALLOW_DEV_JWT_SECRET=1.
+const DevJWTSecret = "dev-only-secret-change-me-0123456789" //nolint:gosec // public development value, refused unless ALLOW_DEV_JWT_SECRET=1
+
 // Config is the API's runtime configuration.
 type Config struct {
 	// Addr is the listen address, for example ":8080".
@@ -47,6 +51,8 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, errors.New("JWT_SECRET is required"))
 	case len(cfg.JWTSecret) < auth.MinSecretLength:
 		errs = append(errs, fmt.Errorf("JWT_SECRET must be at least %d bytes", auth.MinSecretLength))
+	case cfg.JWTSecret == DevJWTSecret && getenv("ALLOW_DEV_JWT_SECRET") != "1":
+		errs = append(errs, errors.New("JWT_SECRET is the public development value: set a real secret (ALLOW_DEV_JWT_SECRET=1 allows it for local development only)"))
 	}
 	if err := validateOrigin(cfg.WebOrigin); err != nil {
 		errs = append(errs, err)
