@@ -1,0 +1,270 @@
+// Package service holds business rules. It calls the store and never speaks HTTP.
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/InzKazik/mealplanner/backend/internal/auth"
+	"github.com/InzKazik/mealplanner/backend/internal/store"
+	"github.com/InzKazik/mealplanner/backend/internal/store/sqlc"
+)
+
+// Errors returned by Auth. Handlers map them to problem responses.
+var (
+	ErrEmailTaken          = errors.New("email is already registered")
+	ErrInvalidCredentials  = errors.New("invalid email or password")
+	ErrInvalidRefreshToken = errors.New("invalid refresh token")
+	ErrNotFound            = errors.New("not found")
+)
+
+// User is an account as the rest of the application sees it.
+type User struct {
+	ID             uuid.UUID
+	Email          string
+	DisplayName    string
+	TargetKcal     *float64
+	TargetProteinG *float64
+	TargetCarbsG   *float64
+	TargetFatG     *float64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// Session is a signed-in user with a fresh token pair.
+type Session struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresIn    time.Duration
+	User         User
+}
+
+// RegisterInput is the data needed to create an account.
+type RegisterInput struct {
+	Email       string
+	Password    string
+	DisplayName string
+}
+
+// Optional distinguishes "leave unchanged" (zero value) from "set to Value",
+// where a nil Value clears a nullable column.
+type Optional[T any] struct {
+	Specified bool
+	Value     *T
+}
+
+// Set returns an Optional that assigns v (nil clears the column).
+func Set[T any](v *T) Optional[T] { return Optional[T]{Specified: true, Value: v} }
+
+// UpdateInput is a partial profile update: unspecified fields are unchanged.
+type UpdateInput struct {
+	DisplayName    *string
+	TargetKcal     Optional[float64]
+	TargetProteinG Optional[float64]
+	TargetCarbsG   Optional[float64]
+	TargetFatG     Optional[float64]
+}
+
+// Auth implements registration, login, refresh-token sessions and the
+// signed-in user's own account.
+type Auth struct {
+	st         *store.Store
+	hasher     *auth.Hasher
+	tokens     *auth.TokenIssuer
+	refreshTTL time.Duration
+	now        func() time.Time
+}
+
+// NewAuth returns an Auth service. now is injected so tests control time.
+func NewAuth(st *store.Store, hasher *auth.Hasher, tokens *auth.TokenIssuer, refreshTTL time.Duration, now func() time.Time) *Auth {
+	return &Auth{st: st, hasher: hasher, tokens: tokens, refreshTTL: refreshTTL, now: now}
+}
+
+// Register creates an account and signs it in.
+func (a *Auth) Register(ctx context.Context, in RegisterInput) (Session, error) {
+	hash, err := a.hasher.Hash(in.Password)
+	if err != nil {
+		return Session{}, err
+	}
+
+	var sess Session
+	err = a.st.InTx(ctx, func(q *sqlc.Queries) error {
+		user, err := q.CreateUser(ctx, sqlc.CreateUserParams{
+			Email: in.Email, PasswordHash: &hash, DisplayName: in.DisplayName,
+		})
+		if store.IsUniqueViolation(err, "users_email_key") {
+			return ErrEmailTaken
+		}
+		if err != nil {
+			return fmt.Errorf("create user: %w", err)
+		}
+		sess, err = a.newSession(ctx, q, user, uuid.New())
+		return err
+	})
+	if err != nil {
+		return Session{}, err
+	}
+	return sess, nil
+}
+
+// Login checks an email and password and starts a new session.
+func (a *Auth) Login(ctx context.Context, email, password string) (Session, error) {
+	user, err := a.st.GetUserByEmail(ctx, email)
+	if store.IsNotFound(err) {
+		a.hasher.Burn(password)
+		return Session{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return Session{}, fmt.Errorf("get user: %w", err)
+	}
+	if user.PasswordHash == nil { // an account that only signs in with Apple
+		a.hasher.Burn(password)
+		return Session{}, ErrInvalidCredentials
+	}
+	ok, err := a.hasher.Verify(password, *user.PasswordHash)
+	if err != nil {
+		return Session{}, err
+	}
+	if !ok {
+		return Session{}, ErrInvalidCredentials
+	}
+	return a.newSession(ctx, a.st.Queries, user, uuid.New())
+}
+
+// Refresh exchanges a refresh token for a new token pair and revokes the old
+// token. Presenting a token that was already used or revoked is treated as
+// theft: the whole session family is revoked.
+func (a *Auth) Refresh(ctx context.Context, rawToken string) (Session, error) {
+	var (
+		sess   Session
+		reused bool
+	)
+	err := a.st.InTx(ctx, func(q *sqlc.Queries) error {
+		rt, err := q.GetRefreshTokenByHashForUpdate(ctx, auth.HashRefreshToken(rawToken))
+		if store.IsNotFound(err) {
+			return ErrInvalidRefreshToken
+		}
+		if err != nil {
+			return fmt.Errorf("get refresh token: %w", err)
+		}
+		if rt.RevokedAt != nil {
+			// Commit the family revocation, then report the failure.
+			reused = true
+			return q.RevokeRefreshTokenFamily(ctx, rt.FamilyID)
+		}
+		if !rt.ExpiresAt.After(a.now()) {
+			return ErrInvalidRefreshToken
+		}
+		if err := q.RevokeRefreshToken(ctx, rt.ID); err != nil {
+			return fmt.Errorf("revoke refresh token: %w", err)
+		}
+		user, err := q.GetUserByID(ctx, rt.UserID)
+		if err != nil {
+			return fmt.Errorf("get user: %w", err)
+		}
+		sess, err = a.newSession(ctx, q, user, rt.FamilyID)
+		return err
+	})
+	if err != nil {
+		return Session{}, err
+	}
+	if reused {
+		return Session{}, ErrInvalidRefreshToken
+	}
+	return sess, nil
+}
+
+// Logout revokes the whole session that rawToken belongs to. It is idempotent:
+// an unknown or already-revoked token is not an error.
+func (a *Auth) Logout(ctx context.Context, rawToken string) error {
+	rt, err := a.st.GetRefreshTokenByHashForUpdate(ctx, auth.HashRefreshToken(rawToken))
+	if store.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get refresh token: %w", err)
+	}
+	if err := a.st.RevokeRefreshTokenFamily(ctx, rt.FamilyID); err != nil {
+		return fmt.Errorf("revoke session: %w", err)
+	}
+	return nil
+}
+
+// GetUser returns the account with the given ID.
+func (a *Auth) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
+	u, err := a.st.GetUserByID(ctx, id)
+	if store.IsNotFound(err) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("get user: %w", err)
+	}
+	return toUser(u), nil
+}
+
+// UpdateUser applies a partial profile update.
+func (a *Auth) UpdateUser(ctx context.Context, id uuid.UUID, in UpdateInput) (User, error) {
+	u, err := a.st.UpdateUserProfile(ctx, sqlc.UpdateUserProfileParams{
+		ID:                id,
+		DisplayName:       in.DisplayName,
+		SetTargetKcal:     in.TargetKcal.Specified,
+		TargetKcal:        in.TargetKcal.Value,
+		SetTargetProteinG: in.TargetProteinG.Specified,
+		TargetProteinG:    in.TargetProteinG.Value,
+		SetTargetCarbsG:   in.TargetCarbsG.Specified,
+		TargetCarbsG:      in.TargetCarbsG.Value,
+		SetTargetFatG:     in.TargetFatG.Specified,
+		TargetFatG:        in.TargetFatG.Value,
+	})
+	if store.IsNotFound(err) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("update user: %w", err)
+	}
+	return toUser(u), nil
+}
+
+// DeleteUser permanently deletes the account and, through cascading foreign
+// keys, everything that belongs to it.
+func (a *Auth) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	n, err := a.st.DeleteUser(ctx, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (a *Auth) newSession(ctx context.Context, q *sqlc.Queries, user sqlc.User, family uuid.UUID) (Session, error) {
+	access, ttl, err := a.tokens.IssueAccess(user.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	raw, hash, err := auth.NewRefreshToken()
+	if err != nil {
+		return Session{}, err
+	}
+	_, err = q.CreateRefreshToken(ctx, sqlc.CreateRefreshTokenParams{
+		UserID: user.ID, FamilyID: family, TokenHash: hash, ExpiresAt: a.now().Add(a.refreshTTL),
+	})
+	if err != nil {
+		return Session{}, fmt.Errorf("store refresh token: %w", err)
+	}
+	return Session{AccessToken: access, RefreshToken: raw, ExpiresIn: ttl, User: toUser(user)}, nil
+}
+
+func toUser(u sqlc.User) User {
+	return User{
+		ID: u.ID, Email: u.Email, DisplayName: u.DisplayName,
+		TargetKcal: u.TargetKcal, TargetProteinG: u.TargetProteinG,
+		TargetCarbsG: u.TargetCarbsG, TargetFatG: u.TargetFatG,
+		CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+	}
+}
