@@ -14,6 +14,7 @@ import (
 	"github.com/InzKazik/mealplanner/backend/internal/db"
 	"github.com/InzKazik/mealplanner/backend/internal/service"
 	"github.com/InzKazik/mealplanner/backend/internal/store"
+	"github.com/InzKazik/mealplanner/backend/internal/store/sqlc"
 	"github.com/InzKazik/mealplanner/backend/internal/testutil"
 )
 
@@ -350,6 +351,92 @@ func TestLogoutRacingWithRefreshLeavesNoLiveToken(t *testing.T) {
 				t.Errorf("iteration %d: refresh winner's new token should also fail: err = %v", iteration, err)
 			}
 		}
+	}
+}
+
+func TestRefreshWaitsForTheTokenRowLock(t *testing.T) {
+	t.Helper()
+	f := newFixture(t)
+	ctx := context.Background()
+	first := register(t, f, "alice@example.com")
+
+	hash := auth.HashRefreshToken(first.RefreshToken)
+
+	var (
+		locked  = make(chan struct{})
+		release = make(chan struct{})
+		g1done  = make(chan error, 1)
+		done    = make(chan struct {
+			session service.Session
+			err     error
+		}, 1)
+		releaseOnce sync.Once
+	)
+
+	// Ensure release is closed exactly once to prevent panic
+	t.Cleanup(func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	})
+
+	// G1: Hold the row lock
+	go func() {
+		err := f.store.InTx(ctx, func(q *sqlc.Queries) error {
+			_, err := q.GetRefreshTokenByHashForUpdate(ctx, hash)
+			if err != nil {
+				return fmt.Errorf("get token for lock: %w", err)
+			}
+			close(locked)
+			<-release
+			return nil
+		})
+		g1done <- err
+	}()
+
+	// Wait for G1 to acquire the lock
+	<-locked
+
+	// G2: Try to refresh (should block waiting for the lock)
+	go func() {
+		sess, err := f.svc.Refresh(ctx, first.RefreshToken)
+		done <- struct {
+			session service.Session
+			err     error
+		}{sess, err}
+	}()
+
+	// Assert that Refresh is blocked (still waiting for the row lock)
+	select {
+	case result := <-done:
+		t.Fatalf("Refresh finished while another transaction held the token's row lock: it does not lock the row. Result: %+v", result)
+	case <-time.After(500 * time.Millisecond):
+		// Expected: Refresh is still blocked
+	}
+
+	// Release the lock and wait for both goroutines to complete
+	releaseOnce.Do(func() {
+		close(release)
+	})
+
+	// G1 must complete with no error
+	g1Err := <-g1done
+	if g1Err != nil {
+		t.Fatalf("G1 error: %v", g1Err)
+	}
+
+	// G2 must complete within 5 seconds and succeed
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("Refresh failed: %v", result.err)
+		}
+		// Verify the token was rotated (new token different from old)
+		if result.session.RefreshToken == first.RefreshToken {
+			t.Error("refresh token was not rotated")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Refresh did not complete within 5 seconds")
 	}
 }
 
