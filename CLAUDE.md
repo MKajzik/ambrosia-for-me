@@ -6,7 +6,7 @@ Design spec: `docs/superpowers/specs/2026-09-21-meal-planner-design.md`. Read it
 
 ## Locked decisions
 
-- **Backend:** Go + Postgres. Layers `handler` → `service` → `store`. No SQL outside `store`.
+- **Backend:** Go + Postgres. Layers `handler` (`internal/httpapi`) → `service` → `store`. No SQL outside `store`.
 - **Contract:** `openapi.yaml` is the source of truth, edited by hand. Change the spec first, then the code.
 - **Nutrition:** USDA FoodData Central subset imported into our DB. Per-100 g values stored as rows; meal and plan nutrition is **computed on read**, never stored.
 - **Sharing:** 1:1 partnership. Partner access to meals and diets is read-only + copy; shopping lists are editable by both. Unseen resources return `404`, never `403`. Rules live in the service layer only.
@@ -37,7 +37,7 @@ Run `make help` for the list. Most used:
 | `make run-api` | Run the API on `:8080` |
 | `make db-up` / `make db-down` | Start / stop local Postgres |
 
-Copy `.env.example` to `.env` for local configuration. Never commit `.env` or secrets.
+Copy `.env.example` to `.env` for Docker Compose (`make db-up`). The API reads its variables (for example `API_ADDR`) from the shell environment and does not load `.env`. Never commit `.env` or secrets.
 
 ## Conventions
 

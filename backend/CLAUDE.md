@@ -15,7 +15,7 @@ Dependencies point one way: `httpapi` → `service` → `store`. A package never
 
 - `make test-backend`: `go vet ./...` and `go test ./...`
 - `make lint-backend`: `golangci-lint run ./...` (CI pins v1.64.8)
-- `make run-api`: run on `API_ADDR` (default `:8080`)
+- `make run-api`: run on `API_ADDR` from the process environment (default `:8080`; `.env` is not loaded)
 
 ## Conventions
 
