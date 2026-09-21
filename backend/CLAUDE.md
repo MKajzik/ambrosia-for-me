@@ -14,7 +14,7 @@ Dependencies point one way: `httpapi` → `service` → `store`. A package never
 ## Commands (from repo root)
 
 - `make test-backend`: `go vet ./...` and `go test ./...`
-- `make lint-backend`: `golangci-lint run ./...` (CI pins v1.64.8)
+- `make lint-backend`: runs golangci-lint v1.64.8 via `go run` (the same command CI uses)
 - `make run-api`: run on `API_ADDR` from the process environment (default `:8080`; `.env` is not loaded)
 
 ## Conventions
@@ -31,3 +31,5 @@ Dependencies point one way: `httpapi` → `service` → `store`. A package never
 - The server sets only `ReadHeaderTimeout`: add `ReadTimeout`, `WriteTimeout` and `IdleTimeout`.
 - The `slog` logger is not installed with `slog.SetDefault` and is not passed to the router.
 - No `/readyz` yet: it needs the `store` layer and a database connection.
+- No RFC 9457 error writer: `http.ServeMux` answers unknown paths and wrong methods with `text/plain` 404/405. Add `httpapi.writeProblem` plus `NotFound` / `MethodNotAllowed` fallbacks when the router moves to `chi`.
+- No request-ID middleware (spec section 2.2): add it with the first middleware and propagate the ID through logs.

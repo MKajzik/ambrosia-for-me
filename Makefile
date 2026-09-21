@@ -1,5 +1,6 @@
 .DEFAULT_GOAL := help
 REDOCLY := npx --yes @redocly/cli@2.53.3
+GOLANGCI := go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 
 .PHONY: help lint-api test-backend lint-backend run-api db-up db-down check
 
@@ -13,7 +14,7 @@ test-backend: ## Vet and test the Go backend
 	cd backend && go vet ./... && go test ./...
 
 lint-backend: ## Run golangci-lint on the Go backend
-	cd backend && golangci-lint run ./...
+	cd backend && $(GOLANGCI) run ./...
 
 run-api: ## Run the API locally on :8080
 	cd backend && go run ./cmd/api
@@ -24,4 +25,4 @@ db-up: ## Start local Postgres and wait until healthy
 db-down: ## Stop local Postgres (data is kept)
 	docker compose down
 
-check: lint-api test-backend lint-backend ## Everything CI runs for the current packages
+check: lint-api test-backend lint-backend ## Everything CI runs that does not need Docker

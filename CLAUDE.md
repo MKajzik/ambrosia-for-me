@@ -30,7 +30,7 @@ Run `make help` for the list. Most used:
 
 | Command | What it does |
 |---|---|
-| `make check` | Everything CI runs for the current packages |
+| `make check` | Everything CI runs that does not need Docker |
 | `make lint-api` | Lint `openapi.yaml` |
 | `make test-backend` | `go vet` + `go test` for the backend |
 | `make lint-backend` | `golangci-lint` for the backend |

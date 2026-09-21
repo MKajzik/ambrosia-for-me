@@ -6,6 +6,7 @@ on:
       - openapi.yaml
       - redocly.yaml
       - .redocly.lint-ignore.yaml
+      - Makefile
       - .github/workflows/api-contract.yml
   push:
     branches: [master]
@@ -13,14 +14,23 @@ on:
       - openapi.yaml
       - redocly.yaml
       - .redocly.lint-ignore.yaml
+      - Makefile
       - .github/workflows/api-contract.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npx --yes @redocly/cli@2.53.3 lint openapi.yaml
+      - run: make lint-api

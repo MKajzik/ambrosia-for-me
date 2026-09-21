@@ -27,6 +27,7 @@ Tool-neutral guidance for any coding agent working in this repo. `CLAUDE.md` hol
 
 - Never hand-edit generated code (API clients, `sqlc` output). Change the source and regenerate.
 - Never commit secrets, `.env` files or tokens.
+- Never run `redocly lint --generate-ignore-file` on a project that already has `.redocly.lint-ignore.yaml`: it overwrites the file. Add ignore entries by hand.
 - Never change the API without updating `openapi.yaml` in the same change.
 - Never put SQL outside `backend/internal/store`, and never put business or sharing rules in handlers.
 - Never store computed nutrition; compute it on read.
