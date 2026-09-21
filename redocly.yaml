@@ -1,7 +1,7 @@
 extends:
   - recommended
 rules:
-  # /healthz has no meaningful client-error response; every other operation must declare one.
-  operation-4xx-response: off
+  # Every operation must declare a 4XX response; only /healthz is exempt (see .redocly.lint-ignore.yaml).
+  operation-4xx-response: error
   # The only server entry is the local development URL.
   no-server-example.com: off
