@@ -9,7 +9,8 @@ import (
 
 const secret = "0123456789abcdef0123456789abcdef" // 32 bytes
 
-// base is a valid environment; each test case overrides or removes ("") keys.
+// envWith returns a getenv over a valid environment (DATABASE_URL and JWT_SECRET set);
+// each test case overrides keys, or removes them by setting "".
 func envWith(overrides map[string]string) func(string) string {
 	m := map[string]string{"DATABASE_URL": "postgres://x", "JWT_SECRET": secret}
 	for k, v := range overrides {
@@ -43,6 +44,9 @@ func TestLoad(t *testing.T) {
 		},
 		{name: "missing database url", overrides: map[string]string{"DATABASE_URL": ""}, wantErr: "DATABASE_URL is required"},
 		{name: "missing jwt secret", overrides: map[string]string{"JWT_SECRET": ""}, wantErr: "JWT_SECRET is required"},
+		{name: "jwt secret one byte short", overrides: map[string]string{"JWT_SECRET": strings.Repeat("s", 31)}, wantErr: "JWT_SECRET must be at least 32 bytes"},
+		{name: "jwt secret exactly 32 bytes", overrides: map[string]string{"JWT_SECRET": strings.Repeat("s", 32)},
+			want: config.Config{Addr: ":8080", DatabaseURL: "postgres://x", WebOrigin: "http://localhost:3000", JWTSecret: strings.Repeat("s", 32)}},
 		{name: "short jwt secret", overrides: map[string]string{"JWT_SECRET": "too-short"}, wantErr: "JWT_SECRET must be at least 32 bytes"},
 		{
 			name:      "origin with port",
@@ -60,6 +64,9 @@ func TestLoad(t *testing.T) {
 		{name: "origin with fragment", overrides: map[string]string{"WEB_ORIGIN": "https://app.example#frag"}, wantErr: "WEB_ORIGIN"},
 		{name: "proxy count zero", overrides: map[string]string{"TRUSTED_PROXY_COUNT": "0"},
 			want: config.Config{Addr: ":8080", DatabaseURL: "postgres://x", WebOrigin: "http://localhost:3000", JWTSecret: secret}},
+		{name: "proxy count at the maximum", overrides: map[string]string{"TRUSTED_PROXY_COUNT": "10"},
+			want: config.Config{Addr: ":8080", DatabaseURL: "postgres://x", WebOrigin: "http://localhost:3000", JWTSecret: secret, TrustedProxies: 10}},
+		{name: "proxy count just over the maximum", overrides: map[string]string{"TRUSTED_PROXY_COUNT": "11"}, wantErr: "TRUSTED_PROXY_COUNT"},
 		{name: "proxy count not a number", overrides: map[string]string{"TRUSTED_PROXY_COUNT": "two"}, wantErr: "TRUSTED_PROXY_COUNT"},
 		{name: "proxy count negative", overrides: map[string]string{"TRUSTED_PROXY_COUNT": "-1"}, wantErr: "TRUSTED_PROXY_COUNT"},
 		{name: "proxy count absurd", overrides: map[string]string{"TRUSTED_PROXY_COUNT": "50"}, wantErr: "TRUSTED_PROXY_COUNT"},

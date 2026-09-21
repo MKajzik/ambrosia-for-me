@@ -122,7 +122,9 @@ func NewDatabase(t *testing.T) string {
 
 var (
 	templateOnce sync.Once
+	// templateName is set only after the template database is fully migrated.
 	templateName string
+	templateErr  error
 )
 
 // NewMigratedDatabase returns the URL of a fresh database with every
@@ -135,12 +137,17 @@ func NewMigratedDatabase(t *testing.T) string {
 	startContainer(t)
 
 	templateOnce.Do(func() {
-		templateName = "tmpl_" + randomHex(t)
-		tmplURL := createDatabase(t, templateName, "")
+		name := "tmpl_" + randomHex(t)
+		tmplURL := createDatabase(t, name, "")
 		if _, err := db.Migrate(context.Background(), tmplURL); err != nil {
-			t.Fatalf("migrate template database: %v", err)
+			templateErr = err
+			return
 		}
+		templateName = name
 	})
+	if templateErr != nil {
+		t.Fatalf("migrate template database: %v", templateErr)
+	}
 	if templateName == "" {
 		t.Fatal("template database was not created by an earlier test")
 	}

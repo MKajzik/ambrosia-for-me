@@ -235,8 +235,8 @@ func TestDescribeValidationLongUnknownFieldName(t *testing.T) {
 	for _, f := range res.fields {
 		if f.Code == "unknown_field" {
 			unknownFieldFound = true
-			if len([]rune(f.Field)) > 64 {
-				t.Errorf("field name %q is %d runes, want at most 64", f.Field, len([]rune(f.Field)))
+			if n := len([]rune(f.Field)); n == 0 || n != 64 {
+				t.Errorf("field name %q is %d runes, want exactly 64", f.Field, n)
 			}
 		}
 	}
@@ -266,8 +266,8 @@ func TestDescribeValidationManyUnknownFields(t *testing.T) {
 		t.Fatalf("describeValidation reported an unexpected error: %v", err)
 	}
 
-	if len(res.fields) > 20 {
-		t.Errorf("got %d field errors, want at most 20", len(res.fields))
+	if len(res.fields) != 20 {
+		t.Errorf("got %d field errors, want exactly 20", len(res.fields))
 	}
 }
 

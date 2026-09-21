@@ -355,7 +355,6 @@ func TestLogoutRacingWithRefreshLeavesNoLiveToken(t *testing.T) {
 }
 
 func TestRefreshWaitsForTheTokenRowLock(t *testing.T) {
-	t.Helper()
 	f := newFixture(t)
 	ctx := context.Background()
 	first := register(t, f, "alice@example.com")
@@ -394,8 +393,14 @@ func TestRefreshWaitsForTheTokenRowLock(t *testing.T) {
 		g1done <- err
 	}()
 
-	// Wait for G1 to acquire the lock
-	<-locked
+	// Wait for G1 to acquire the lock, or fail fast if it errored before taking it
+	// (g1done is buffered, so the later read still gets its single value in the
+	// success path, and in this failure path the test ends here).
+	select {
+	case <-locked:
+	case err := <-g1done:
+		t.Fatalf("the goroutine holding the lock failed before taking it: %v", err)
+	}
 
 	// G2: Try to refresh (should block waiting for the lock)
 	go func() {

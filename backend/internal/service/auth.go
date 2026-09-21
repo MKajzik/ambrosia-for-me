@@ -154,7 +154,10 @@ func (a *Auth) Refresh(ctx context.Context, rawToken string) (Session, error) {
 		if rt.RevokedAt != nil {
 			// Commit the family revocation, then report the failure.
 			reused = true
-			return q.RevokeRefreshTokenFamily(ctx, rt.FamilyID)
+			if err := q.RevokeRefreshTokenFamily(ctx, rt.FamilyID); err != nil {
+				return fmt.Errorf("revoke session family: %w", err)
+			}
+			return nil
 		}
 		if !rt.ExpiresAt.After(a.now()) {
 			return ErrInvalidRefreshToken
@@ -179,9 +182,10 @@ func (a *Auth) Refresh(ctx context.Context, rawToken string) (Session, error) {
 }
 
 // Logout revokes the whole session that rawToken belongs to. It is atomic with Refresh:
-// a logout and refresh racing on the same token will both succeed or one will fail with
-// ErrInvalidRefreshToken, but no live token will be left. It is idempotent: an unknown or
-// already-revoked token is not an error.
+// a Refresh racing on the same token either finishes first, in which case Logout revokes
+// its new token too (they share the family), or fails with ErrInvalidRefreshToken. Either
+// way no live token is left. It is idempotent: an unknown or already-revoked token is not
+// an error.
 func (a *Auth) Logout(ctx context.Context, rawToken string) error {
 	err := a.st.InTx(ctx, func(q *sqlc.Queries) error {
 		rt, err := q.GetRefreshTokenByHashForUpdate(ctx, auth.HashRefreshToken(rawToken))

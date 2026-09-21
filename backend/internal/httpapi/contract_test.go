@@ -38,7 +38,7 @@ var specRouter = sync.OnceValues(func() (routers.Router, error) {
 	return gorillamux.NewRouter(doc)
 })
 
-// validToken is the only access token stubTokens accepts.
+// validToken is an access token stubTokens accepts (see also validToken2).
 const validToken = "valid-token"
 
 // validToken2 is a second accepted token, for a different user.

@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,13 +66,39 @@ func TestParseAccessRejectsBadTokens(t *testing.T) {
 	badSubject := valid
 	badSubject.Subject = "not-a-uuid"
 
+	// Positive control: the same claims signed with the right key are accepted,
+	// so a drifted issuer literal cannot make the negative cases pass for the
+	// wrong reason.
+	got, err := iss.ParseAccess(sign(jwt.SigningMethodHS256, testSecret, valid))
+	if err != nil {
+		t.Fatalf("positive control: ParseAccess(valid token) = %v, want it accepted", err)
+	}
+	if got != id {
+		t.Fatalf("positive control: subject = %v, want %v", got, id)
+	}
+
+	// Deterministic tamper: change the first character of the signature segment.
+	parts := strings.Split(good, ".")
+	if len(parts) != 3 {
+		t.Fatalf("token has %d segments, want 3", len(parts))
+	}
+	first := "A"
+	if strings.HasPrefix(parts[2], "A") {
+		first = "B"
+	}
+	parts[2] = first + parts[2][1:]
+	tampered := strings.Join(parts, ".")
+	if tampered == good {
+		t.Fatal("tampered token equals the original")
+	}
+
 	tests := []struct {
 		name  string
 		token string
 	}{
 		{"empty", ""},
 		{"garbage", "not.a.jwt"},
-		{"tampered signature", good[:len(good)-2] + "xx"},
+		{"tampered signature", tampered},
 		{"expired", sign(jwt.SigningMethodHS256, testSecret, expired)},
 		{"no expiry", sign(jwt.SigningMethodHS256, testSecret, noExpiry)},
 		{"wrong issuer", sign(jwt.SigningMethodHS256, testSecret, wrongIssuer)},
