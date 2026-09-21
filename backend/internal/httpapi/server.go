@@ -11,6 +11,10 @@ import (
 
 // server implements api.ServerInterface.
 type server struct {
+	// TEMPORARY: answers 501 for operations whose handlers arrive in later
+	// tasks. Task 9 removes this embed, so the build breaks again for any
+	// operation that has no handler.
+	api.Unimplemented
 	logger *slog.Logger
 	ready  func(context.Context) error
 }

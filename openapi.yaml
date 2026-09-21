@@ -11,6 +11,10 @@ security:
 tags:
   - name: Health
     description: Liveness and readiness checks.
+  - name: Auth
+    description: Registration, login and refresh-token sessions.
+  - name: Profile
+    description: The signed-in user's own profile and account.
 paths:
   /healthz:
     get:
@@ -44,6 +48,155 @@ paths:
                 $ref: '#/components/schemas/Health'
         '503':
           $ref: '#/components/responses/Problem'
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: registerUser
+      summary: Create an account
+      description: Creates an account with email and password and signs the user in.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: The account was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: loginUser
+      summary: Sign in with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: The user is signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshSession
+      summary: Exchange a refresh token for a new token pair
+      description: Rotates the refresh token. Presenting an already-used refresh token revokes the whole session family.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: A new token pair.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutUser
+      summary: Revoke a refresh-token session
+      description: Idempotent. An unknown or already-revoked token is not an error.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '204':
+          description: The session is revoked.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /me:
+    get:
+      tags: [Profile]
+      operationId: getMe
+      summary: Get the signed-in user's profile
+      responses:
+        '200':
+          description: The profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    patch:
+      tags: [Profile]
+      operationId: updateMe
+      summary: Update the signed-in user's profile
+      description: Fields that are absent are left unchanged. A daily target set to null is cleared.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: The updated profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      tags: [Profile]
+      operationId: deleteMe
+      summary: Delete the signed-in user's account
+      description: Permanently deletes the account and everything it owns.
+      responses:
+        '204':
+          description: The account was deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 components:
   securitySchemes:
     bearerAuth:
@@ -75,9 +228,177 @@ components:
         code:
           type: string
           description: Stable identifier clients map to localized text, e.g. partner_not_linked.
+        errors:
+          type: array
+          description: Per-field details, present on validation_failed problems.
+          items:
+            $ref: '#/components/schemas/FieldError'
+    FieldError:
+      type: object
+      required: [field, code]
+      properties:
+        field:
+          type: string
+          description: Path of the offending JSON field, e.g. `email`.
+        code:
+          type: string
+          description: Stable identifier, e.g. required, too_short, too_long, invalid_format, invalid_type, invalid_value.
+    User:
+      type: object
+      required: [id, email, display_name, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        display_name:
+          type: string
+        target_kcal:
+          type: number
+          format: double
+          nullable: true
+        target_protein_g:
+          type: number
+          format: double
+          nullable: true
+        target_carbs_g:
+          type: number
+          format: double
+          nullable: true
+        target_fat_g:
+          type: number
+          format: double
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, display_name]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 10
+          maxLength: 128
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+          maxLength: 512
+    AuthResponse:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in, user]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          description: Access token lifetime in seconds.
+        user:
+          $ref: '#/components/schemas/User'
+    UpdateProfileRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        target_kcal:
+          type: number
+          format: double
+          nullable: true
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 20000
+        target_protein_g:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          maximum: 2000
+        target_carbs_g:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          maximum: 5000
+        target_fat_g:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          maximum: 2000
   responses:
     Problem:
       description: An error occurred.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    BadRequest:
+      description: The request is malformed or fails validation. Field details are in `errors`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Missing, invalid or expired credentials.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: The request conflicts with existing state.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    TooManyRequests:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
       content:
         application/problem+json:
           schema:
