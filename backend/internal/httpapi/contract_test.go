@@ -42,7 +42,7 @@ var specRouter = sync.OnceValues(func() (routers.Router, error) {
 const validToken = "valid-token"
 
 // validToken2 is a second accepted token, for a different user.
-const validToken2 = "valid-token-2"
+const validToken2 = "valid-token-2" //nolint:gosec // fake token, used only by tests
 
 var (
 	stubUserID  = uuid.MustParse("11111111-1111-1111-1111-111111111111")

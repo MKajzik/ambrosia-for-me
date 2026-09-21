@@ -25,7 +25,7 @@ Tool-neutral guidance for any coding agent working in this repo. `CLAUDE.md` hol
 
 ## Boundaries
 
-- Never hand-edit generated code (`backend/internal/api/api.gen.go`, API clients, `sqlc` output). Change the source and regenerate.
+- Never hand-edit generated code (`backend/internal/api/api.gen.go`, `backend/internal/store/sqlc/`, API clients). Change the source and regenerate.
 - Never commit secrets, `.env` files or tokens.
 - Never run `redocly lint --generate-ignore-file` on a project that already has `.redocly.lint-ignore.yaml`: it overwrites the file. Add ignore entries by hand.
 - Never change the API without updating `openapi.yaml` in the same change.

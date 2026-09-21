@@ -1,56 +1,67 @@
 # Backend (Go)
 
-Module: `github.com/InzKazik/mealplanner/backend`. Go 1.26, `chi` router, `pgx` and `goose` for Postgres.
+Module: `github.com/InzKazik/mealplanner/backend`. Go 1.26, `chi` router, `pgx` + `goose` + `sqlc` for Postgres.
 
 ## Layout
 
-- `cmd/api/`: process entry point. Loads config, connects to Postgres, serves HTTP, shuts down gracefully on SIGINT/SIGTERM. No business logic.
+- `cmd/api/`: process entry point. Loads config, connects to Postgres, wires the services, serves HTTP, shuts down gracefully on SIGINT/SIGTERM. No business logic.
 - `cmd/migrate/`: applies pending migrations and exits. The API never applies migrations.
-- `internal/config/`: environment configuration.
-- `internal/api/`: **generated** from `openapi.yaml` (`api.gen.go`, never hand-edit) plus its `oapi-codegen` config (`oapi.yaml`).
-- `internal/httpapi/`: HTTP layer. Router, middleware (request ID, logging, panic recovery, CORS), the problem+json writer, and the handlers that implement `api.ServerInterface`. Calls services only.
+- `internal/config/`: environment configuration and its validation.
+- `internal/api/`: **generated** from `openapi.yaml` (`api.gen.go`, never hand-edit) plus its `oapi-codegen` config (`oapi.yaml`). The generated file also embeds the spec (`api.GetSpec()`), which the request validator uses.
+- `internal/httpapi/`: HTTP layer. Router, middleware (request ID, client IP, logging, panic recovery, CORS, body limit, rate limits), the OpenAPI request validator that also authenticates, the problem+json writer, and the handlers that implement `api.ServerInterface` (`account.go`, `server.go`). Calls services only.
+- `internal/auth/`: password hashing (argon2id) and access/refresh tokens. Pure: no database or HTTP.
+- `internal/service/`: business rules. `Auth` covers registration, login, refresh-token sessions and the signed-in user's account. Never speaks HTTP.
+- `internal/store/`: **all SQL**. `queries/*.sql` is the source; `sqlc/` is generated from it and the migrations (never hand-edit). `Store` adds transactions.
 - `internal/db/`: pgx pool and the goose migration runner.
-- `internal/testutil/`: integration-test helpers (a fresh Postgres database per test on a shared testcontainers container).
+- `internal/testutil/`: integration-test helpers (Postgres via testcontainers; a migrated template database copied per test).
 - `migrations/`: embedded goose SQL migrations.
-- `internal/service/`, `internal/store/`: business rules and all SQL (`sqlc`). Added by the auth plan.
 
-Dependencies point one way: `httpapi` → `service` → `store`. A package never imports one to its left.
+Dependencies point one way: `httpapi` → `service` → `store`; `auth` is a leaf used by `service` and `config`. A package never imports one to its left.
 
 ## Commands (from repo root)
 
 - `make test-backend`: `go vet ./...` and `go test ./...`. **Needs Docker** (integration tests start Postgres with testcontainers). Without Docker they skip locally but fail when `CI` is set, so CI cannot pass silently without them.
-- `make lint-backend`: runs golangci-lint v2.13.2 via `go run` (the same command CI uses)
-- `make generate`: regenerate `internal/api/api.gen.go` from `openapi.yaml`
-- `make check-generated`: fail if the committed generated code differs from the spec
+- `make lint-backend`: runs golangci-lint v2.13.2 via `go run` (the same command CI uses), including `gofmt`, `gosec`, `bodyclose` and `sqlclosecheck`.
+- `make generate`: regenerate `internal/api/api.gen.go` (oapi-codegen) and `internal/store/sqlc/` (sqlc)
+- `make check-generated`: fail if the committed generated code differs from the spec, migrations and queries, or if a generated file is not committed
 - `make migrate`: apply migrations to `DATABASE_URL` (defaults to the compose database)
-- `make run-api`: run on `API_ADDR` from the process environment (default `:8080`; `.env` is not loaded). Needs `make db-up` and `make migrate` first.
+- `make run-api`: run on `API_ADDR` from the process environment (default `:8080`; `.env` is not loaded). Needs `make db-up` and `make migrate` first. It defaults `JWT_SECRET` to a development-only value; every other environment must set its own.
 
 ## Conventions
 
-- Add or change a route by editing `openapi.yaml` first, run `make generate`, then implement the new `api.ServerInterface` method. The build fails until you do.
-- Every response shape is checked against `openapi.yaml` by the contract tests in `internal/httpapi/contract_test.go`; new endpoints get a contract test.
-- Errors use `httpapi.WriteProblem` (RFC 9457 `application/problem+json`) with a stable `code` constant. Add new codes to `problem.go` and to the spec.
+- **Routes:** edit `openapi.yaml` first, run `make generate`, then implement the new `api.ServerInterface` method. The build fails until you do. Handlers are non-strict (`w, r`); the contract tests and the request validator catch drift instead of typed responses.
+- **Auth is decided by the spec.** The global `security: bearerAuth` protects every operation; `security: []` opts one out (only health checks and `auth/*`). The validator in `internal/httpapi/auth.go` enforces it and puts the user in the request context (`httpapi.UserID(ctx)`), so a route added to the spec is protected by default. Never add path-based auth checks.
+- **Requests are validated by the schema** (shape, lengths, formats, unknown fields), reported as `400 validation_failed` with per-field `errors`. Service code enforces business rules only.
+- **Contract tests:** every new endpoint gets a test that goes through `contract(...)` in `internal/httpapi/contract_test.go`, which validates the request and the response against `openapi.yaml` (use `withInvalidRequest()` for deliberately bad requests). Error responses use the shared `components/responses` (`BadRequest`, `Unauthorized`, `Conflict`, `TooManyRequests`).
+- **Errors** use `httpapi.WriteProblem` / `WriteValidationProblem` (RFC 9457 `application/problem+json`) with a stable `code` constant. Add new codes to `problem.go` and document them in the spec.
+- **SQL** lives only in `internal/store/queries/*.sql`; run `make generate` and commit the output. Services take a `*store.Store`, use `InTx` for multi-statement changes, and translate database errors into service errors (`store.IsUniqueViolation`, `store.IsNotFound`).
+- **Secrets never reach logs or errors**: no passwords, tokens, refresh tokens, JWT secret or query strings. Compare secrets in constant time (argon2id and JWT libraries do).
 - Every response carries `X-Request-Id`. Log with `slog` (JSON to stdout) and include `httpapi.RequestID(ctx)`. No `fmt.Println` in non-test code.
-- Migrations are goose SQL files named `NNNNN_description.sql` in `migrations/`, forward-only in production. Every table has `created_at` and `updated_at`, and an `updated_at` trigger that uses `set_updated_at()`.
-- Tests are table-driven where there are several cases. Handler tests use `httptest`; integration tests use a real Postgres via `testutil.NewDatabase`, never mocks.
+- **Migrations** are goose SQL files named `NNNNN_description.sql` in `migrations/`, forward-only in production. Every table has `created_at` and `updated_at`, and an `updated_at` trigger that uses `set_updated_at()`.
+- **Tests** are table-driven where there are several cases. Handler tests use `httptest`; integration tests use a real Postgres via `testutil.NewMigratedDatabase` (or `NewDatabase` for an empty one), never mocks. Use light argon2 parameters in tests (`auth.HashParams{MemoryKiB: 8, Iterations: 1, Parallelism: 1}`).
 - Configuration comes from environment variables and is documented in `.env.example`.
 
-## Not built yet (auth plan)
+## Behaviour worth knowing
 
-- Users, refresh tokens, JWT, Sign in with Apple, the auth middleware and the `/v1/auth/*` and `/v1/me` endpoints.
-- Rate limiting (strict per-IP on `auth/*`, per-user elsewhere).
-- The `service` and `store` layers and `sqlc`.
+- Refresh tokens rotate on every use. Presenting a token that was already used or revoked revokes the whole session family, so a client that retries a refresh after a network failure gets signed out: clients must serialize refreshes and keep only the newest token.
+- Login answers unknown email and wrong password identically and spends the same hashing time. Registering an existing email returns `409 email_taken`, which does reveal that the email exists.
+- Access tokens are stateless and live 15 minutes, so a deleted account's token is rejected only because `/me` looks the user up (401 `unauthorized`).
+- Rate limits (10 auth requests per minute per client IP, 300 requests per minute per user) are in memory: with several API replicas the effective limit is per replica. `TRUSTED_PROXY_COUNT` must match the real number of proxies, or clients can forge their IP.
+- **Rate-limit gaps (accepted for now).** Requests the validator rejects (401 or 400) do not count toward the per-user limit; there is no per-account failed-login throttle, so credential stuffing spread across many IPs is limited only by argon2id cost; a shared NAT egress IP shares one 10-per-minute auth bucket; and unauthenticated traffic to non-`auth/*` routes and the health checks is unlimited at the application layer. Put an edge proxy or a global per-IP limit in front before exposing the API. Planned hardening: a per-account counter with backoff and a shared counter store.
+- **Proxies.** `TRUSTED_PROXY_COUNT` must equal the real number of proxies in front of the API: too high lets clients forge their IP, too low makes everyone share the proxy's bucket. Bind the API only to the proxy network. A proxy that puts ports in `X-Forwarded-For` makes every client share one bucket.
+- **Personal data in logs.** The request log records `remote_ip`. Decide and document a retention period before production.
+- **Header and body edge cases.** A request with more than one `Authorization` header is rejected (401). A body over 64 KiB is `400 request body is too large` on unauthenticated routes; on secured routes it currently reads as `401`, because kin-openapi wraps the read error in a security error.
 
-## Decide first in the auth plan
+## Not built yet
 
-Findings from the foundation's final review. They are design inputs, not bugs on this branch.
+- **Sign in with Apple** (`POST /v1/auth/apple`): its own plan, needs Apple Developer credentials (Service ID, keys) to test against.
+- Email verification and password reset; deleting expired or revoked refresh tokens (a scheduled cleanup).
+- The domain: ingredients, meals, diets, plan, shopping lists, partners (later plans).
+- Shared `components/responses` for `404` and `405` (the router returns problem+json for both, but they are outside the contract, so contract tests cannot check them).
 
-- **Auth enforcement has no seam yet.** `oapi-codegen` v2.8.0 emits no per-route security information (`enable-auth-scopes-on-context` is deprecated upstream). Use `github.com/oapi-codegen/nethttp-middleware` with an `AuthenticationFunc` (kin-openapi validates each request against the spec's `security` blocks), passed through `api.ChiServerOptions.Middlewares`, so routes added later fail closed. Do not rely on path-prefix matching.
-- **chi constraint.** `api.HandlerWithOptions` registers routes on the root mux, and chi panics if `r.Use` runs after routes exist. Per-route middleware (for example a strict auth rate limit) must go through `ChiServerOptions.Middlewares` and can branch on `chi.RouteContext(r.Context()).RoutePattern()`, or be a root-level middleware.
-- **Problem shape.** `Problem` only has a free-text `detail`. Add an optional `errors: [{field, code}]` member and a `WriteValidationProblem` before the first validation endpoint ships: a contract change is expensive once the web and iOS clients are generated. Also add shared `components/responses` (`Unauthorized`, `NotFound`, ...) so 404/405 and auth errors are in the contract and covered by the contract tests.
-- **Client IP.** No client IP is extracted or logged. Add a trusted-proxy setting, an IP-extraction middleware (never trust `X-Forwarded-For` blindly) and `remote_ip` in the request log before per-IP rate limiting.
-- **Tests.** Add `testutil.NewMigratedDatabase(t)` (a migrated template database, `CREATE DATABASE x TEMPLATE y`) so store tests do not each migrate. Grow the contract helper in `internal/httpapi/contract_test.go` (request body, headers, bearer token; load the spec once with `sync.OnceValue`; validate 404/405 problems). Add a real trigger test for `set_updated_at()` with the first table that uses it.
-- **Consider `strict-server: true`** in `internal/api/oapi.yaml` before writing many handlers: response-shape drift becomes a compile error. It changes every handler signature, so decide once, early.
-- **Hardening to schedule:** `goose` session locker in `db.Migrate` before any multi-replica deploy; `ErrorHandlerFunc` must stop echoing `err.Error()` once routes take parameters; `NewRouter` should fail fast on a nil `Logger` or `Ready`; `/readyz` needs a check timeout (about 2s); a second SIGINT/SIGTERM is swallowed during shutdown drain (call `stop()` after `<-ctx.Done()`); `cmd/api/main_test.go` polls with an untimed `http.Get`; log 5xx at error level with `duration_ms`; `recoverer` after a partial write appends a problem body; enable the `bodyclose`, `gosec` and `sqlclosecheck` linters.
-- **`make check-generated`** uses `git diff --exit-code`, which ignores untracked files. When `sqlc` output lands (a generated package nothing imports yet could slip through), switch to `git add -AN -- <dir> && git diff --exit-code -- <dir>`.
-- **Later (shopping-list SSE plan):** the 30s server `WriteTimeout` cuts event streams: override it per handler with `http.NewResponseController(w).SetWriteDeadline(time.Time{})` (chi's response wrapper supports `Unwrap`). `Server.Shutdown` does not cancel request contexts and a live stream never goes idle, so set `BaseContext` or `RegisterOnShutdown` so streams end on shutdown, otherwise every shutdown with a connected client burns the full 10s and exits 1.
+## Carried forward (hardening to schedule)
+
+- `goose` session locker in `db.Migrate` before any multi-replica deploy.
+- `recoverer` after a partial write appends a problem body to the partial response.
+- `cmd/migrate` has no signal handling and reports errors as plain text.
+- Later (shopping-list SSE plan): the 30s server `WriteTimeout` cuts event streams: override it per handler with `http.NewResponseController(w).SetWriteDeadline(time.Time{})` (chi's response wrapper supports `Unwrap`). `Server.Shutdown` does not cancel request contexts and a live stream never goes idle, so set `BaseContext` or `RegisterOnShutdown` so streams end on shutdown, otherwise every shutdown with a connected client burns the full 10s and exits 1.

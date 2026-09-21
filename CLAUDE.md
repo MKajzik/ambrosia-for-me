@@ -13,7 +13,7 @@ Design spec: `docs/superpowers/specs/2026-09-21-meal-planner-design.md`. Read it
 - **Sharing:** 1:1 partnership. Partner access to meals and diets is read-only + copy; shopping lists are editable by both. Unseen resources return `404`, never `403`. Rules live in the service layer only.
 - **Diets:** templates copy into per-date `plan_entries`; after applying, entries are independent of the template.
 - **Web:** Next.js App Router, Tailwind, shadcn/ui. **iOS:** SwiftUI, iOS 26+, online-first with a SwiftData cache.
-- **Auth:** email/password + Sign in with Apple. JWT access tokens (15 min) + rotating refresh tokens.
+- **Auth:** email/password (built) and Sign in with Apple (own plan). HS256 JWT access tokens (15 min) + opaque rotating refresh tokens (30 days, stored hashed; replaying a used one revokes the session family). Enforcement comes from the `security` blocks in `openapi.yaml`: global `bearerAuth`, `security: []` opts a route out, so a new route is protected by default.
 - **Errors:** RFC 9457 `application/problem+json` with a stable `code`.
 - **Migrations:** goose, forward-only in production, applied by `cmd/migrate` before the new API starts. The API never migrates.
 
@@ -36,17 +36,17 @@ Run `make help` for the list. Most used:
 | `make lint-api` | Lint `openapi.yaml` |
 | `make test-backend` | `go vet` + `go test` for the backend (needs Docker) |
 | `make lint-backend` | `golangci-lint` for the backend |
-| `make generate` | Regenerate backend code from `openapi.yaml` |
+| `make generate` | Regenerate backend code: oapi-codegen from `openapi.yaml`, sqlc from migrations and queries |
 | `make check-generated` | Fail if committed generated code is stale |
 | `make db-up` / `make db-down` | Start / stop local Postgres |
 | `make migrate` | Apply migrations to the local database |
 | `make run-api` | Run the API on `:8080` |
 
-Copy `.env.example` to `.env` for Docker Compose (`make db-up`). The API reads its variables (for example `API_ADDR`, `DATABASE_URL`) from the shell environment and does not load `.env`; the Makefile defaults `DATABASE_URL` to the compose database. Never commit `.env` or secrets.
+Copy `.env.example` to `.env` for Docker Compose (`make db-up`). The API reads its variables (`API_ADDR`, `DATABASE_URL`, `JWT_SECRET`, ...) from the shell environment and does not load `.env`; the Makefile defaults `DATABASE_URL` to the compose database and, for `make run-api` only, `JWT_SECRET` to a development-only value. Never commit `.env` or secrets.
 
 ## Conventions
 
 - Tests first for service logic and bug fixes.
-- Never hand-edit generated code. Regenerate it from `openapi.yaml`.
+- Never hand-edit generated code (`backend/internal/api`, `backend/internal/store/sqlc`). Regenerate it with `make generate`.
 - Keep commits small; one logical change each.
 - Any new environment variable must be added to `.env.example` in the same commit.
