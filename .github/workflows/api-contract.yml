@@ -1,0 +1,26 @@
+name: api-contract
+
+on:
+  pull_request:
+    paths:
+      - openapi.yaml
+      - redocly.yaml
+      - .redocly.lint-ignore.yaml
+      - .github/workflows/api-contract.yml
+  push:
+    branches: [master]
+    paths:
+      - openapi.yaml
+      - redocly.yaml
+      - .redocly.lint-ignore.yaml
+      - .github/workflows/api-contract.yml
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npx --yes @redocly/cli@2.53.3 lint openapi.yaml

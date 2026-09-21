@@ -1,0 +1,28 @@
+name: backend
+
+on:
+  pull_request:
+    paths:
+      - backend/**
+      - .github/workflows/backend.yml
+  push:
+    branches: [master]
+    paths:
+      - backend/**
+      - .github/workflows/backend.yml
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8 run ./...

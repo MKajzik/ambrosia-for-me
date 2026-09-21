@@ -1,0 +1,22 @@
+name: compose
+
+on:
+  pull_request:
+    paths:
+      - docker-compose.yml
+      - .github/workflows/compose.yml
+  push:
+    branches: [master]
+    paths:
+      - docker-compose.yml
+      - .github/workflows/compose.yml
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config -q
+      - run: docker compose up -d --wait postgres
+      - if: always()
+        run: docker compose down -v
