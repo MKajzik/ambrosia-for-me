@@ -301,3 +301,16 @@ func TestDescribeValidationOtherRequestErrorReason(t *testing.T) {
 		t.Errorf("describeValidation returned ok=true for non-Content-Type error, want false; got detail=%q", res.detail)
 	}
 }
+
+// The password is 9 characters because the spec requires at least 10.
+func TestValidationErrorsDoNotContainTheOffendingValue(t *testing.T) {
+	err := validationError(t, http.MethodPost, "/auth/register",
+		`{"email":"a@example.com","password":"tiny-XYZ9","display_name":"A"}`)
+	if err == nil {
+		t.Fatal("expected a validation error for a too-short password")
+	}
+
+	if strings.Contains(err.Error(), "tiny-XYZ9") {
+		t.Errorf("validation error leaks the offending value: %v", err)
+	}
+}

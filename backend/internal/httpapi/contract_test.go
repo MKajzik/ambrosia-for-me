@@ -41,13 +41,22 @@ var specRouter = sync.OnceValues(func() (routers.Router, error) {
 // validToken is the only access token stubTokens accepts.
 const validToken = "valid-token"
 
-var stubUserID = uuid.MustParse("11111111-1111-1111-1111-111111111111")
+// validToken2 is a second accepted token, for a different user.
+const validToken2 = "valid-token-2"
+
+var (
+	stubUserID  = uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	stubUserID2 = uuid.MustParse("22222222-2222-2222-2222-222222222222")
+)
 
 type stubTokens struct{}
 
 func (stubTokens) ParseAccess(token string) (uuid.UUID, error) {
-	if token == validToken {
+	switch token {
+	case validToken:
 		return stubUserID, nil
+	case validToken2:
+		return stubUserID2, nil
 	}
 	return uuid.Nil, auth.ErrInvalidAccessToken
 }
@@ -226,10 +235,12 @@ func TestNewRouterPanicsWithoutRequiredDependencies(t *testing.T) {
 		WebOrigin: "http://localhost:3000", Auth: stubAuth{}, Tokens: stubTokens{},
 	}
 	tests := map[string]func(*httpapi.Deps){
-		"no logger": func(d *httpapi.Deps) { d.Logger = nil },
-		"no ready":  func(d *httpapi.Deps) { d.Ready = nil },
-		"no auth":   func(d *httpapi.Deps) { d.Auth = nil },
-		"no tokens": func(d *httpapi.Deps) { d.Tokens = nil },
+		"no logger":           func(d *httpapi.Deps) { d.Logger = nil },
+		"no ready":            func(d *httpapi.Deps) { d.Ready = nil },
+		"no auth":             func(d *httpapi.Deps) { d.Auth = nil },
+		"no tokens":           func(d *httpapi.Deps) { d.Tokens = nil },
+		"empty web origin":    func(d *httpapi.Deps) { d.WebOrigin = "" },
+		"wildcard web origin": func(d *httpapi.Deps) { d.WebOrigin = "*" },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {

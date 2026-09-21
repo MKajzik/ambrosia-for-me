@@ -14,9 +14,9 @@ import (
 	"github.com/InzKazik/mealplanner/backend/internal/api"
 )
 
-// Deps are the collaborators the router needs. Logger, Ready, Auth and Tokens
-// are required: NewRouter panics without them rather than failing on the first
-// request.
+// Deps are the collaborators the router needs. Logger, Ready, Auth, Tokens and
+// WebOrigin are required (WebOrigin must be a single origin, never "*"):
+// NewRouter panics without them rather than failing on the first request.
 type Deps struct {
 	Logger *slog.Logger
 	// Ready reports whether the service can take traffic (for example the
@@ -37,8 +37,9 @@ type Deps struct {
 
 // NewRouter returns the root handler with every /v1 route and all middleware.
 func NewRouter(d Deps) http.Handler {
-	if d.Logger == nil || d.Ready == nil || d.Auth == nil || d.Tokens == nil {
-		panic("httpapi: Deps.Logger, Ready, Auth and Tokens are required")
+	if d.Logger == nil || d.Ready == nil || d.Auth == nil || d.Tokens == nil ||
+		d.WebOrigin == "" || d.WebOrigin == "*" {
+		panic("httpapi: Deps.Logger, Ready, Auth and Tokens are required, and WebOrigin must be a single origin (not empty or *)")
 	}
 	limits := d.Limits.withDefaults()
 	spec, err := api.GetSpec()
@@ -51,6 +52,9 @@ func NewRouter(d Deps) http.Handler {
 	r.Use(requestID)
 	r.Use(withAuthState)
 	r.Use(clientIP(d.TrustedProxies))
+	// bodyLimit sits outside the request logger so http.MaxBytesReader gets
+	// the real ResponseWriter, which it needs to tell net/http to stop reading.
+	r.Use(bodyLimit)
 	r.Use(requestLogger(d.Logger))
 	r.Use(recoverer(d.Logger))
 	r.Use(cors.Handler(cors.Options{
@@ -60,7 +64,6 @@ func NewRouter(d Deps) http.Handler {
 		ExposedHeaders: []string{requestIDHeader, "Retry-After"},
 		MaxAge:         300,
 	}))
-	r.Use(bodyLimit)
 	r.Use(authIPLimiter(limits.AuthPerMinute))
 
 	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {

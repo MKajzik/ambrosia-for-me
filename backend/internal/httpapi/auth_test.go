@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/InzKazik/mealplanner/backend/internal/httpapi"
@@ -323,5 +324,121 @@ func TestTrustedProxyHeaderDecidesTheRateLimitedClient(t *testing.T) {
 	// Forging entries on the left cannot dodge the limit.
 	if got := login("6.6.6.6, 198.51.100.1"); got != http.StatusTooManyRequests {
 		t.Errorf("client A with a forged prefix: status = %d, want 429", got)
+	}
+}
+
+func TestDuplicateAuthorizationHeadersAreRejected(t *testing.T) {
+	router := newTestRouter(t)
+	get := func(headers ...string) int {
+		req := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+		for _, h := range headers {
+			req.Header.Add("Authorization", h)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	// A proxy in front might act on a different header line than this API
+	// does, so an ambiguous request is refused outright.
+	if got := get("Bearer "+validToken, "Bearer "+validToken); got != http.StatusUnauthorized {
+		t.Errorf("two Authorization headers: status = %d, want 401", got)
+	}
+	if got := get("Bearer " + validToken); got != http.StatusOK {
+		t.Errorf("one Authorization header: status = %d, want 200", got)
+	}
+}
+
+func TestSecuredRoutesRejectHeadAndOptionsWithoutAToken(t *testing.T) {
+	router := newTestRouter(t)
+	for _, method := range []string{http.MethodHead, http.MethodOptions} {
+		t.Run(method, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(method, "/v1/me", nil))
+
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s /v1/me without a token: status = %d, want 405", method, rec.Code)
+			}
+		})
+	}
+}
+
+func TestAuthLimiterPathVariantsNeverReachAHandler(t *testing.T) {
+	router := newTestRouter(t, func(d *httpapi.Deps) { d.Limits = httpapi.RateLimits{AuthPerMinute: 2} })
+	for _, path := range []string{
+		"/v1//auth/login", "/v1/auth/login/", "/v1/auth//login", "/v1/%61uth/login", "/v1/auth/LOGIN",
+	} {
+		t.Run(path, func(t *testing.T) {
+			for i := 1; i <= 5; i++ {
+				req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"email":"a@example.com","password":"x"}`))
+				req.Header.Set("Content-Type", "application/json")
+				req.RemoteAddr = "198.51.100.9:1000"
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, req)
+
+				// The stub answers a login that reaches it with 401, so 401
+				// or 200 would mean a variant slipped past routing.
+				if rec.Code != http.StatusNotFound && rec.Code != http.StatusTooManyRequests {
+					t.Fatalf("request %d to %s: status = %d, want 404 or 429", i, path, rec.Code)
+				}
+			}
+		})
+	}
+}
+
+func TestPerUserRateLimitBucketsAreSeparate(t *testing.T) {
+	router := newTestRouter(t, func(d *httpapi.Deps) { d.Limits = httpapi.RateLimits{UserPerMinute: 2} })
+	me := func(token string) int {
+		return contract(t, router, http.MethodGet, "/me", withBearer(token)).Code
+	}
+
+	if a, b, c := me(validToken), me(validToken), me(validToken); a != http.StatusOK || b != http.StatusOK || c != http.StatusTooManyRequests {
+		t.Fatalf("user 1 = %d, %d, %d; want 200, 200, 429", a, b, c)
+	}
+	if got := me(validToken2); got != http.StatusOK {
+		t.Errorf("user 2 was limited with user 1: status = %d, want 200", got)
+	}
+}
+
+func TestRejectedRequestsDoNotCountTowardTheUserLimit(t *testing.T) {
+	// Documents a known gap: the per-user limiter sits behind the validator,
+	// so rejected requests are not counted; a global per-IP backstop is a
+	// planned follow-up.
+	router := newTestRouter(t, func(d *httpapi.Deps) { d.Limits = httpapi.RateLimits{UserPerMinute: 2} })
+
+	for i := 1; i <= 4; i++ {
+		rec := contract(t, router, http.MethodPatch, "/me", withBearer(validToken),
+			withBody(`{"target_fat_g":-1}`), withInvalidRequest())
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("request %d: status = %d, want 400", i, rec.Code)
+		}
+	}
+}
+
+func TestConcurrentAuthenticatedRequests(t *testing.T) {
+	const workers = 50
+	router := newTestRouter(t, func(d *httpapi.Deps) { d.Limits = httpapi.RateLimits{UserPerMinute: 10000} })
+	codes := make([]int, workers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			req := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+			req.Header.Set("Authorization", "Bearer "+validToken)
+			rec := httptest.NewRecorder()
+			<-start
+			router.ServeHTTP(rec, req)
+			codes[i] = rec.Code
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	for i, code := range codes {
+		if code != http.StatusOK {
+			t.Errorf("request %d: status = %d, want 200", i, code)
+		}
 	}
 }

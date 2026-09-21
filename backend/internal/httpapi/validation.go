@@ -13,6 +13,11 @@ import (
 )
 
 func init() {
+	// By default a kin-openapi SchemaError appends the offending value to its
+	// message. Errors reach the logs (slog.Any("err", err)) on the validation
+	// paths, so a rejected password or token could be written to them.
+	openapi3.SchemaErrorDetailsDisabled = true
+
 	// kin-openapi does not check `format: email` unless a validator is
 	// registered. Accept a bare address only ("Name <a@b.c>" is rejected).
 	openapi3.DefineStringFormatValidator("email", openapi3.NewCallbackValidator(func(s string) error {

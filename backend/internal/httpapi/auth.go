@@ -70,7 +70,13 @@ func authenticate(tokens TokenParser) openapi3filter.AuthenticationFunc {
 		if in.SecuritySchemeName != "bearerAuth" {
 			return errUnauthenticated
 		}
-		scheme, token, ok := strings.Cut(in.RequestValidationInput.Request.Header.Get("Authorization"), " ")
+		// More than one Authorization header is ambiguous: a proxy in front may
+		// act on a different line than this API, so refuse it outright.
+		vals := in.RequestValidationInput.Request.Header.Values("Authorization")
+		if len(vals) != 1 {
+			return errUnauthenticated
+		}
+		scheme, token, ok := strings.Cut(vals[0], " ")
 		if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
 			return errUnauthenticated
 		}
