@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - backend/**
+      - openapi.yaml
       - Makefile
       - .github/workflows/backend.yml
   push:
     branches: [master]
     paths:
       - backend/**
+      - openapi.yaml
       - Makefile
       - .github/workflows/backend.yml
 
@@ -27,14 +29,16 @@ defaults:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.mod
+          cache-dependency-path: backend/go.sum
       - run: go vet ./...
       - run: go test ./...
       - run: make lint-backend
+        working-directory: .
+      - run: make check-generated
         working-directory: .
