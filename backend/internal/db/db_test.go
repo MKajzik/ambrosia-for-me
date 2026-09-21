@@ -2,22 +2,32 @@ package db_test
 
 import (
 	"context"
+	"io/fs"
 	"testing"
 
 	"github.com/InzKazik/mealplanner/backend/internal/db"
 	"github.com/InzKazik/mealplanner/backend/internal/testutil"
+	"github.com/InzKazik/mealplanner/backend/migrations"
 )
 
 func TestMigrateAppliesAndIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	url := testutil.NewDatabase(t)
 
+	files, err := fs.Glob(migrations.FS, "*.sql")
+	if err != nil {
+		t.Fatalf("glob migrations: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no embedded migrations found")
+	}
+
 	applied, err := db.Migrate(ctx, url)
 	if err != nil {
 		t.Fatalf("first Migrate: %v", err)
 	}
-	if applied != 1 {
-		t.Errorf("first Migrate applied %d migrations, want 1", applied)
+	if applied != len(files) {
+		t.Errorf("first Migrate applied %d migrations, want %d (one per embedded *.sql file)", applied, len(files))
 	}
 
 	again, err := db.Migrate(ctx, url)

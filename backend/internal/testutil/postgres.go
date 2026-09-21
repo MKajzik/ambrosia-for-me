@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/url"
+	"os"
 	"sync"
 	"testing"
 
@@ -20,12 +21,30 @@ var (
 	startErr  error
 )
 
+// requireDocker skips the test when Docker is unavailable, except on CI (the
+// CI environment variable is non-empty) where a missing Docker fails the test
+// so integration tests cannot pass while testing nothing.
+func requireDocker(t *testing.T) {
+	t.Helper()
+	if os.Getenv("CI") == "" {
+		testcontainers.SkipIfProviderIsNotHealthy(t)
+		return
+	}
+	provider, err := testcontainers.ProviderDocker.GetProvider()
+	if err != nil {
+		t.Fatalf("Docker is required on CI: %v", err)
+	}
+	if err := provider.Health(context.Background()); err != nil {
+		t.Fatalf("Docker is required on CI: %v", err)
+	}
+}
+
 // NewDatabase returns the URL of a fresh, empty database inside a Postgres
 // container shared by every test in the package. The database is dropped when
 // the test ends. The test is skipped when Docker is not available.
 func NewDatabase(t *testing.T) string {
 	t.Helper()
-	testcontainers.SkipIfProviderIsNotHealthy(t)
+	requireDocker(t)
 
 	ctx := context.Background()
 	startOnce.Do(func() {
