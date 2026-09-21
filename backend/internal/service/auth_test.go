@@ -3,6 +3,8 @@ package service_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -173,18 +175,23 @@ func TestUpdateUserAppliesOnlySpecifiedFields(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	s := register(t, f, "alice@example.com")
-	kcal, protein := 2200.0, 150.0
+	kcal, protein, carbs, fat := 2200.0, 150.0, 250.0, 70.0
 
 	u, err := f.svc.UpdateUser(ctx, s.User.ID, service.UpdateInput{
 		DisplayName:    ptr("Alice"),
 		TargetKcal:     service.Set(&kcal),
 		TargetProteinG: service.Set(&protein),
+		TargetCarbsG:   service.Set(&carbs),
+		TargetFatG:     service.Set(&fat),
 	})
 	if err != nil {
 		t.Fatalf("UpdateUser: %v", err)
 	}
 	if u.DisplayName != "Alice" || u.TargetKcal == nil || *u.TargetKcal != 2200 || u.TargetProteinG == nil || *u.TargetProteinG != 150 {
 		t.Errorf("after first update: %+v", u)
+	}
+	if u.TargetCarbsG == nil || *u.TargetCarbsG != 250 || u.TargetFatG == nil || *u.TargetFatG != 70 {
+		t.Errorf("after first update, carbs and fat: %+v", u)
 	}
 
 	// Only the kcal target is specified (cleared): the others must stay.
@@ -197,6 +204,9 @@ func TestUpdateUserAppliesOnlySpecifiedFields(t *testing.T) {
 	}
 	if u.TargetProteinG == nil || *u.TargetProteinG != 150 || u.DisplayName != "Alice" {
 		t.Errorf("unspecified fields changed: %+v", u)
+	}
+	if u.TargetCarbsG == nil || *u.TargetCarbsG != 250 || u.TargetFatG == nil || *u.TargetFatG != 70 {
+		t.Errorf("carbs and fat should be unchanged: %+v", u)
 	}
 }
 
@@ -233,6 +243,113 @@ func TestDeleteUserRemovesAccountAndSessions(t *testing.T) {
 	}
 	if _, err := f.svc.Login(ctx, "alice@example.com", "a-long-enough-password"); !errors.Is(err, service.ErrInvalidCredentials) {
 		t.Errorf("Login after delete: err = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestConcurrentRefreshOfOneTokenSucceedsExactlyOnce(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	first := register(t, f, "alice@example.com")
+
+	const numGoroutines = 8
+	var (
+		wg      sync.WaitGroup
+		barrier = make(chan struct{})
+		results = make([]struct {
+			session service.Session
+			err     error
+		}, numGoroutines)
+	)
+
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			<-barrier // Wait for all goroutines to be ready
+			sess, err := f.svc.Refresh(ctx, first.RefreshToken)
+			results[idx].session = sess
+			results[idx].err = err
+		}(i)
+	}
+
+	close(barrier) // Release all goroutines at once
+	wg.Wait()
+
+	// Count successes
+	var successCount int
+	var winnerToken string
+	for _, r := range results {
+		if r.err == nil {
+			successCount++
+			winnerToken = r.session.RefreshToken
+		} else if !errors.Is(r.err, service.ErrInvalidRefreshToken) {
+			t.Errorf("unexpected error: %v", r.err)
+		}
+	}
+
+	if successCount != 1 {
+		t.Errorf("expected exactly 1 success, got %d", successCount)
+	}
+
+	// The winner's token should now also fail (family was revoked when losers detected reuse).
+	if _, err := f.svc.Refresh(ctx, winnerToken); !errors.Is(err, service.ErrInvalidRefreshToken) {
+		t.Errorf("winner's new token should also fail: err = %v, want ErrInvalidRefreshToken", err)
+	}
+}
+
+func TestLogoutRacingWithRefreshLeavesNoLiveToken(t *testing.T) {
+	// This is a probabilistic race test: we repeat 25 times to catch timing issues.
+	for iteration := 0; iteration < 25; iteration++ {
+		f := newFixture(t)
+		ctx := context.Background()
+		email := fmt.Sprintf("race%d@example.com", iteration)
+		first := register(t, f, email)
+
+		var (
+			wg            sync.WaitGroup
+			barrier       = make(chan struct{})
+			refreshResult struct {
+				session service.Session
+				err     error
+			}
+			logoutErr error
+		)
+
+		wg.Add(2)
+
+		// Refresh goroutine
+		go func() {
+			defer wg.Done()
+			<-barrier
+			sess, err := f.svc.Refresh(ctx, first.RefreshToken)
+			refreshResult.session = sess
+			refreshResult.err = err
+		}()
+
+		// Logout goroutine
+		go func() {
+			defer wg.Done()
+			<-barrier
+			logoutErr = f.svc.Logout(ctx, first.RefreshToken)
+		}()
+
+		close(barrier)
+		wg.Wait()
+
+		// Both must not return unexpected errors
+		if logoutErr != nil {
+			t.Errorf("iteration %d: Logout returned unexpected error: %v", iteration, logoutErr)
+		}
+		if refreshResult.err != nil && !errors.Is(refreshResult.err, service.ErrInvalidRefreshToken) {
+			t.Errorf("iteration %d: Refresh returned unexpected error: %v", iteration, refreshResult.err)
+		}
+
+		// If Refresh succeeded, its token must now also fail (logout must have revoked the family).
+		if refreshResult.err == nil {
+			if _, err := f.svc.Refresh(ctx, refreshResult.session.RefreshToken); !errors.Is(err, service.ErrInvalidRefreshToken) {
+				t.Errorf("iteration %d: refresh winner's new token should also fail: err = %v", iteration, err)
+			}
+		}
 	}
 }
 

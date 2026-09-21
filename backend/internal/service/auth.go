@@ -178,20 +178,25 @@ func (a *Auth) Refresh(ctx context.Context, rawToken string) (Session, error) {
 	return sess, nil
 }
 
-// Logout revokes the whole session that rawToken belongs to. It is idempotent:
-// an unknown or already-revoked token is not an error.
+// Logout revokes the whole session that rawToken belongs to. It is atomic with Refresh:
+// a logout and refresh racing on the same token will both succeed or one will fail with
+// ErrInvalidRefreshToken, but no live token will be left. It is idempotent: an unknown or
+// already-revoked token is not an error.
 func (a *Auth) Logout(ctx context.Context, rawToken string) error {
-	rt, err := a.st.GetRefreshTokenByHashForUpdate(ctx, auth.HashRefreshToken(rawToken))
-	if store.IsNotFound(err) {
+	err := a.st.InTx(ctx, func(q *sqlc.Queries) error {
+		rt, err := q.GetRefreshTokenByHashForUpdate(ctx, auth.HashRefreshToken(rawToken))
+		if store.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("get refresh token: %w", err)
+		}
+		if err := q.RevokeRefreshTokenFamily(ctx, rt.FamilyID); err != nil {
+			return fmt.Errorf("revoke session: %w", err)
+		}
 		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("get refresh token: %w", err)
-	}
-	if err := a.st.RevokeRefreshTokenFamily(ctx, rt.FamilyID); err != nil {
-		return fmt.Errorf("revoke session: %w", err)
-	}
-	return nil
+	})
+	return err
 }
 
 // GetUser returns the account with the given ID.
