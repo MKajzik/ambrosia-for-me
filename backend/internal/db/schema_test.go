@@ -54,6 +54,22 @@ func TestUsersSchemaEnforcesItsConstraints(t *testing.T) {
 	}
 }
 
+func TestSchemaObjectsHaveStableNames(t *testing.T) {
+	ctx := context.Background()
+	conn := migratedConn(t)
+
+	for _, name := range []string{"users_email_key", "users_apple_sub_key"} {
+		var n int
+		if err := conn.QueryRow(ctx, `SELECT count(*) FROM pg_constraint WHERE conname = $1`, name).Scan(&n); err != nil || n != 1 {
+			t.Errorf("constraints named %s = %d (err %v), want 1", name, n, err)
+		}
+	}
+	var exists bool
+	if err := conn.QueryRow(ctx, `SELECT to_regclass('public.refresh_tokens_expires_at_idx') IS NOT NULL`).Scan(&exists); err != nil || !exists {
+		t.Errorf("index refresh_tokens_expires_at_idx exists = %v (err %v), want true", exists, err)
+	}
+}
+
 func TestUpdatedAtTriggerFires(t *testing.T) {
 	ctx := context.Background()
 	conn := migratedConn(t)

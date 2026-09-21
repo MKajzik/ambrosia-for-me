@@ -255,3 +255,29 @@ func TestNewRouterPanicsWithoutRequiredDependencies(t *testing.T) {
 		})
 	}
 }
+
+// failingLoginAuth makes Login fail with an error that carries a secret-looking
+// detail, to prove an unexpected service failure is a declared, opaque problem.
+type failingLoginAuth struct{ httpapi.AuthService }
+
+func (failingLoginAuth) Login(context.Context, string, string) (service.Session, error) {
+	return service.Session{}, errors.New("boom: secret detail")
+}
+
+func TestHandlerFailuresAreDeclaredProblems(t *testing.T) {
+	h := newTestRouter(t, func(d *httpapi.Deps) { d.Auth = failingLoginAuth{} })
+
+	rec := contract(t, h, http.MethodPost, "/auth/login",
+		withBody(`{"email":"a@example.com","password":"x"}`))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if got := decodeProblemBody(t, rec).Code; got != "internal_error" {
+		t.Errorf("problem code = %q, want internal_error", got)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "boom") || strings.Contains(body, "secret detail") {
+		t.Errorf("response leaks the underlying error: %s", body)
+	}
+}

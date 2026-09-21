@@ -12,6 +12,7 @@ CREATE TABLE refresh_tokens (
 
 CREATE INDEX refresh_tokens_user_id_idx ON refresh_tokens (user_id);
 CREATE INDEX refresh_tokens_family_id_idx ON refresh_tokens (family_id);
+CREATE INDEX refresh_tokens_expires_at_idx ON refresh_tokens (expires_at);
 
 CREATE TRIGGER refresh_tokens_set_updated_at
     BEFORE UPDATE ON refresh_tokens
