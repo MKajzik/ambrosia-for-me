@@ -1,0 +1,36 @@
+name: api-contract
+
+on:
+  pull_request:
+    paths:
+      - openapi.yaml
+      - redocly.yaml
+      - .redocly.lint-ignore.yaml
+      - Makefile
+      - .github/workflows/api-contract.yml
+  push:
+    branches: [master]
+    paths:
+      - openapi.yaml
+      - redocly.yaml
+      - .redocly.lint-ignore.yaml
+      - Makefile
+      - .github/workflows/api-contract.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: make lint-api

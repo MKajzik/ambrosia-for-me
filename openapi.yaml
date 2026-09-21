@@ -1,0 +1,84 @@
+openapi: 3.0.3
+info:
+  title: Meal Planner API
+  version: 0.1.0
+  description: Contract for the Meal Planner API. This file is the single source of truth; the backend, web and iOS clients are generated from it.
+servers:
+  - url: http://localhost:8080/v1
+    description: Local development
+security:
+  - bearerAuth: []
+tags:
+  - name: Health
+    description: Liveness and readiness checks.
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness probe
+      description: Returns 200 when the process is up. Does not touch the database.
+      security: []
+      responses:
+        '200':
+          description: The service is alive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /readyz:
+    get:
+      tags: [Health]
+      operationId: getReady
+      summary: Readiness probe
+      description: Returns 200 when the service can reach its database, 503 otherwise.
+      security: []
+      responses:
+        '200':
+          description: The service is ready to take traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    Problem:
+      type: object
+      description: RFC 9457 problem details with a stable machine-readable code.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        code:
+          type: string
+          description: Stable identifier clients map to localized text, e.g. partner_not_linked.
+  responses:
+    Problem:
+      description: An error occurred.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

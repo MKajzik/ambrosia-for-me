@@ -1,0 +1,9 @@
+extends:
+  - recommended
+rules:
+  # Every operation must declare a 4XX response; only /healthz and /readyz are exempt (see .redocly.lint-ignore.yaml).
+  operation-4xx-response: error
+  # The only server entry is the local development URL.
+  no-server-example.com: off
+  # Proprietary API: there is no public license to declare.
+  info-license: off

@@ -1,0 +1,28 @@
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Go
+backend/bin/
+*.test
+*.out
+coverage.out
+
+# Web
+node_modules/
+.next/
+web/coverage/
+web/playwright-report/
+web/test-results/
+
+# iOS
+ios/build/
+DerivedData/
+xcuserdata/
+*.xcuserstate

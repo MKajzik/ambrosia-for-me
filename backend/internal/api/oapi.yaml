@@ -1,0 +1,8 @@
+# Paths here are relative to backend/. Always run via `make generate` from the repo root.
+package: api
+output: internal/api/api.gen.go
+generate:
+  chi-server: true
+  models: true
+compatibility:
+  always-prefix-enum-values: true

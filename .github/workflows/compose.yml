@@ -1,0 +1,32 @@
+name: compose
+
+on:
+  pull_request:
+    paths:
+      - docker-compose.yml
+      - .github/workflows/compose.yml
+  push:
+    branches: [master]
+    paths:
+      - docker-compose.yml
+      - .github/workflows/compose.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config -q
+      - run: docker compose up -d --wait --wait-timeout 120 postgres
+      - if: failure()
+        run: docker compose logs postgres
+      - if: always()
+        run: docker compose down -v
