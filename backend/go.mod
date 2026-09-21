@@ -1,3 +1,3 @@
 module github.com/InzKazik/mealplanner/backend
 
-go 1.24
+go 1.26

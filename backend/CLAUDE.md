@@ -1,6 +1,6 @@
 # Backend (Go)
 
-Module: `github.com/InzKazik/mealplanner/backend`. Go 1.24. Standard library `net/http` router for now; `chi` arrives with the first plan that needs middleware.
+Module: `github.com/InzKazik/mealplanner/backend`. Go 1.26. Standard library `net/http` router for now; `chi` arrives with the first plan that needs middleware.
 
 ## Layout
 
@@ -14,7 +14,7 @@ Dependencies point one way: `httpapi` → `service` → `store`. A package never
 ## Commands (from repo root)
 
 - `make test-backend`: `go vet ./...` and `go test ./...`
-- `make lint-backend`: runs golangci-lint v1.64.8 via `go run` (the same command CI uses)
+- `make lint-backend`: runs golangci-lint v2.13.2 via `go run` (the same command CI uses)
 - `make run-api`: run on `API_ADDR` from the process environment (default `:8080`; `.env` is not loaded)
 
 ## Conventions

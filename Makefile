@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 REDOCLY := npx --yes @redocly/cli@2.53.3
-GOLANGCI := go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 
 .PHONY: help lint-api test-backend lint-backend run-api db-up db-down check
 
