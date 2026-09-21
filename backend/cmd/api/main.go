@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,8 +20,12 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           httpapi.NewRouter(),
+		Addr: addr,
+		Handler: httpapi.NewRouter(httpapi.Deps{
+			Logger:    logger,
+			Ready:     func(context.Context) error { return nil },
+			WebOrigin: "http://localhost:3000",
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
