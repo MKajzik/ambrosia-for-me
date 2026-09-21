@@ -3,11 +3,13 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 
@@ -18,6 +20,13 @@ import (
 // returns the error kin-openapi produces.
 func validationError(t *testing.T, method, path, body string) error {
 	t.Helper()
+	return validationErrorWithContentType(t, method, path, body, "application/json")
+}
+
+// validationErrorWithContentType allows overriding or omitting the Content-Type header.
+// Pass an empty contentType to omit the header, or a custom value to use instead of "application/json".
+func validationErrorWithContentType(t *testing.T, method, path, body, contentType string) error {
+	t.Helper()
 	spec, err := api.GetSpec()
 	if err != nil {
 		t.Fatalf("load spec: %v", err)
@@ -27,8 +36,8 @@ func validationError(t *testing.T, method, path, body string) error {
 		t.Fatalf("build router: %v", err)
 	}
 	req := httptest.NewRequest(method, "http://localhost:8080/v1"+path, strings.NewReader(body))
-	if body != "" {
-		req.Header.Set("Content-Type", "application/json")
+	if body != "" && contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	route, params, err := router.FindRoute(req)
 	if err != nil {
@@ -99,5 +108,196 @@ func TestDescribeValidationAcceptsAValidRequest(t *testing.T) {
 func TestDescribeValidationRejectsErrorsItDoesNotUnderstand(t *testing.T) {
 	if _, ok := describeValidation(errors.New("something else went wrong")); ok {
 		t.Error("describeValidation claimed to understand an arbitrary error")
+	}
+}
+
+func TestDescribeValidationMissingContentType(t *testing.T) {
+	err := validationErrorWithContentType(t, http.MethodPost, "/auth/login", `{"email":"a@example.com","password":"x"}`, "")
+
+	if err == nil {
+		t.Fatal("validation passed, want an error")
+	}
+
+	res, ok := describeValidation(err)
+
+	if !ok {
+		t.Fatalf("describeValidation reported an unexpected error: %v", err)
+	}
+	if res.detail != "request body must be sent as application/json" {
+		t.Errorf("detail = %q, want %q", res.detail, "request body must be sent as application/json")
+	}
+	if len(res.fields) != 0 {
+		t.Errorf("fields = %v, want empty", res.fields)
+	}
+}
+
+func TestDescribeValidationWrongContentType(t *testing.T) {
+	err := validationErrorWithContentType(t, http.MethodPost, "/auth/login", `{"email":"a@example.com","password":"x"}`, "text/plain")
+
+	if err == nil {
+		t.Fatal("validation passed, want an error")
+	}
+
+	res, ok := describeValidation(err)
+
+	if !ok {
+		t.Fatalf("describeValidation reported an unexpected error: %v", err)
+	}
+	if res.detail != "request body must be sent as application/json" {
+		t.Errorf("detail = %q, want %q", res.detail, "request body must be sent as application/json")
+	}
+	if len(res.fields) != 0 {
+		t.Errorf("fields = %v, want empty", res.fields)
+	}
+}
+
+func TestDescribeValidationBodyTooLarge(t *testing.T) {
+	spec, err := api.GetSpec()
+	if err != nil {
+		t.Fatalf("load spec: %v", err)
+	}
+	router, err := gorillamux.NewRouter(spec)
+	if err != nil {
+		t.Fatalf("build router: %v", err)
+	}
+
+	body := strings.Repeat("x", 100)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:8080/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	// Wrap the body with MaxBytesReader to simulate a body that is too large
+	rec := httptest.NewRecorder()
+	req.Body = http.MaxBytesReader(rec, req.Body, 16)
+
+	route, params, err := router.FindRoute(req)
+	if err != nil {
+		t.Fatalf("find route: %v", err)
+	}
+
+	validationErr := openapi3filter.ValidateRequest(context.Background(), &openapi3filter.RequestValidationInput{
+		Request: req, PathParams: params, Route: route,
+		Options: &openapi3filter.Options{
+			MultiError:         true,
+			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
+		},
+	})
+
+	if validationErr == nil {
+		t.Fatal("validation passed, want an error")
+	}
+
+	res, ok := describeValidation(validationErr)
+
+	if !ok {
+		t.Fatalf("describeValidation reported an unexpected error: %v", validationErr)
+	}
+	if res.detail != "request body is too large" {
+		t.Errorf("detail = %q, want %q", res.detail, "request body is too large")
+	}
+	if len(res.fields) != 0 {
+		t.Errorf("fields = %v, want empty", res.fields)
+	}
+}
+
+func TestDescribeValidationFieldOutOfRange(t *testing.T) {
+	// PATCH /me is a valid endpoint that accepts target_kcal field
+	err := validationError(t, http.MethodPatch, "/me", `{"target_kcal":-5}`)
+
+	if err == nil {
+		t.Fatal("validation passed, want an error")
+	}
+
+	res, ok := describeValidation(err)
+
+	if !ok {
+		t.Fatalf("describeValidation reported an unexpected error: %v", err)
+	}
+	if len(res.fields) != 1 || res.fields[0].Field != "target_kcal" || res.fields[0].Code != "out_of_range" {
+		t.Errorf("fields = %v, want one field target_kcal:out_of_range", res.fields)
+	}
+}
+
+func TestDescribeValidationLongUnknownFieldName(t *testing.T) {
+	longKey := strings.Repeat("x", 200)
+	body := `{"email":"a@example.com","password":"x","` + longKey + `":true}`
+	err := validationError(t, http.MethodPost, "/auth/login", body)
+
+	if err == nil {
+		t.Fatal("validation passed, want an error")
+	}
+
+	res, ok := describeValidation(err)
+
+	if !ok {
+		t.Fatalf("describeValidation reported an unexpected error: %v", err)
+	}
+
+	var unknownFieldFound bool
+	for _, f := range res.fields {
+		if f.Code == "unknown_field" {
+			unknownFieldFound = true
+			if len([]rune(f.Field)) > 64 {
+				t.Errorf("field name %q is %d runes, want at most 64", f.Field, len([]rune(f.Field)))
+			}
+		}
+	}
+	if !unknownFieldFound {
+		t.Error("no unknown_field error found in results")
+	}
+}
+
+func TestDescribeValidationManyUnknownFields(t *testing.T) {
+	// Create a JSON body with 30 distinct unknown fields
+	bodyParts := []string{`{"email":"a@example.com","password":"x"`}
+	for i := 0; i < 30; i++ {
+		bodyParts = append(bodyParts, fmt.Sprintf(`,"unknown%d":true`, i))
+	}
+	bodyParts = append(bodyParts, "}")
+	body := strings.Join(bodyParts, "")
+
+	err := validationError(t, http.MethodPost, "/auth/login", body)
+
+	if err == nil {
+		t.Fatal("validation passed, want an error")
+	}
+
+	res, ok := describeValidation(err)
+
+	if !ok {
+		t.Fatalf("describeValidation reported an unexpected error: %v", err)
+	}
+
+	if len(res.fields) > 20 {
+		t.Errorf("got %d field errors, want at most 20", len(res.fields))
+	}
+}
+
+func TestDescribeValidationUnrecognizedError(t *testing.T) {
+	// Test that unrecognized RequestError with non-nil Err returns ok=false
+	baseErr := errors.New("disk on fire")
+	reqErr := &openapi3filter.RequestError{
+		RequestBody: &openapi3.RequestBody{},
+		Reason:      "reading failed",
+		Err:         baseErr,
+	}
+
+	res, ok := describeValidation(reqErr)
+
+	if ok {
+		t.Errorf("describeValidation returned ok=true for unrecognized error, want false; got detail=%q", res.detail)
+	}
+}
+
+func TestDescribeValidationOtherRequestErrorReason(t *testing.T) {
+	// Test that RequestError with Err=nil and a non-Content-Type Reason returns ok=false
+	reqErr := &openapi3filter.RequestError{
+		RequestBody: &openapi3.RequestBody{},
+		Reason:      "something else",
+		Err:         nil,
+	}
+
+	res, ok := describeValidation(reqErr)
+
+	if ok {
+		t.Errorf("describeValidation returned ok=true for non-Content-Type error, want false; got detail=%q", res.detail)
 	}
 }

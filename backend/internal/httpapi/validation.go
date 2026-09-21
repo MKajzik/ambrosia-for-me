@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"net/http"
 	"net/mail"
 	"regexp"
 	"sort"
@@ -45,31 +46,43 @@ func describeValidation(err error) (validationResult, bool) {
 		}
 		return res.fields[i].Code < res.fields[j].Code
 	})
+	// Deduplicate field errors
+	deduped := make([]FieldError, 0, len(res.fields))
+	seen := make(map[string]bool)
+	for _, f := range res.fields {
+		key := f.Field + ":" + f.Code
+		if !seen[key] {
+			seen[key] = true
+			deduped = append(deduped, f)
+		}
+	}
+	res.fields = deduped
+	// Cap the total number of field errors at 20
+	if len(res.fields) > 20 {
+		res.fields = res.fields[:20]
+	}
 	return res, true
 }
 
+//nolint:errorlint // kin-openapi returns these concrete types directly; MultiError and RequestError unwrap into each other
 func collect(err error, res *validationResult) bool {
-	// kin-openapi returns these types directly, and MultiError must be tried
-	// first: it wraps the others.
-	var multi openapi3.MultiError
-	if errors.As(err, &multi) {
-		for _, inner := range multi {
+	// Use type switch instead of errors.As to avoid unwrapping through RequestError
+	switch err := err.(type) {
+	case openapi3.MultiError:
+		for _, inner := range err {
 			if !collect(inner, res) {
 				return false
 			}
 		}
 		return true
-	}
-	var reqErr *openapi3filter.RequestError
-	if errors.As(err, &reqErr) {
-		return collectRequestError(reqErr, res)
-	}
-	var schemaErr *openapi3.SchemaError
-	if errors.As(err, &schemaErr) {
-		res.fields = append(res.fields, schemaFieldError(schemaErr))
+	case *openapi3filter.RequestError:
+		return collectRequestError(err, res)
+	case *openapi3.SchemaError:
+		res.fields = append(res.fields, schemaFieldError(err))
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 func collectRequestError(e *openapi3filter.RequestError, res *validationResult) bool {
@@ -77,24 +90,38 @@ func collectRequestError(e *openapi3filter.RequestError, res *validationResult) 
 		res.fields = append(res.fields, FieldError{Field: e.Parameter.Name, Code: FieldInvalidValue})
 		return true
 	}
+	// Handle Content-Type errors: missing or unsupported Content-Type
+	if e.RequestBody != nil && e.Err == nil && strings.Contains(e.Reason, "Content-Type") {
+		res.detail = "request body must be sent as application/json"
+		return true
+	}
 	if e.RequestBody == nil || e.Err == nil {
 		return false
 	}
-	var (
-		multi     openapi3.MultiError
-		schemaErr *openapi3.SchemaError
-		parseErr  *openapi3filter.ParseError
-	)
-	switch {
-	case errors.As(e.Err, &multi), errors.As(e.Err, &schemaErr):
-		return collect(e.Err, res)
-	case errors.As(e.Err, &parseErr):
+
+	//nolint:errorlint // kin-openapi returns these concrete types directly within a RequestError
+	switch innerErr := e.Err.(type) {
+	case openapi3.MultiError:
+		return collect(innerErr, res)
+	case *openapi3.SchemaError:
+		return collect(innerErr, res)
+	case *openapi3filter.ParseError:
 		res.detail = "request body is not valid JSON"
 		return true
 	default:
-		// kin-openapi reports a missing required body as a plain error.
-		res.detail = "request body is required"
-		return true
+		// Check for ErrInvalidRequired (unwrapped error check)
+		if errors.Is(e.Err, openapi3filter.ErrInvalidRequired) {
+			res.detail = "request body is required"
+			return true
+		}
+		// Check for MaxBytesError (unwrapped error check)
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(e.Err, &maxBytesErr) {
+			res.detail = "request body is too large"
+			return true
+		}
+		// Unrecognized body error: this is a server-side problem
+		return false
 	}
 }
 
@@ -119,7 +146,12 @@ func schemaFieldError(e *openapi3.SchemaError) FieldError {
 			if field != "" {
 				name = field + "." + name
 			}
-			return FieldError{Field: name, Code: FieldUnknown}
+			// Truncate the unknown field name to at most 64 runes
+			runes := []rune(name)
+			if len(runes) > 64 {
+				runes = runes[:64]
+			}
+			return FieldError{Field: string(runes), Code: FieldUnknown}
 		}
 	}
 	return FieldError{Field: field, Code: FieldInvalidValue}
