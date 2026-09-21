@@ -13,12 +13,19 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/InzKazik/mealplanner/backend/internal/auth"
 	"github.com/InzKazik/mealplanner/backend/internal/config"
 	"github.com/InzKazik/mealplanner/backend/internal/db"
 	"github.com/InzKazik/mealplanner/backend/internal/httpapi"
+	"github.com/InzKazik/mealplanner/backend/internal/service"
+	"github.com/InzKazik/mealplanner/backend/internal/store"
 )
 
-const shutdownTimeout = 10 * time.Second
+const (
+	shutdownTimeout = 10 * time.Second
+	accessTokenTTL  = 15 * time.Minute
+	refreshTokenTTL = 30 * 24 * time.Hour
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -38,6 +45,12 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// After the first signal, restore default handling so a second Ctrl-C
+	// force-quits instead of being swallowed while the server drains.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 
 	ln, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
@@ -57,11 +70,17 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 	}
 	defer pool.Close()
 
+	tokens := auth.NewTokenIssuer([]byte(cfg.JWTSecret), accessTokenTTL, time.Now)
+	accounts := service.NewAuth(store.New(pool), auth.NewHasher(auth.DefaultHashParams), tokens, refreshTokenTTL, time.Now)
+
 	srv := &http.Server{
 		Handler: httpapi.NewRouter(httpapi.Deps{
-			Logger:    logger,
-			Ready:     pool.Ping,
-			WebOrigin: cfg.WebOrigin,
+			Logger:         logger,
+			Ready:          pool.Ping,
+			WebOrigin:      cfg.WebOrigin,
+			Auth:           accounts,
+			Tokens:         tokens,
+			TrustedProxies: cfg.TrustedProxies,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

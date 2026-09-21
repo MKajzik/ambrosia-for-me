@@ -8,6 +8,9 @@ GENERATED := backend/internal/api backend/internal/store/sqlc
 # Local development database; matches the docker-compose.yml defaults.
 migrate run-api: export DATABASE_URL ?= postgres://mealplanner:mealplanner@localhost:5432/mealplanner?sslmode=disable
 
+# Development-only signing secret so `make run-api` works out of the box. Never use it anywhere else.
+run-api: export JWT_SECRET ?= dev-only-secret-change-me-0123456789
+
 .PHONY: help lint-api test-backend lint-backend generate check-generated migrate run-api db-up db-down check
 
 help: ## List available targets
