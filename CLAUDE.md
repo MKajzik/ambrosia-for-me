@@ -42,7 +42,7 @@ Run `make help` for the list. Most used:
 | `make migrate` | Apply migrations to the local database |
 | `make run-api` | Run the API on `:8080` |
 
-Copy `.env.example` to `.env` for Docker Compose (`make db-up`). The API reads its variables (`API_ADDR`, `DATABASE_URL`, `JWT_SECRET`, ...) from the shell environment and does not load `.env`; the Makefile defaults `DATABASE_URL` to the compose database and, for `make run-api` only, `JWT_SECRET` to a development-only value. Never commit `.env` or secrets.
+Copy `.env.example` to `.env` for Docker Compose (`make db-up`). The API reads its variables (`API_ADDR`, `DATABASE_URL`, `JWT_SECRET`, ...) from the shell environment and does not load `.env`; the Makefile defaults `DATABASE_URL` to the compose database and, for `make run-api` only, `JWT_SECRET` to a public development-only value together with `ALLOW_DEV_JWT_SECRET=1` (the API refuses that secret otherwise). Never commit `.env` or secrets.
 
 ## Conventions
 

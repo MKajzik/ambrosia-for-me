@@ -10,6 +10,28 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-21-meal-planner-design.md` (sections 2.2, 3.1, 4.1 auth and `me` rows, 4.2, 6, 7). Builds on `docs/superpowers/plans/2026-09-21-backend-foundation.md` (merged to `master` in PR #1; its CI run passed).
 
+## Execution notes: where execution deviated from the embedded code
+
+Written after the plan was executed with subagent-driven development (each task reviewed; security-focused reviews on Tasks 4, 5, 7, 8, 9; a final whole-branch review). The code blocks in this document are what was prototyped and embedded. Reviews found real problems in some of them, and the implementation was corrected by ruling. **The repository history is the source of truth; where a block below differs from the code, the code wins.** Do not copy the superseded blocks.
+
+| Task | Embedded block that was superseded | What changed and why | Commits |
+|---|---|---|---|
+| 1 | `openapi.yaml` | The seven auth/account operations now declare `500` (`Problem`), so the contract tests can exercise handler failures. Plan decision 2 ("contract tests validate every response") contradicted operations that emit 500 without declaring it. | 9134682 |
+| 2 | `testutil/postgres.go` | The template database name is recorded only after `Migrate` succeeds (`templateErr`), so a failed template build fails later tests with the real error. | 65c4470 |
+| 3 | migrations `00002`, `00003` | Amended in place (nothing deployed): explicit `users_email_key` / `users_apple_sub_key` names, `refresh_tokens_expires_at_idx`; `schema_test.go` asserts them. | 9134682 |
+| 4 | `token_test.go`, `password` tests | Deterministic signature tamper (the original `[:len-2]+"xx"` was a no-op about 1 run in 1000), a positive control, and an in-package test that `Burn`'s dummy hash carries the hasher's parameters. | 65c4470 |
+| 5 | `service/auth.go` `Logout`; `auth_test.go` | `Logout` runs lookup and family revoke in one transaction (the embedded version could return success while a concurrently rotated token stayed live). Added a concurrent-refresh test, a Logout-vs-Refresh race test and a deterministic row-lock test (a transaction holds the lock; `Refresh` must block). Carbs and fat targets are now asserted. Reuse-branch error wrapped. | eeb5d35, 4cceb1c, 65c4470 |
+| 6 | `config.go`, `config_test.go` | Boundary tests (31/32 bytes, 10/11 proxies); the public dev JWT secret is refused unless `ALLOW_DEV_JWT_SECRET=1` (`make run-api` sets it). | 65c4470, 2b53491 |
+| 7 | `clientip.go`, `clientip_test.go` | The client IP is canonicalised (lower-case IPv6, IPv4-mapped IPv6 to IPv4) and `rateLimitKey` buckets IPv6 by /64, because a limiter keyed on a full /128 address is dodged by rotating addresses inside the client's /64. | 7faf3ee |
+| 8 | `validation.go`, `validation_test.go` | Missing or unsupported `Content-Type` is a 400, not a 500; body read errors are mapped explicitly (`request body is too large`); concrete-type switches instead of `errors.As` (which unwraps through `RequestError`); echoed unknown-field names capped at 64 runes and errors at 20; duplicates removed. | 8f8114d |
+| 9 | `ratelimit.go`, `router.go`, `auth.go`, tests | `authIPLimiter` keys on `rateLimitKey(ClientIP(...))`; `SchemaErrorDetailsDisabled = true` (kin-openapi otherwise appends the offending value to error text); `bodyLimit` runs before the request logger; more than one `Authorization` header is rejected; `NewRouter` panics on an empty or `*` `WebOrigin`; extra tests (HEAD/OPTIONS 405, limiter path variants, per-user buckets, concurrency, "rejected requests do not count toward the user limit"). CORS exposes `X-RateLimit-*`. | e292ab1, d42b94c, 65c4470 |
+| 9 to 10 | (ordering) | After Task 9, `cmd/api` tests fail: `NewRouter` now panics without `Auth`/`Tokens`, and `main.go` is wired only in Task 10 (whose RED step relies on that panic). Accepted as a one-task window; the better order wires `main.go` in Task 9. | e292ab1, dee3005 |
+| 10 | none | | dee3005 |
+| 11 | `contract_test.go`, `backend/CLAUDE.md`, `.env.example` | One `//nolint:gosec` on the test constant `validToken2` (added by a review fix before gosec was enabled); extra documentation bullets (rate-limit gaps, proxies, personal data, header and body edge cases); a `.env.example` warning about exporting an empty `JWT_SECRET`. | d60e56b |
+| final | CI | `backend.yml` runs `go test -race ./...` (three tests exist only to catch races) with a 25-minute timeout. | 2b53491 |
+
+Open design decisions (recorded in `backend/CLAUDE.md`, "Decide before the domain plans"): what happens to access tokens after logout or account deletion, whether `DELETE /me` needs re-authentication, whether registration should keep revealing that an email exists, and a memory bound on concurrent argon2id hashing.
+
 ## Global Constraints
 
 - Backend is Go + Postgres. Layers are `handler` → `service` → `store`; no SQL outside `store`.
