@@ -1021,6 +1021,13 @@ cd backend
 go get github.com/go-chi/cors@v1.2.2 github.com/getkin/kin-openapi@v0.149.0
 ```
 
+```bash
+go get github.com/getkin/kin-openapi/openapi3 github.com/getkin/kin-openapi/openapi3filter \
+  github.com/getkin/kin-openapi/routers github.com/getkin/kin-openapi/routers/gorillamux
+```
+
+The second command records go.sum entries for the subpackages the tests import; without it Step 5 fails with a `missing go.sum entry` setup error instead of the intended RED. Do not run `go mod tidy` yet: it would drop `go-chi/cors`, which is not imported until Step 8.
+
 - [ ] **Step 2: Write the failing contract tests**
 
 They send requests through the real router and fail unless request and response both conform to `openapi.yaml`.

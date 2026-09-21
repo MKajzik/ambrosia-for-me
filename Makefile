@@ -4,7 +4,7 @@ GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.
 OAPICODEGEN := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
 
 # Local development database; matches the docker-compose.yml defaults.
-export DATABASE_URL ?= postgres://mealplanner:mealplanner@localhost:5432/mealplanner?sslmode=disable
+migrate run-api: export DATABASE_URL ?= postgres://mealplanner:mealplanner@localhost:5432/mealplanner?sslmode=disable
 
 .PHONY: help lint-api test-backend lint-backend generate check-generated migrate run-api db-up db-down check
 

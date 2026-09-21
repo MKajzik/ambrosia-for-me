@@ -41,7 +41,8 @@ func requireDocker(t *testing.T) {
 
 // NewDatabase returns the URL of a fresh, empty database inside a Postgres
 // container shared by every test in the package. The database is dropped when
-// the test ends. The test is skipped when Docker is not available.
+// the test ends. The test is skipped when Docker is not available, except when the CI
+// environment variable is set, where it fails.
 func NewDatabase(t *testing.T) string {
 	t.Helper()
 	requireDocker(t)

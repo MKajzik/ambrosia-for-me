@@ -7,7 +7,7 @@ Tool-neutral guidance for any coding agent working in this repo. `CLAUDE.md` hol
 1. **Spec first.** Non-trivial work traces to the design spec in `docs/superpowers/specs/`. If behaviour is not specified, propose a spec change before coding.
 2. **Plan.** Work is executed from a plan in `docs/superpowers/plans/`, task by task.
 3. **Tests first.** Write the failing test, watch it fail, write the minimum code, watch it pass. Applies to all service logic and every bug fix.
-4. **Contract first.** If an API shape changes, edit `openapi.yaml` and run `make lint-api` before touching code.
+4. **Contract first.** If an API shape changes, edit `openapi.yaml`, run `make lint-api`, then `make generate` before touching handler code.
 5. **Verify before claiming done.** Run the commands and read the output. No "should work".
 6. **Commit small.** One logical change per commit, with a clear message.
 
@@ -25,7 +25,7 @@ Tool-neutral guidance for any coding agent working in this repo. `CLAUDE.md` hol
 
 ## Boundaries
 
-- Never hand-edit generated code (API clients, `sqlc` output). Change the source and regenerate.
+- Never hand-edit generated code (`backend/internal/api/api.gen.go`, API clients, `sqlc` output). Change the source and regenerate.
 - Never commit secrets, `.env` files or tokens.
 - Never run `redocly lint --generate-ignore-file` on a project that already has `.redocly.lint-ignore.yaml`: it overwrites the file. Add ignore entries by hand.
 - Never change the API without updating `openapi.yaml` in the same change.

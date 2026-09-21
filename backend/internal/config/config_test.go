@@ -17,6 +17,7 @@ func TestLoad(t *testing.T) {
 		env     map[string]string
 		want    config.Config
 		wantErr string
+		also    string // second substring the error must contain
 	}{
 		{
 			name: "defaults applied",
@@ -35,6 +36,26 @@ func TestLoad(t *testing.T) {
 			env:     map[string]string{},
 			wantErr: "DATABASE_URL is required",
 		},
+		{
+			name: "origin with port",
+			env:  map[string]string{"DATABASE_URL": "postgres://x", "WEB_ORIGIN": "https://app.example:8443"},
+			want: config.Config{Addr: ":8080", DatabaseURL: "postgres://x", WebOrigin: "https://app.example:8443"},
+		},
+		{name: "origin wildcard", env: map[string]string{"DATABASE_URL": "postgres://x", "WEB_ORIGIN": "*"}, wantErr: "WEB_ORIGIN"},
+		{name: "origin trailing slash", env: map[string]string{"DATABASE_URL": "postgres://x", "WEB_ORIGIN": "http://localhost:3000/"}, wantErr: "WEB_ORIGIN"},
+		{name: "origin no scheme", env: map[string]string{"DATABASE_URL": "postgres://x", "WEB_ORIGIN": "localhost:3000"}, wantErr: "WEB_ORIGIN"},
+		{name: "origin bad scheme", env: map[string]string{"DATABASE_URL": "postgres://x", "WEB_ORIGIN": "ftp://app.example"}, wantErr: "WEB_ORIGIN"},
+		{name: "origin no host", env: map[string]string{"DATABASE_URL": "postgres://x", "WEB_ORIGIN": "http://"}, wantErr: "WEB_ORIGIN"},
+		{name: "origin with path", env: map[string]string{"DATABASE_URL": "postgres://x", "WEB_ORIGIN": "https://app.example/path"}, wantErr: "WEB_ORIGIN"},
+		{name: "origin with userinfo", env: map[string]string{"DATABASE_URL": "postgres://x", "WEB_ORIGIN": "https://user@app.example"}, wantErr: "WEB_ORIGIN"},
+		{name: "origin with query", env: map[string]string{"DATABASE_URL": "postgres://x", "WEB_ORIGIN": "https://app.example?x=1"}, wantErr: "WEB_ORIGIN"},
+		{name: "origin with fragment", env: map[string]string{"DATABASE_URL": "postgres://x", "WEB_ORIGIN": "https://app.example#frag"}, wantErr: "WEB_ORIGIN"},
+		{
+			name:    "both database url and origin invalid",
+			env:     map[string]string{"WEB_ORIGIN": "*"},
+			wantErr: "DATABASE_URL is required",
+			also:    "WEB_ORIGIN must be an origin",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,6 +63,9 @@ func TestLoad(t *testing.T) {
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
+				}
+				if tt.also != "" && !strings.Contains(err.Error(), tt.also) {
+					t.Fatalf("err = %v, want also containing %q", err, tt.also)
 				}
 				return
 			}
