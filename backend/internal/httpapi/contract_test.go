@@ -8,48 +8,137 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
+	"github.com/google/uuid"
 
+	"github.com/InzKazik/mealplanner/backend/internal/auth"
 	"github.com/InzKazik/mealplanner/backend/internal/httpapi"
+	"github.com/InzKazik/mealplanner/backend/internal/service"
 )
 
 const specPath = "../../../openapi.yaml"
 
+// specRouter loads and validates openapi.yaml once for the whole test binary.
+var specRouter = sync.OnceValues(func() (routers.Router, error) {
+	doc, err := openapi3.NewLoader().LoadFromFile(specPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := doc.Validate(context.Background()); err != nil {
+		return nil, err
+	}
+	return gorillamux.NewRouter(doc)
+})
+
+// validToken is the only access token stubTokens accepts.
+const validToken = "valid-token"
+
+var stubUserID = uuid.MustParse("11111111-1111-1111-1111-111111111111")
+
+type stubTokens struct{}
+
+func (stubTokens) ParseAccess(token string) (uuid.UUID, error) {
+	if token == validToken {
+		return stubUserID, nil
+	}
+	return uuid.Nil, auth.ErrInvalidAccessToken
+}
+
+// stubAuth answers Login with invalid credentials and GetUser with a fixed
+// user, and panics on anything else, so tests that must not reach the service
+// fail loudly if they do.
+type stubAuth struct{ httpapi.AuthService }
+
+func (stubAuth) Login(context.Context, string, string) (service.Session, error) {
+	return service.Session{}, service.ErrInvalidCredentials
+}
+
+func (stubAuth) GetUser(_ context.Context, id uuid.UUID) (service.User, error) {
+	at := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	return service.User{ID: id, Email: "stub@example.com", DisplayName: "Stub", CreatedAt: at, UpdatedAt: at}, nil
+}
+
+func newTestRouter(t *testing.T, mods ...func(*httpapi.Deps)) http.Handler {
+	t.Helper()
+	d := httpapi.Deps{
+		Logger:    slog.New(slog.DiscardHandler),
+		Ready:     func(context.Context) error { return nil },
+		WebOrigin: "http://localhost:3000",
+		Auth:      stubAuth{},
+		Tokens:    stubTokens{},
+	}
+	for _, m := range mods {
+		m(&d)
+	}
+	return httpapi.NewRouter(d)
+}
+
 func newRouter(t *testing.T, ready func(context.Context) error) http.Handler {
 	t.Helper()
-	return httpapi.NewRouter(httpapi.Deps{
-		Logger:    slog.New(slog.DiscardHandler),
-		Ready:     ready,
-		WebOrigin: "http://localhost:3000",
-	})
+	return newTestRouter(t, func(d *httpapi.Deps) { d.Ready = ready })
 }
 
 func alwaysReady(context.Context) error { return nil }
 
-// contract sends the request through handler and fails the test unless both
-// the request and the response conform to openapi.yaml. It returns the response.
-func contract(t *testing.T, handler http.Handler, method, path string) *httptest.ResponseRecorder {
+type request struct {
+	body       string
+	bearer     string
+	remoteAddr string
+	skipReqVal bool
+}
+
+type requestOption func(*request)
+
+func withBody(json string) requestOption    { return func(r *request) { r.body = json } }
+func withBearer(token string) requestOption { return func(r *request) { r.bearer = token } }
+func withRemoteAddr(addr string) requestOption {
+	return func(r *request) { r.remoteAddr = addr }
+}
+
+// withInvalidRequest skips validating the request itself against the
+// contract, for tests that deliberately send a bad request. The response is
+// still validated.
+func withInvalidRequest() requestOption { return func(r *request) { r.skipReqVal = true } }
+
+// contract sends the request through handler and fails the test unless the
+// request (unless withInvalidRequest) and the response conform to
+// openapi.yaml. It returns the response.
+func contract(t *testing.T, handler http.Handler, method, path string, opts ...requestOption) *httptest.ResponseRecorder {
 	t.Helper()
 	ctx := context.Background()
+	var cfg request
+	for _, o := range opts {
+		o(&cfg)
+	}
 
-	doc, err := openapi3.NewLoader().LoadFromFile(specPath)
+	oaRouter, err := specRouter()
 	if err != nil {
 		t.Fatalf("load %s: %v", specPath, err)
 	}
-	if err := doc.Validate(ctx); err != nil {
-		t.Fatalf("openapi.yaml is not a valid OpenAPI document: %v", err)
+
+	var body io.Reader
+	if cfg.body != "" {
+		body = strings.NewReader(cfg.body)
 	}
-	oaRouter, err := gorillamux.NewRouter(doc)
-	if err != nil {
-		t.Fatalf("build spec router: %v", err)
+	req := httptest.NewRequest(method, "http://localhost:8080/v1"+path, body)
+	if cfg.body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if cfg.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.bearer)
+	}
+	if cfg.remoteAddr != "" {
+		req.RemoteAddr = cfg.remoteAddr
 	}
 
-	req := httptest.NewRequest(method, "http://localhost:8080/v1"+path, nil)
 	route, pathParams, err := oaRouter.FindRoute(req)
 	if err != nil {
 		if errors.Is(err, routers.ErrPathNotFound) {
@@ -57,10 +146,12 @@ func contract(t *testing.T, handler http.Handler, method, path string) *httptest
 		}
 		t.Fatalf("find route: %v", err)
 	}
-	opts := &openapi3filter.Options{AuthenticationFunc: openapi3filter.NoopAuthenticationFunc}
-	in := &openapi3filter.RequestValidationInput{Request: req, PathParams: pathParams, Route: route, Options: opts}
-	if err := openapi3filter.ValidateRequest(ctx, in); err != nil {
-		t.Fatalf("request does not match contract: %v", err)
+	opts2 := &openapi3filter.Options{AuthenticationFunc: openapi3filter.NoopAuthenticationFunc}
+	in := &openapi3filter.RequestValidationInput{Request: req, PathParams: pathParams, Route: route, Options: opts2}
+	if !cfg.skipReqVal {
+		if err := openapi3filter.ValidateRequest(ctx, in); err != nil {
+			t.Fatalf("request does not match contract: %v", err)
+		}
 	}
 
 	rec := httptest.NewRecorder()
@@ -112,6 +203,44 @@ func TestReadyzMatchesContract(t *testing.T) {
 			if got := rec.Header().Get("Content-Type"); got != tt.wantCT {
 				t.Errorf("Content-Type = %q, want %q", got, tt.wantCT)
 			}
+		})
+	}
+}
+
+func TestReadyzGivesUpOnAHungDatabase(t *testing.T) {
+	hung := func(ctx context.Context) error {
+		<-ctx.Done() // a wedged database never answers; only the deadline ends the wait
+		return ctx.Err()
+	}
+
+	rec := contract(t, newRouter(t, hung), http.MethodGet, "/readyz")
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestNewRouterPanicsWithoutRequiredDependencies(t *testing.T) {
+	full := httpapi.Deps{
+		Logger: slog.New(slog.DiscardHandler), Ready: alwaysReady,
+		WebOrigin: "http://localhost:3000", Auth: stubAuth{}, Tokens: stubTokens{},
+	}
+	tests := map[string]func(*httpapi.Deps){
+		"no logger": func(d *httpapi.Deps) { d.Logger = nil },
+		"no ready":  func(d *httpapi.Deps) { d.Ready = nil },
+		"no auth":   func(d *httpapi.Deps) { d.Auth = nil },
+		"no tokens": func(d *httpapi.Deps) { d.Tokens = nil },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			d := full
+			mutate(&d)
+			defer func() {
+				if recover() == nil {
+					t.Error("NewRouter did not panic")
+				}
+			}()
+			httpapi.NewRouter(d)
 		})
 	}
 }

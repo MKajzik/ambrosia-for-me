@@ -48,6 +48,7 @@ func newRequestID() string {
 }
 
 // requestLogger logs one structured line per request, after it completes.
+// Server errors (5xx) log at error level so they can be alerted on by level.
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -58,16 +59,36 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			if status == 0 {
 				status = http.StatusOK
 			}
-			logger.LogAttrs(r.Context(), slog.LevelInfo, "request",
+			level := slog.LevelInfo
+			if status >= http.StatusInternalServerError {
+				level = slog.LevelError
+			}
+			attrs := []slog.Attr{
 				slog.String("request_id", RequestID(r.Context())),
+				slog.String("remote_ip", ClientIP(r.Context())),
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.Int("status", status),
 				slog.Int("bytes", ww.BytesWritten()),
-				slog.Duration("duration", time.Since(start)),
-			)
+				slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000),
+			}
+			if id, ok := UserID(r.Context()); ok {
+				attrs = append(attrs, slog.String("user_id", id.String()))
+			}
+			logger.LogAttrs(r.Context(), level, "request", attrs...)
 		})
 	}
+}
+
+// maxBodyBytes caps request bodies; every request body in this API is small JSON.
+const maxBodyBytes = 64 << 10
+
+// bodyLimit rejects request bodies larger than maxBodyBytes.
+func bodyLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // recoverer turns a handler panic into a 500 problem response and logs the stack.

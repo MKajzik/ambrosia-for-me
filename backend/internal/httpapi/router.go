@@ -14,7 +14,9 @@ import (
 	"github.com/InzKazik/mealplanner/backend/internal/api"
 )
 
-// Deps are the collaborators the router needs.
+// Deps are the collaborators the router needs. Logger, Ready, Auth and Tokens
+// are required: NewRouter panics without them rather than failing on the first
+// request.
 type Deps struct {
 	Logger *slog.Logger
 	// Ready reports whether the service can take traffic (for example the
@@ -22,22 +24,44 @@ type Deps struct {
 	Ready func(ctx context.Context) error
 	// WebOrigin is the single browser origin allowed by CORS.
 	WebOrigin string
+	// Auth implements the account endpoints.
+	Auth AuthService
+	// Tokens validates access tokens for secured operations.
+	Tokens TokenParser
+	// Limits are the rate limits; zero values use the defaults.
+	Limits RateLimits
+	// TrustedProxies is how many reverse proxies sit in front of the API and
+	// append to X-Forwarded-For. 0 means the peer address is the client.
+	TrustedProxies int
 }
 
 // NewRouter returns the root handler with every /v1 route and all middleware.
 func NewRouter(d Deps) http.Handler {
+	if d.Logger == nil || d.Ready == nil || d.Auth == nil || d.Tokens == nil {
+		panic("httpapi: Deps.Logger, Ready, Auth and Tokens are required")
+	}
+	limits := d.Limits.withDefaults()
+	spec, err := api.GetSpec()
+	if err != nil {
+		panic("httpapi: load embedded OpenAPI document: " + err.Error())
+	}
+
 	r := chi.NewRouter()
 
 	r.Use(requestID)
+	r.Use(withAuthState)
+	r.Use(clientIP(d.TrustedProxies))
 	r.Use(requestLogger(d.Logger))
 	r.Use(recoverer(d.Logger))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{d.WebOrigin},
 		AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
 		AllowedHeaders: []string{"Authorization", "Content-Type"},
-		ExposedHeaders: []string{requestIDHeader},
+		ExposedHeaders: []string{requestIDHeader, "Retry-After"},
 		MaxAge:         300,
 	}))
+	r.Use(bodyLimit)
+	r.Use(authIPLimiter(limits.AuthPerMinute))
 
 	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 		WriteProblem(w, http.StatusNotFound, CodeNotFound, "")
@@ -49,11 +73,21 @@ func NewRouter(d Deps) http.Handler {
 		WriteProblem(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "")
 	})
 
-	api.HandlerWithOptions(&server{logger: d.Logger, ready: d.Ready}, api.ChiServerOptions{
+	srv := &server{logger: d.Logger, ready: d.Ready, auth: d.Auth}
+	api.HandlerWithOptions(srv, api.ChiServerOptions{
 		BaseURL:    "/v1",
 		BaseRouter: r,
-		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-			WriteProblem(w, http.StatusBadRequest, CodeValidationFailed, err.Error())
+		// The generated wrapper applies these in order, so the last one is the
+		// outermost: the validator (which authenticates) runs first, then the
+		// per-user rate limit, then the handler.
+		Middlewares: []api.MiddlewareFunc{
+			userLimiter(limits.UserPerMinute),
+			openAPIValidator(spec, d.Tokens, d.Logger),
+		},
+		ErrorHandlerFunc: func(w http.ResponseWriter, req *http.Request, err error) {
+			d.Logger.WarnContext(req.Context(), "generated wrapper rejected a request",
+				slog.String("request_id", RequestID(req.Context())), slog.Any("err", err))
+			WriteProblem(w, http.StatusBadRequest, CodeValidationFailed, "invalid request parameter")
 		},
 	})
 	return r
