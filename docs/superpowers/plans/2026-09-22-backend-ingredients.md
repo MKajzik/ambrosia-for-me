@@ -59,7 +59,7 @@
 **Interfaces:**
 - Produces: the `ingredients` table (`id, name, category, owner_id, usda_fdc_id, grams_per_piece, density_g_per_ml, created_at, updated_at`), the `ingredient_nutrients` table (`ingredient_id, nutrient_key, amount_per_100g`), and the Postgres enum type `nutrient_key`. The foreign key on `owner_id` is named `ingredients_owner_id_fkey` (Postgres's default name for an unnamed inline `REFERENCES`, matching the existing style in `00003_refresh_tokens.sql`) — Task 3 relies on that exact name.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `backend/internal/db/schema_test.go` (same file as the existing `TestUsersSchemaEnforcesItsConstraints`; reuses its `migratedConn` helper):
 
@@ -127,12 +127,12 @@ func TestIngredientsSchemaEnforcesItsConstraints(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd backend && go test ./internal/db/... -run TestIngredientsSchemaEnforcesItsConstraints -v`
 Expected: FAIL — `relation "ingredients" does not exist` (needs Docker; the test skips locally without it and fails under `CI=1`, per `testutil.requireDocker`).
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 Create `backend/migrations/00004_ingredients.sql`:
 
@@ -182,12 +182,12 @@ DROP TYPE nutrient_key;
 
 This is scratch-verified: `sqlc generate` parses it cleanly against a copy of the real `sqlc.yaml` (see Task 2), and its shape (inline `REFERENCES ... ON DELETE CASCADE`, `CHECK`, the shared `set_updated_at` trigger) matches `00002_users.sql` / `00003_refresh_tokens.sql` exactly.
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cd backend && go test ./internal/db/... -run TestIngredientsSchemaEnforcesItsConstraints -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/migrations/00004_ingredients.sql backend/internal/db/schema_test.go
@@ -218,7 +218,7 @@ git commit -m "feat(backend): add the ingredients and ingredient_nutrients table
 
   All of these are scratch-verified: a real `sqlc generate` run against these exact query texts (with a copy of the repo's `sqlc.yaml`) produced exactly these signatures with no errors.
 
-- [ ] **Step 1: Write the queries**
+- [x] **Step 1: Write the queries**
 
 Create `backend/internal/store/queries/ingredients.sql`:
 
@@ -287,7 +287,7 @@ Notes on choices already made (do not redesign these):
 - `GetIngredientForUser` exists for symmetry and future use but Task 5's handlers do not need it: `UpdateIngredient`'s `RETURNING *` already gives the post-update row, and there is no `GET /ingredients/{id}` in the spec.
 - No "delete blocked because in use" query yet: nothing references `ingredients` until the meals plan adds `meal_ingredients`. That plan must add the FK and translate its violation the same way Task 3 translates `ingredients_owner_id_fkey` — do not build that here (YAGNI).
 
-- [ ] **Step 2: Regenerate and verify it compiles**
+- [x] **Step 2: Regenerate and verify it compiles**
 
 Run: `cd backend && go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate`
 Expected: exits 0, creates/updates `internal/store/sqlc/ingredients.sql.go` and adds the `Ingredient`, `IngredientNutrient`, `NutrientKey` types to `models.go`.
@@ -295,7 +295,7 @@ Expected: exits 0, creates/updates `internal/store/sqlc/ingredients.sql.go` and 
 Run: `cd backend && go build ./...`
 Expected: builds cleanly (nothing references the new queries yet, so this only proves the generated code itself compiles).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/internal/store/queries/ingredients.sql backend/internal/store/sqlc/
@@ -327,7 +327,7 @@ git commit -m "feat(backend): add sqlc queries for ingredients"
   - `func (*Ingredients) List(ctx, userID uuid.UUID, in ListIngredientsInput) (IngredientPage, error)`
   - `func (*Ingredients) Search(ctx, userID uuid.UUID, query string, category *string, limit int) ([]Ingredient, error)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/internal/service/ingredients_test.go`:
 
@@ -561,12 +561,12 @@ func TestIngredientsSearchRanksByNameSimilarity(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd backend && go test ./internal/service/... -run TestIngredients -v`
 Expected: FAIL to compile — `service.Ingredients` etc. do not exist yet.
 
-- [ ] **Step 3: Add `IsForeignKeyViolation` to the store**
+- [x] **Step 3: Add `IsForeignKeyViolation` to the store**
 
 In `backend/internal/store/store.go`, add after `IsUniqueViolation`:
 
@@ -579,7 +579,7 @@ func IsForeignKeyViolation(err error, constraint string) bool {
 }
 ```
 
-- [ ] **Step 4: Implement the service**
+- [x] **Step 4: Implement the service**
 
 Create `backend/internal/service/ingredients.go`:
 
@@ -867,16 +867,16 @@ func toIngredient(row sqlc.Ingredient, nutrients map[string]float64) Ingredient 
 }
 ```
 
-- [ ] **Step 5: Fix the test file's helper duplication**
+- [x] **Step 5: Fix the test file's helper duplication**
 
 The Step 1 listing showed two versions of `newTestUser` and called `newIngredientsFixture` twice in one test to explain the `sqlc` import; clean that up for real: `newIngredientsFixture` returns `(*service.Ingredients, *store.Store)` and every test calls it once. Only the final `newTestUser` body (the one using `sqlc.CreateUserParams`) belongs in the file. Re-read the finished `ingredients_test.go` before running it and delete the placeholder/duplicate blocks.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `cd backend && go test ./internal/service/... -run TestIngredients -v`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/internal/store/store.go backend/internal/service/ingredients.go backend/internal/service/ingredients_test.go
@@ -896,7 +896,7 @@ git commit -m "feat(backend): add the ingredients service"
 
   All of the above is scratch-verified: this exact YAML was run through `redocly lint` (valid, only the two pre-existing unrelated warnings) and a real `oapi-codegen` v2.8.0 generate (matches the repo's pinned version), and the struct field names, JSON tags and `ServerInterface` signatures above were read from that generated output.
 
-- [ ] **Step 1: Add the tag and the two paths**
+- [x] **Step 1: Add the tag and the two paths**
 
 In `openapi.yaml`, after the `Profile` tag (before `paths:`), add:
 
@@ -1029,7 +1029,7 @@ Immediately after `paths:` add (before the existing `/healthz:`, or anywhere amo
           $ref: '#/components/responses/Problem'
 ```
 
-- [ ] **Step 2: Add the schemas**
+- [x] **Step 2: Add the schemas**
 
 In `components.schemas`, after `UpdateProfileRequest` (before `responses:`), add:
 
@@ -1156,7 +1156,7 @@ In `components.schemas`, after `UpdateProfileRequest` (before `responses:`), add
           nullable: true
 ```
 
-- [ ] **Step 3: Add the `NotFound` response**
+- [x] **Step 3: Add the `NotFound` response**
 
 In `components.responses`, before `Conflict`, add:
 
@@ -1169,7 +1169,7 @@ In `components.responses`, before `Conflict`, add:
             $ref: '#/components/schemas/Problem'
 ```
 
-- [ ] **Step 4: Lint and regenerate**
+- [x] **Step 4: Lint and regenerate**
 
 Run: `make lint-api`
 Expected: valid, same 4 pre-existing warnings as before this change (info-license, no-server-example.com, and the two `operation-4xx-response` warnings already exempted in `.redocly.lint-ignore.yaml` for `/healthz` and `/readyz`) — no new warnings.
@@ -1180,7 +1180,7 @@ Expected: `backend/internal/api/api.gen.go` is regenerated; `git diff --stat` sh
 Run: `cd backend && go build ./...`
 Expected: builds cleanly (nothing implements the new `ServerInterface` methods yet, but `api.gen.go` alone must compile).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add openapi.yaml backend/internal/api/api.gen.go
@@ -1202,7 +1202,7 @@ git commit -m "feat(api): add the ingredients endpoints to the contract"
 - Consumes: `service.Ingredients` and its types from Task 3; `api.*` types from Task 4; the existing `toNullable`, `toOptional`, `decodeJSON`, `requireUser`, `writeJSON` helpers from `account.go`.
 - Produces: `httpapi.IngredientsService` interface (consumed by `router.go`'s `Deps.Ingredients` and by Task 6's tests).
 
-- [ ] **Step 1: Add the `NotFound` mapping to `writeServiceError`**
+- [x] **Step 1: Add the `NotFound` mapping to `writeServiceError`**
 
 In `backend/internal/httpapi/account.go`, in `writeServiceError`, add a case (order matters: `errors.Is` checks are independent here, so placement among the existing cases doesn't change behavior — add it after the `ErrInvalidRefreshToken` case):
 
@@ -1222,7 +1222,7 @@ Also update the comment on the existing `ErrNotFound` case, since Task 3's `Ingr
 		WriteProblem(w, http.StatusUnauthorized, CodeUnauthorized, "")
 ```
 
-- [ ] **Step 2: Write the nutrient conversion helpers**
+- [x] **Step 2: Write the nutrient conversion helpers**
 
 Create `backend/internal/httpapi/nutrients.go`:
 
@@ -1289,7 +1289,7 @@ func nutrientsToAPI(m map[string]float64) api.NutrientAmounts {
 }
 ```
 
-- [ ] **Step 3: Write the handlers**
+- [x] **Step 3: Write the handlers**
 
 Create `backend/internal/httpapi/ingredients.go`:
 
@@ -1490,7 +1490,7 @@ Note: `UpdateIngredient`/`DeleteIngredient`'s `id` parameter is declared here as
 
 `toNullable` and `toOptional` are reused unchanged from `account.go` — do not redefine them here.
 
-- [ ] **Step 4: Wire the new service into `server` and the router**
+- [x] **Step 4: Wire the new service into `server` and the router**
 
 In `backend/internal/httpapi/server.go`, add a field:
 
@@ -1532,12 +1532,12 @@ type Deps struct {
 
 (Keep every other line of `router.go` and `server.go` unchanged — these are the only edits in both files.)
 
-- [ ] **Step 5: Build**
+- [x] **Step 5: Build**
 
 Run: `cd backend && go build ./...`
 Expected: builds cleanly. `var _ api.ServerInterface = (*server)(nil)` in `server.go` now also checks the four new methods.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/internal/httpapi/
@@ -1556,7 +1556,7 @@ git commit -m "feat(backend): implement the ingredients handlers"
 **Interfaces:**
 - Consumes: everything from Tasks 3–5, plus the existing `newTestRouter`, `contract`, `decodeAs[T]`, `problemCode`, `withBody`, `withBearer` helpers already in the `httpapi_test` package.
 
-- [ ] **Step 1: Read `cmd/api/main.go` and wire the service**
+- [x] **Step 1: Read `cmd/api/main.go` and wire the service**
 
 Read `backend/cmd/api/main.go` (find the exact line that constructs `service.NewAuth` and the `httpapi.Deps{...}` literal) and add, next to the existing `auth := service.NewAuth(...)` line:
 
@@ -1566,7 +1566,7 @@ Read `backend/cmd/api/main.go` (find the exact line that constructs `service.New
 
 (`st` is whatever variable name the existing code already uses for `store.New(pool)` — match it exactly, do not introduce a second store instance.) Then add `Ingredients: ingredients,` to the `httpapi.Deps{...}` literal, alongside the existing `Auth: auth,`.
 
-- [ ] **Step 2: Add a stub to the shared test router**
+- [x] **Step 2: Add a stub to the shared test router**
 
 In `backend/internal/httpapi/contract_test.go`, add a no-op stub next to `stubAuth` and wire it into `newTestRouter`'s default `Deps`:
 
@@ -1578,7 +1578,7 @@ type stubIngredients struct{ httpapi.IngredientsService }
 
 In `newTestRouter`, add `Ingredients: stubIngredients{},` to the `httpapi.Deps{...}` literal (alongside the existing `Auth: stubAuth{}`).
 
-- [ ] **Step 3: Write the end-to-end test**
+- [x] **Step 3: Write the end-to-end test**
 
 Create `backend/internal/httpapi/ingredients_flow_test.go`, modeled on `account_flow_test.go`'s `newAccountRouter`/`TestAccountLifecycle`:
 
@@ -1757,7 +1757,7 @@ func TestIngredientsListPaginatesThroughTheContract(t *testing.T) {
 
 Note: the cursor from `list.NextCursor.MustGet()` is a base64url string (from `encodeIngredientCursor`), which can contain `-` and `_` but never characters that need percent-encoding in a query string, so concatenating it directly into `path` is safe here.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && go test ./... -v -run 'Ingredient'`
 Expected: PASS (needs Docker)
@@ -1765,7 +1765,7 @@ Expected: PASS (needs Docker)
 Run: `cd backend && go vet ./... && go test ./...`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/cmd/api/main.go backend/internal/httpapi/contract_test.go backend/internal/httpapi/ingredients_flow_test.go
@@ -1790,7 +1790,7 @@ git commit -m "test(backend): add end-to-end coverage for the ingredients endpoi
 
 The nutrient-number and category-name mappings below are scratch-verified against the live FoodData Central API this session (`GET https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Foundation&...`): the field names (`fdcId`, `description`, `foodCategory`, and `foodNutrients[].nutrientNumber`/`nutrientName`/`unitName`/`value`) and the specific nutrient numbers `208, 203, 205, 269, 291, 204, 606, 307, 306, 301, 303, 304, 309, 320, 418, 328, 417` were read directly from real responses. `401` for Vitamin C (total ascorbic acid) was not hit live (the query for a vitamin-C-rich food was rate-limited mid-session) but is USDA's long-stable, well-documented nutrient number for it; Step 2 of Task 8 fetches one real page from the live API as its fixture, which will surface a mismatch immediately if this is wrong.
 
-- [ ] **Step 1: Write the category mapping and its test**
+- [x] **Step 1: Write the category mapping and its test**
 
 Create `backend/internal/usda/category_test.go`:
 
@@ -1879,7 +1879,7 @@ func MapCategory(usdaCategory string) (category string, known bool) {
 Run: `cd backend && go test ./internal/usda/... -run TestMapCategory -v`
 Expected: PASS
 
-- [ ] **Step 2: Write the nutrient mapping and its test**
+- [x] **Step 2: Write the nutrient mapping and its test**
 
 Create `backend/internal/usda/nutrients_test.go`:
 
@@ -1961,7 +1961,7 @@ func MapNutrients(in []FoodNutrient) map[string]float64 {
 Run: `cd backend && go test ./internal/usda/... -run TestMapNutrients -v`
 Expected: PASS
 
-- [ ] **Step 3: Write the client and its test**
+- [x] **Step 3: Write the client and its test**
 
 Create `backend/internal/usda/client_test.go`:
 
@@ -2177,12 +2177,12 @@ func (c *Client) doFetch(ctx context.Context, u string) ([]Food, bool, error) {
 }
 ```
 
-- [ ] **Step 4: Run all of it**
+- [x] **Step 4: Run all of it**
 
 Run: `cd backend && go test ./internal/usda/... -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/internal/usda/client.go backend/internal/usda/client_test.go \
@@ -2207,7 +2207,7 @@ git commit -m "feat(backend): add the FoodData Central client and its mapping ta
 
 `internal/usda` calls `store` directly rather than going through `internal/service`: importing is a one-off offline ETL job with no request-serving business rule beyond the idempotent upsert SQL already provides, not something `internal/service` (whose own doc comment scopes it to business rules called by the HTTP layer) needs to own. It does import `internal/service` for the `Nutrient*` constants only, which is one-directional and does not create a cycle (`service` never imports `usda`).
 
-- [ ] **Step 1: Write the failing integration test**
+- [x] **Step 1: Write the failing integration test**
 
 Create `backend/internal/usda/import_test.go`. This uses a real migrated Postgres (via `testutil`) and a fake HTTP server (never the live USDA API), matching the "never mocks" rule for the database while keeping the external network call out of tests:
 
@@ -2323,12 +2323,12 @@ func TestImportIsIdempotentAndMapsUnknownCategoriesToOther(t *testing.T) {
 
 (use this version; delete the two `st.GetIngredientForUser(...)` calls and the placeholder helper name above, and add `"github.com/jackc/pgx/v5/pgxpool"` only if needed for the type — `pool.Acquire` already returns the right type from the existing `pool` variable, no new import required)
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd backend && go test ./internal/usda/... -run TestImportIsIdempotent -v`
 Expected: FAIL to compile — `usda.Import` does not exist yet.
 
-- [ ] **Step 3: Implement `Import`**
+- [x] **Step 3: Implement `Import`**
 
 Create `backend/internal/usda/import.go`:
 
@@ -2392,12 +2392,12 @@ func Import(ctx context.Context, st *store.Store, client *Client, logger *slog.L
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cd backend && go test ./internal/usda/... -run TestImportIsIdempotent -v`
 Expected: PASS
 
-- [ ] **Step 5: Write `cmd/import-usda`**
+- [x] **Step 5: Write `cmd/import-usda`**
 
 Create `backend/cmd/import-usda/main.go`:
 
@@ -2450,7 +2450,7 @@ func main() {
 }
 ```
 
-- [ ] **Step 6: Document `FDC_API_KEY`**
+- [x] **Step 6: Document `FDC_API_KEY`**
 
 In `.env.example`, add after the `JWT_SECRET` block:
 
@@ -2462,12 +2462,12 @@ In `.env.example`, add after the `JWT_SECRET` block:
 FDC_API_KEY=
 ```
 
-- [ ] **Step 7: Build and run the full suite**
+- [x] **Step 7: Build and run the full suite**
 
 Run: `cd backend && go build ./... && go vet ./... && go test ./...`
 Expected: PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/internal/usda/import.go backend/internal/usda/import_test.go backend/cmd/import-usda/main.go .env.example
@@ -2483,7 +2483,7 @@ git commit -m "feat(backend): add the USDA Foundation Foods import command"
 
 **Interfaces:** none (documentation only).
 
-- [ ] **Step 1: Update `backend/CLAUDE.md`**
+- [x] **Step 1: Update `backend/CLAUDE.md`**
 
 In the "Repo map" section's `internal/` list, add a line for `internal/usda/` next to `internal/service/`:
 
@@ -2509,7 +2509,7 @@ Add one line to "Behaviour worth knowing" documenting the search/pagination spli
 - **Ingredient search is not paginated.** `GET /ingredients?q=` ranks by trigram similarity and returns up to `limit` results with no cursor; only the plain alphabetical listing (no `q`) paginates. A type-ahead UI never needs a second page of search results, and cursoring a similarity-ranked result set has no stable order to cursor over.
 ```
 
-- [ ] **Step 2: Run everything CI runs**
+- [x] **Step 2: Run everything CI runs**
 
 Run: `make check`
 Expected: PASS (lints `openapi.yaml`, vets and tests the backend, runs golangci-lint, and fails if generated code is stale)
@@ -2517,7 +2517,7 @@ Expected: PASS (lints `openapi.yaml`, vets and tests the backend, runs golangci-
 Run: `make check-generated`
 Expected: clean (no diff)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/CLAUDE.md

@@ -104,7 +104,7 @@ Work on a new branch from the merged `master`: `git fetch origin && git checkout
 **Interfaces:**
 - Produces: operations `registerUser` (`POST /auth/register`), `loginUser` (`POST /auth/login`), `refreshSession` (`POST /auth/refresh`), `logoutUser` (`POST /auth/logout`), `getMe` / `updateMe` / `deleteMe` (`/me`); schemas `User`, `RegisterRequest`, `LoginRequest`, `RefreshRequest`, `AuthResponse`, `UpdateProfileRequest`, `FieldError`, `Problem.errors`; responses `BadRequest`, `Unauthorized`, `Conflict`, `TooManyRequests`. Generated Go: `api.ServerInterface` with methods `RegisterUser`, `LoginUser`, `RefreshSession`, `LogoutUser`, `GetMe`, `UpdateMe`, `DeleteMe` (each `func(w http.ResponseWriter, r *http.Request)`), `api.GetSpec() (*openapi3.T, error)` (the embedded spec), `api.RegisterRequest{Email openapi_types.Email; Password, DisplayName string}`, `api.LoginRequest`, `api.RefreshRequest{RefreshToken string}`, `api.UpdateProfileRequest` (`DisplayName *string`, four `nullable.Nullable[float64]` targets), `api.User`, `api.AuthResponse`, `api.AuthResponseTokenTypeBearer`.
 
-- [ ] **Step 1: Replace `openapi.yaml`**
+- [x] **Step 1: Replace `openapi.yaml`**
 
 ```yaml
 openapi: 3.0.3
@@ -514,12 +514,12 @@ components:
             $ref: '#/components/schemas/Problem'
 ```
 
-- [ ] **Step 2: Lint the contract**
+- [x] **Step 2: Lint the contract**
 
 Run: `make lint-api`
 Expected: `Woohoo! Your API description is valid.` and `2 problems are explicitly ignored.`, no warnings or errors. (Every new operation declares a 4XX response, so the exemption list stays `/healthz` and `/readyz`.)
 
-- [ ] **Step 3: Replace the generator config**
+- [x] **Step 3: Replace the generator config**
 
 `backend/internal/api/oapi.yaml`:
 
@@ -539,7 +539,7 @@ output-options:
 
 `embedded-spec` makes the generated file carry the spec (`api.GetSpec()`), which the request validator uses at runtime, so the binary does not need `openapi.yaml` on disk. `nullable-type` makes optional nullable fields `nullable.Nullable[T]`, which is what lets PATCH tell "absent" from "null".
 
-- [ ] **Step 4: Add the runtime dependencies and regenerate**
+- [x] **Step 4: Add the runtime dependencies and regenerate**
 
 ```bash
 cd backend && go get github.com/oapi-codegen/nullable@v1.2.0 github.com/oapi-codegen/runtime@v1.7.0 && cd ..
@@ -547,12 +547,12 @@ make generate
 ```
 Expected: `backend/internal/api/api.gen.go` is rewritten. It must now contain `func GetSpec()`, `type ServerInterface interface` with the seven new methods (`RegisterUser`, `LoginUser`, `RefreshSession`, `LogoutUser`, `GetMe`, `UpdateMe`, `DeleteMe`), and in `UpdateProfileRequest` fields of type `nullable.Nullable[float64]`.
 
-- [ ] **Step 5: Watch the contract-first build failure**
+- [x] **Step 5: Watch the contract-first build failure**
 
 Run: `cd backend && go build ./... 2>&1 | head -5`
 Expected: FAIL with `*server does not implement api.ServerInterface (missing method DeleteMe)` (and the other new methods). This is the intended safety net: a spec change breaks the build until every operation has a handler.
 
-- [ ] **Step 6: Keep the repo green until the handlers exist (temporary)**
+- [x] **Step 6: Keep the repo green until the handlers exist (temporary)**
 
 In `backend/internal/httpapi/server.go`, replace
 
@@ -576,12 +576,12 @@ type server struct {
 }
 ```
 
-- [ ] **Step 7: Tidy, then verify everything still builds and passes**
+- [x] **Step 7: Tidy, then verify everything still builds and passes**
 
 Run: `cd backend && go mod tidy && grep '^go ' go.mod && gofmt -l . && go vet ./... && go test ./... -count=1`
 Expected: go line `go 1.26`/`go 1.26.0`; `gofmt -l` prints nothing; every package `ok` (the existing tests, including the database-backed ones, still pass: nothing behavioural changed).
 
-- [ ] **Step 8: Commit, then prove the drift check**
+- [x] **Step 8: Commit, then prove the drift check**
 
 ```bash
 git add openapi.yaml backend
@@ -611,7 +611,7 @@ Expected: exits non-zero with a diff for `backend/internal/api/api.gen.go`. Rest
 **Interfaces:**
 - Produces: `testutil.NewMigratedDatabase(t *testing.T) string`, the URL of a fresh database with every migration applied. Migrations run once per test package into a template database; each call copies it (`CREATE DATABASE x TEMPLATE y`), so a test costs milliseconds. Skips or fails without Docker exactly like `NewDatabase`. `NewDatabase` is unchanged in behaviour. Tasks 3, 5, 9 and 10 use it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package testutil_test
@@ -664,12 +664,12 @@ func TestNewMigratedDatabaseIsMigratedAndIsolated(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `cd backend && go test ./internal/testutil/ -count=1`
 Expected: FAIL to build with `undefined: testutil.NewMigratedDatabase`.
 
-- [ ] **Step 3: Replace the helper**
+- [x] **Step 3: Replace the helper**
 
 ```go
 // Package testutil holds helpers shared by integration tests.
@@ -835,12 +835,12 @@ func randomHex(t *testing.T) string {
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `cd backend && gofmt -l . && go vet ./... && go test ./internal/testutil/ ./internal/db/ -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL)'`
 Expected: `--- PASS: TestNewMigratedDatabaseIsMigratedAndIsolated` (about 3 seconds: it starts Postgres once), and the db package tests still `PASS` (not `SKIP`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend
@@ -868,7 +868,7 @@ git commit -m "test(backend): add migrated template databases for integration te
   - `store.Store` (embeds `*sqlc.Queries`), `store.New(pool *pgxpool.Pool) *Store`, `(*Store).InTx(ctx, fn func(q *sqlc.Queries) error) error`, `store.IsNotFound(err) bool`, `store.IsUniqueViolation(err, constraint string) bool`.
   - `make generate` also runs sqlc; `make check-generated` also covers `backend/internal/store/sqlc` and fails when a generated file is not committed.
 
-- [ ] **Step 1: Write the failing schema test**
+- [x] **Step 1: Write the failing schema test**
 
 ```go
 package db_test
@@ -980,12 +980,12 @@ func TestRefreshTokensCascadeWithTheirUser(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `cd backend && go test ./internal/db/ -run 'TestUsersSchema|TestUpdatedAt|TestRefreshTokens' -count=1`
 Expected: FAIL. The `users` and `refresh_tokens` tables do not exist (`relation "users" does not exist`).
 
-- [ ] **Step 3: Write the migrations**
+- [x] **Step 3: Write the migrations**
 
 `backend/migrations/00002_users.sql`:
 
@@ -1040,12 +1040,12 @@ CREATE TRIGGER refresh_tokens_set_updated_at
 DROP TABLE refresh_tokens;
 ```
 
-- [ ] **Step 4: Run the schema tests and confirm they pass**
+- [x] **Step 4: Run the schema tests and confirm they pass**
 
 Run: `cd backend && go test ./internal/db/ -count=1 -v 2>&1 | grep -E '^(\s*--- |ok|FAIL)'`
 Expected: every test `PASS`, including `TestMigrateAppliesAndIsIdempotent` (it now expects 3 migrations, counted from the embedded files, with no edit needed) and the new schema tests.
 
-- [ ] **Step 5: Write the sqlc config and queries**
+- [x] **Step 5: Write the sqlc config and queries**
 
 `backend/sqlc.yaml`:
 
@@ -1128,7 +1128,7 @@ UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at
 
 The `UpdateUserProfile` query takes a boolean per nullable target (`set_target_*`) so the caller can say "leave unchanged", "clear" or "set", which a single nullable parameter cannot express.
 
-- [ ] **Step 6: Update the Makefile (adds sqlc and the stronger drift check)**
+- [x] **Step 6: Update the Makefile (adds sqlc and the stronger drift check)**
 
 Recipe lines **must** start with a real tab character.
 
@@ -1180,7 +1180,7 @@ db-down: ## Stop local Postgres (data is kept)
 check: lint-api test-backend lint-backend check-generated ## Everything CI runs, except the compose workflow
 ```
 
-- [ ] **Step 7: Add the dependency, generate, and write the store**
+- [x] **Step 7: Add the dependency, generate, and write the store**
 
 ```bash
 cd backend && go get github.com/google/uuid@v1.6.0 && cd ..
@@ -1249,12 +1249,12 @@ func IsUniqueViolation(err error, constraint string) bool {
 }
 ```
 
-- [ ] **Step 8: Tidy and verify**
+- [x] **Step 8: Tidy and verify**
 
 Run: `cd backend && go mod tidy && grep '^go ' go.mod && gofmt -l . && go vet ./... && go test ./... -count=1`
 Expected: go line `go 1.26`/`go 1.26.0`; gofmt prints nothing; every package `ok`.
 
-- [ ] **Step 9: Commit, then prove the drift check covers sqlc**
+- [x] **Step 9: Commit, then prove the drift check covers sqlc**
 
 ```bash
 git add Makefile backend
@@ -1290,13 +1290,13 @@ Prove it fails on a generated file that is not committed: `git rm --cached backe
   - `auth.MinSecretLength` (32), `auth.ErrInvalidAccessToken`, `auth.NewTokenIssuer(secret []byte, ttl time.Duration, now func() time.Time) *TokenIssuer` (panics on a short secret), `(*TokenIssuer).IssueAccess(userID uuid.UUID) (token string, ttl time.Duration, err error)`, `(*TokenIssuer).ParseAccess(token string) (uuid.UUID, error)` (HS256 only; issuer, expiry and a UUID subject required; every failure is `ErrInvalidAccessToken`).
   - `auth.NewRefreshToken() (raw string, hash []byte, err error)` (32 random bytes, base64url; SHA-256 hash) and `auth.HashRefreshToken(raw string) []byte`.
 
-- [ ] **Step 1: Add the dependencies**
+- [x] **Step 1: Add the dependencies**
 
 ```bash
 cd backend && go get github.com/golang-jwt/jwt/v5@v5.3.1 github.com/alexedwards/argon2id@v1.0.0
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 `backend/internal/auth/password_test.go`:
 
@@ -1503,12 +1503,12 @@ func TestNewTokenIssuerPanicsOnShortSecret(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run them and confirm they fail**
+- [x] **Step 3: Run them and confirm they fail**
 
 Run: `cd backend && go test ./internal/auth/ -count=1`
 Expected: FAIL to build with `no non-test Go files` (or `undefined: auth.NewHasher`).
 
-- [ ] **Step 4: Write the implementation**
+- [x] **Step 4: Write the implementation**
 
 `backend/internal/auth/password.go`:
 
@@ -1681,12 +1681,12 @@ func HashRefreshToken(raw string) []byte {
 }
 ```
 
-- [ ] **Step 5: Run the tests and confirm they pass**
+- [x] **Step 5: Run the tests and confirm they pass**
 
 Run: `cd backend && go mod tidy && grep '^go ' go.mod && gofmt -l . && go vet ./internal/auth/ && go test ./internal/auth/ -count=1 -v 2>&1 | grep -E '^(\s*--- |ok|FAIL)'`
 Expected: go line unchanged; every test `PASS`, including all ten subtests of `TestParseAccessRejectsBadTokens` (tampered, expired, no expiry, wrong issuer, bad subject, foreign key, `alg: none`, HS512).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend
@@ -1706,7 +1706,7 @@ git commit -m "feat(backend): add argon2id password hashing and JWT access and r
 - Produces (package `service`): errors `ErrEmailTaken`, `ErrInvalidCredentials`, `ErrInvalidRefreshToken`, `ErrNotFound`; types `User{ID uuid.UUID; Email, DisplayName string; TargetKcal, TargetProteinG, TargetCarbsG, TargetFatG *float64; CreatedAt, UpdatedAt time.Time}`, `Session{AccessToken, RefreshToken string; ExpiresIn time.Duration; User User}`, `RegisterInput{Email, Password, DisplayName string}`, `Optional[T]{Specified bool; Value *T}` with `Set[T any](v *T) Optional[T]` (a nil `Value` clears the column), `UpdateInput{DisplayName *string; TargetKcal, TargetProteinG, TargetCarbsG, TargetFatG Optional[float64]}`; `service.NewAuth(st *store.Store, hasher *auth.Hasher, tokens *auth.TokenIssuer, refreshTTL time.Duration, now func() time.Time) *Auth` with methods `Register(ctx, RegisterInput) (Session, error)`, `Login(ctx, email, password) (Session, error)`, `Refresh(ctx, rawToken) (Session, error)`, `Logout(ctx, rawToken) error`, `GetUser(ctx, id) (User, error)`, `UpdateUser(ctx, id, UpdateInput) (User, error)`, `DeleteUser(ctx, id) error`.
 - Behaviour that later tasks rely on: registration creates the user and the first refresh token in one transaction; `Login` answers an unknown email, an Apple-only account and a wrong password with the same `ErrInvalidCredentials` and spends the same hashing time; `Refresh` rotates the token and, when handed a token that was already revoked, revokes its whole family and still returns `ErrInvalidRefreshToken`; `Logout` revokes the whole family and is idempotent; a missing user is `ErrNotFound`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```go
 package service_test
@@ -1950,12 +1950,12 @@ func TestDeleteUserRemovesAccountAndSessions(t *testing.T) {
 func ptr[T any](v T) *T { return &v }
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `cd backend && go test ./internal/service/ -count=1`
 Expected: FAIL to build with `no non-test Go files`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 // Package service holds business rules. It calls the store and never speaks HTTP.
@@ -2230,12 +2230,12 @@ func toUser(u sqlc.User) User {
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `cd backend && gofmt -l . && go vet ./internal/service/ && go test ./internal/service/ -count=1 -v 2>&1 | grep -E '^(\s*--- |ok|FAIL)'`
 Expected: every test `PASS` (not `SKIP`): registration, case-insensitive duplicate email, login (four subtests), refresh rotation and reuse detection, unknown and expired tokens, logout idempotence, partial profile updates, not-found handling, and account deletion with its sessions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend
@@ -2254,7 +2254,7 @@ git commit -m "feat(backend): add the auth service with rotating refresh tokens"
 - Consumes: `auth.MinSecretLength` (Task 4).
 - Produces: `config.Config` gains `JWTSecret string` (env `JWT_SECRET`, required, at least 32 bytes; the value never appears in an error) and `TrustedProxies int` (env `TRUSTED_PROXY_COUNT`, default 0, integer 0 to 10). Task 10 consumes them.
 
-- [ ] **Step 1: Replace the tests**
+- [x] **Step 1: Replace the tests**
 
 ```go
 package config_test
@@ -2360,12 +2360,12 @@ func TestLoadDoesNotPutTheSecretInErrors(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `cd backend && go test ./internal/config/ -count=1`
 Expected: FAIL to build with `unknown field JWTSecret in struct literal of type config.Config`.
 
-- [ ] **Step 3: Replace the implementation**
+- [x] **Step 3: Replace the implementation**
 
 ```go
 // Package config loads process configuration from environment variables.
@@ -2460,12 +2460,12 @@ func validateOrigin(v string) error {
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `cd backend && gofmt -l . && go vet ./internal/config/ && go test ./internal/config/ -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL)'`
 Expected: `--- PASS: TestLoad` (with all its subtests) and `--- PASS: TestLoadDoesNotPutTheSecretInErrors`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend
@@ -2483,7 +2483,7 @@ git commit -m "feat(backend): configure the JWT secret and trusted proxy count"
 **Interfaces:**
 - Produces (package `httpapi`): `clientIP(trustedProxies int) func(http.Handler) http.Handler` (unexported middleware that stores the client address in the request context) and `httpapi.ClientIP(ctx context.Context) string` (`""` when the middleware did not run). With 0 trusted proxies `X-Forwarded-For` is ignored; with N the client is the Nth entry from the right, entries further left are never used, and an unparsable or missing entry falls back to the peer address. Tasks 8 and 9 use it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package httpapi
@@ -2543,12 +2543,12 @@ func TestClientIPIsEmptyWithoutTheMiddleware(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `cd backend && go test ./internal/httpapi/ -run TestClientIP -count=1`
 Expected: FAIL to build with `undefined: clientIP` and `undefined: ClientIP`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package httpapi
@@ -2616,12 +2616,12 @@ func forwardedClient(headers []string, trusted int) (string, bool) {
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `cd backend && gofmt -l . && go vet ./internal/httpapi/ && go test ./internal/httpapi/ -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL)'`
 Expected: `--- PASS: TestClientIP` (twelve subtests), `--- PASS: TestClientIPIsEmptyWithoutTheMiddleware`, and every earlier httpapi test still `PASS`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend
@@ -2642,7 +2642,7 @@ git commit -m "feat(backend): determine the client IP with a trusted-proxy setti
 - Consumes: `api.GetSpec()` (Task 1).
 - Produces (package `httpapi`): new problem codes `CodeUnauthorized`, `CodeRateLimited`, `CodeEmailTaken`, `CodeInvalidCredentials`, `CodeInvalidRefreshToken`; `FieldError{Field, Code string}`; field codes `FieldRequired`, `FieldTooShort`, `FieldTooLong`, `FieldInvalidType`, `FieldInvalidForm`, `FieldInvalidValue`, `FieldOutOfRange`, `FieldUnknown`; `WriteValidationProblem(w, detail string, fields []FieldError)` (400, `validation_failed`, `errors` omitted when empty); unexported `describeValidation(err error) (validationResult, bool)` mapping kin-openapi request-validation errors to sorted field errors (`ok == false` for any other error); an `init()` that registers an `email` string-format validator with kin-openapi (a bare address only, no display name). Task 9 uses all of these.
 
-- [ ] **Step 1: Replace the problem tests and write the validation tests**
+- [x] **Step 1: Replace the problem tests and write the validation tests**
 
 `backend/internal/httpapi/problem_test.go` (adds the two `WriteValidationProblem` tests to the existing ones):
 
@@ -2858,12 +2858,12 @@ func TestDescribeValidationRejectsErrorsItDoesNotUnderstand(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `cd backend && go test ./internal/httpapi/ -count=1`
 Expected: FAIL to build with `undefined: httpapi.WriteValidationProblem`, `undefined: httpapi.FieldError` and `undefined: describeValidation`.
 
-- [ ] **Step 3: Replace `problem.go` and write `validation.go`**
+- [x] **Step 3: Replace `problem.go` and write `validation.go`**
 
 `backend/internal/httpapi/problem.go`:
 
@@ -3079,12 +3079,12 @@ func schemaFieldError(e *openapi3.SchemaError) FieldError {
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `cd backend && gofmt -l . && go vet ./internal/httpapi/ && go test ./internal/httpapi/ -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL)'`
 Expected: `--- PASS: TestDescribeValidation` (ten subtests), `TestDescribeValidationAcceptsAValidRequest`, `TestDescribeValidationRejectsErrorsItDoesNotUnderstand`, `TestWriteValidationProblemListsFieldErrors`, `TestWriteValidationProblemOmitsEmptyErrors`, and every earlier httpapi test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend
@@ -3110,13 +3110,13 @@ git commit -m "feat(backend): report validation failures as per-field problems"
   - Behaviour: the spec-driven validator authenticates secured operations (bearer token) and validates bodies for every operation; authentication failure (`401`, `WWW-Authenticate: Bearer`, code `unauthorized`) wins over body errors; schema failures are `400 validation_failed` with field `errors`; `/v1/auth/*` is limited per client IP before routing (malformed requests count) and other authenticated requests per user after authentication (`429`, code `rate_limited`, `Retry-After`); request bodies over 64 KiB are rejected; the request log gains `remote_ip`, `user_id`, `duration_ms` and logs 5xx at error level; `/readyz` gives up after 2 seconds; the generated wrapper's parameter errors no longer echo parser text to clients.
   - Every operation has a handler, so the temporary `api.Unimplemented` embed from Task 1 is removed.
 
-- [ ] **Step 1: Add the dependencies**
+- [x] **Step 1: Add the dependencies**
 
 ```bash
 cd backend && go get github.com/oapi-codegen/nethttp-middleware@v1.2.0 github.com/go-chi/httprate@v0.16.0
 ```
 
-- [ ] **Step 2: Replace the shared test helpers**
+- [x] **Step 2: Replace the shared test helpers**
 
 `backend/internal/httpapi/contract_test.go` grows request options (`withBody`, `withBearer`, `withRemoteAddr`, `withInvalidRequest`), loads the spec once, and provides the stubs the stub-based tests use:
 
@@ -3584,7 +3584,7 @@ func TestRequestLogLevelFollowsStatus(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Write the new tests**
+- [x] **Step 3: Write the new tests**
 
 `backend/internal/httpapi/auth_test.go` (validation problems through the router, authentication precedence, opt-out routes, both rate limits, the trusted-proxy header):
 
@@ -4076,12 +4076,12 @@ func TestAccountLifecycle(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Run them and confirm they fail**
+- [x] **Step 4: Run them and confirm they fail**
 
 Run: `cd backend && go test ./internal/httpapi/ -count=1 2>&1 | head -8`
 Expected: FAIL to build: `unknown field Auth in struct literal of type httpapi.Deps` (and `Tokens`, `Limits`, `TrustedProxies`), `undefined: httpapi.AuthService`, `undefined: httpapi.RateLimits`.
 
-- [ ] **Step 5: Write the implementation**
+- [x] **Step 5: Write the implementation**
 
 `backend/internal/httpapi/middleware.go` (the request logger gains `remote_ip`, `user_id`, `duration_ms` and level-by-status; adds `bodyLimit`):
 
@@ -4805,12 +4805,12 @@ func allowedMethods(mux *chi.Mux, path string) []string {
 
 The `Middlewares` slice order matters: the generated wrapper applies them in order, so the last one is outermost. The validator (which authenticates) runs first, then the per-user limiter, then the handler. Do not reorder them.
 
-- [ ] **Step 6: Tidy, format and run the tests**
+- [x] **Step 6: Tidy, format and run the tests**
 
 Run: `cd backend && go mod tidy && grep '^go ' go.mod && gofmt -l . && go vet ./... && go test ./internal/httpapi/ -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL|panic)'`
 Expected: go line `go 1.26`/`go 1.26.0`; gofmt prints nothing; every test `PASS` (not `SKIP`), in particular `TestAccountLifecycle`, `TestRequestValidationProblems`, `TestSecuredOperationsRequireAValidAccessToken`, `TestAuthEndpointsAreRateLimitedPerClientIP`, `TestBadRequestsCountTowardTheAuthRateLimit`, `TestAuthenticatedRequestsAreRateLimitedPerUser`, `TestTrustedProxyHeaderDecidesTheRateLimitedClient`, `TestNewRouterPanicsWithoutRequiredDependencies`, `TestReadyzGivesUpOnAHungDatabase`, and the request-log tests.
 
-- [ ] **Step 7: Prove two of the tests can fail**
+- [x] **Step 7: Prove two of the tests can fail**
 
 Mutation 1: in `router.go` swap the two entries of the `Middlewares` slice (put `openAPIValidator(...)` before `userLimiter(...)`). Run `cd backend && go test ./internal/httpapi/ -count=1`.
 Expected: FAIL in `TestAuthenticatedRequestsAreRateLimitedPerUser` (the limiter then runs before authentication, so it never sees the user). Restore the original order and confirm the package passes again.
@@ -4818,7 +4818,7 @@ Expected: FAIL in `TestAuthenticatedRequestsAreRateLimitedPerUser` (the limiter 
 Mutation 2: in `validation.go` change the registered format name `"email"` to `"emailx"`. Run the same command.
 Expected: FAIL in `TestDescribeValidation` and `TestRequestValidationProblems` (an invalid email is accepted). Restore it and confirm green.
 
-- [ ] **Step 8: Lint and commit**
+- [x] **Step 8: Lint and commit**
 
 Run: `make lint-backend`
 Expected: exits 0 (`0 issues.`).
@@ -4841,7 +4841,7 @@ git commit -m "feat(backend): authenticate and validate through the spec, rate l
 - Consumes: `config.Config.JWTSecret` / `TrustedProxies` (Task 6), `store.New`, `service.NewAuth`, `auth.NewTokenIssuer`, `auth.NewHasher(auth.DefaultHashParams)`, `httpapi.Deps` (Tasks 3 to 9).
 - Produces: a running API with the account endpoints (access tokens live 15 minutes, refresh tokens 30 days); after the first SIGINT/SIGTERM default signal handling is restored, so a second one force-quits during the drain; `make run-api` defaults `JWT_SECRET` to a development-only value; `.env.example` documents `JWT_SECRET` and `TRUSTED_PROXY_COUNT`.
 
-- [ ] **Step 1: Replace the server tests**
+- [x] **Step 1: Replace the server tests**
 
 ```go
 package main
@@ -5004,12 +5004,12 @@ func TestServeFailsWhenDatabaseIsUnreachable(t *testing.T) {
 
 The tests now use a timed HTTP client and stop waiting the moment `serve` exits, so a failure cannot hang until the go test timeout.
 
-- [ ] **Step 2: Run them and confirm the new one fails**
+- [x] **Step 2: Run them and confirm the new one fails**
 
 Run: `cd backend && go test ./cmd/api/ -run TestServeWiresTheAccountEndpoints -count=1 2>&1 | grep -E 'panic|FAIL|required'`
 Expected: FAIL: `panic: httpapi: Deps.Logger, Ready, Auth and Tokens are required` (the old `main.go` never supplied an auth service).
 
-- [ ] **Step 3: Replace `main.go`**
+- [x] **Step 3: Replace `main.go`**
 
 ```go
 // Command api runs the Meal Planner HTTP API.
@@ -5125,12 +5125,12 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `cd backend && gofmt -l . && go vet ./... && go test ./cmd/api/ -count=1 -v 2>&1 | grep -E '^(--- |ok|FAIL)'`
 Expected: `TestServeReportsReadyThenShutsDownCleanly`, `TestServeWiresTheAccountEndpoints` and `TestServeFailsWhenDatabaseIsUnreachable` all `PASS` (not `SKIP`).
 
-- [ ] **Step 5: Update the Makefile and `.env.example`**
+- [x] **Step 5: Update the Makefile and `.env.example`**
 
 Recipe lines **must** start with a real tab character.
 
@@ -5211,7 +5211,7 @@ JWT_SECRET=
 TRUSTED_PROXY_COUNT=0
 ```
 
-- [ ] **Step 6: Smoke-test the real binary against compose Postgres**
+- [x] **Step 6: Smoke-test the real binary against compose Postgres**
 
 Shell state does not persist between commands, so run this whole script in ONE command from the repo root. It needs Docker and a free port 8080 (`ss -ltn | grep -c ':8080 '` must print 0 first).
 
@@ -5264,7 +5264,7 @@ Expected:
 - the logged request line contains `remote_ip` and `user_id`.
 - `api exit=0` after SIGTERM; port 8080 is free at the end and no containers remain.
 
-- [ ] **Step 7: Lint and commit**
+- [x] **Step 7: Lint and commit**
 
 Run: `make lint-backend`
 Expected: exits 0.
@@ -5285,7 +5285,7 @@ git commit -m "feat(backend): wire the auth service into the server"
 **Interfaces:**
 - Consumes: everything above. Produces the documented conventions and stricter static checks (`bodyclose`, `gosec`, `sqlclosecheck`) that the rest of the backend is written against.
 
-- [ ] **Step 1: Enable the extra linters**
+- [x] **Step 1: Enable the extra linters**
 
 `backend/.golangci.yml`:
 
@@ -5306,7 +5306,7 @@ formatters:
 Run: `make lint-backend`
 Expected: exits 0 (`0 issues.`). The code from Tasks 3 to 10 was written to pass these, including: `errors.As` instead of type switches on errors, `api.GetSpec` and `openapi3.DefineStringFormatValidator` instead of their deprecated forms, and one targeted `//nolint:gosec` on the `CodeInvalidCredentials` error-code constant (its name trips the hard-coded-credential rule).
 
-- [ ] **Step 2: Replace `backend/CLAUDE.md`**
+- [x] **Step 2: Replace `backend/CLAUDE.md`**
 
 ````markdown
 # Backend (Go)
@@ -5374,7 +5374,7 @@ Dependencies point one way: `httpapi` → `service` → `store`; `auth` is a lea
 - Later (shopping-list SSE plan): the 30s server `WriteTimeout` cuts event streams: override it per handler with `http.NewResponseController(w).SetWriteDeadline(time.Time{})` (chi's response wrapper supports `Unwrap`). `Server.Shutdown` does not cancel request contexts and a live stream never goes idle, so set `BaseContext` or `RegisterOnShutdown` so streams end on shutdown, otherwise every shutdown with a connected client burns the full 10s and exits 1.
 ````
 
-- [ ] **Step 3: Update `CLAUDE.md`**
+- [x] **Step 3: Update `CLAUDE.md`**
 
 Make these four replacements in `CLAUDE.md` (each old string appears exactly once):
 
@@ -5398,14 +5398,14 @@ with
 with
 `- Never hand-edit generated code (`backend/internal/api`, `backend/internal/store/sqlc`). Regenerate it with `make generate`.`
 
-- [ ] **Step 4: Update `AGENTS.md`**
+- [x] **Step 4: Update `AGENTS.md`**
 
 In the first "Boundaries" bullet, replace
 `(`backend/internal/api/api.gen.go`, API clients, `sqlc` output)`
 with
 `(`backend/internal/api/api.gen.go`, `backend/internal/store/sqlc/`, API clients)`.
 
-- [ ] **Step 5: Run the whole check**
+- [x] **Step 5: Run the whole check**
 
 Run: `make check`
 Expected: exits 0: `lint-api` valid with `2 problems are explicitly ignored`; `go vet` clean and every package `ok`; `lint-backend` `0 issues.`; `check-generated` exits 0.
@@ -5415,7 +5415,7 @@ Run: `git status --short`
 Expected: prints nothing after the commit below.
 Confirm every `make` target named in `CLAUDE.md` and `backend/CLAUDE.md` exists in `make help`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/.golangci.yml CLAUDE.md backend/CLAUDE.md AGENTS.md

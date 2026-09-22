@@ -88,6 +88,26 @@ type IngredientNutrient struct {
 	AmountPer100g float64
 }
 
+type Meal struct {
+	ID                uuid.UUID
+	OwnerID           uuid.UUID
+	Name              string
+	Notes             *string
+	Servings          float64
+	SharedWithPartner bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type MealIngredient struct {
+	ID           uuid.UUID
+	MealID       uuid.UUID
+	IngredientID uuid.UUID
+	Quantity     float64
+	Unit         string
+	Position     int32
+}
+
 type RefreshToken struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID

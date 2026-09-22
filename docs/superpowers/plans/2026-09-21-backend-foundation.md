@@ -75,12 +75,12 @@ Work on a new branch from `master`: `git checkout -b feat/backend-foundation`.
 **Interfaces:**
 - Produces: `make lint-backend` runs golangci-lint v2.13.2 with the standard linters plus `errorlint`; module targets Go 1.26. Later tasks rely on both.
 
-- [ ] **Step 1: Confirm the baseline is green**
+- [x] **Step 1: Confirm the baseline is green**
 
 Run: `make lint-backend`
 Expected: exits 0 with no output (golangci-lint v1.64.8 still configured).
 
-- [ ] **Step 2: Bump the Go version**
+- [x] **Step 2: Bump the Go version**
 
 Edit `backend/go.mod` so it reads exactly:
 
@@ -90,7 +90,7 @@ module github.com/InzKazik/mealplanner/backend
 go 1.26
 ```
 
-- [ ] **Step 3: Write the golangci-lint v2 config**
+- [x] **Step 3: Write the golangci-lint v2 config**
 
 ```yaml
 version: "2"
@@ -100,7 +100,7 @@ linters:
     - errorlint
 ```
 
-- [ ] **Step 4: Point the Makefile at golangci-lint v2**
+- [x] **Step 4: Point the Makefile at golangci-lint v2**
 
 In `Makefile`, replace the line
 
@@ -114,12 +114,12 @@ with
 GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 ```
 
-- [ ] **Step 5: Run the linter and watch it fail**
+- [x] **Step 5: Run the linter and watch it fail**
 
 Run: `make lint-backend`
 Expected: FAIL. The first run downloads the Go 1.26 toolchain and builds the linter (a few minutes). The output must contain the line `internal/httpapi/health_test.go:20:23: Error return value of resp.Body.Close is not checked (errcheck)`. This proves the v2 linter is live and stricter than v1.
 
-- [ ] **Step 6: Fix the finding**
+- [x] **Step 6: Fix the finding**
 
 In `backend/internal/httpapi/health_test.go`, replace line 20
 
@@ -133,7 +133,7 @@ with
 	defer func() { _ = resp.Body.Close() }()
 ```
 
-- [ ] **Step 7: Update the toolchain mentions in `backend/CLAUDE.md`**
+- [x] **Step 7: Update the toolchain mentions in `backend/CLAUDE.md`**
 
 In `backend/CLAUDE.md`, change `Go 1.24.` to `Go 1.26.` in the first paragraph, and replace the bullet
 
@@ -147,14 +147,14 @@ with
 - `make lint-backend`: runs golangci-lint v2.13.2 via `go run` (the same command CI uses)
 ```
 
-- [ ] **Step 8: Verify everything is green**
+- [x] **Step 8: Verify everything is green**
 
 Run: `make lint-backend && make test-backend`
 Expected: lint exits 0 silently; `go vet` clean; `ok  github.com/InzKazik/mealplanner/backend/internal/httpapi`.
 Run: `grep '^go ' backend/go.mod`
 Expected: `go 1.26`
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/go.mod backend/.golangci.yml Makefile backend/internal/httpapi/health_test.go backend/CLAUDE.md
@@ -174,7 +174,7 @@ git commit -m "chore: move to Go 1.26 and golangci-lint v2"
 - Consumes: `make lint-api`.
 - Produces: operations `getHealth` (`GET /healthz`) and `getReady` (`GET /readyz`, `200` `Health`, `503` `Problem`), schemas `Health` and `Problem`, response `Problem`. Task 6 generates code from this file; Task 7 implements it.
 
-- [ ] **Step 1: Replace `redocly.yaml`**
+- [x] **Step 1: Replace `redocly.yaml`**
 
 ```yaml
 extends:
@@ -188,7 +188,7 @@ rules:
   info-license: off
 ```
 
-- [ ] **Step 2: Replace `openapi.yaml`**
+- [x] **Step 2: Replace `openapi.yaml`**
 
 ```yaml
 openapi: 3.0.3
@@ -277,12 +277,12 @@ components:
             $ref: '#/components/schemas/Problem'
 ```
 
-- [ ] **Step 3: Run the linter and watch it fail**
+- [x] **Step 3: Run the linter and watch it fail**
 
 Run: `make lint-api`
 Expected: FAIL with one error from rule `operation-4xx-response` at `#/paths/~1readyz/get/responses` (`/readyz` has only 200 and 503, no 4XX). `/healthz` is already ignored by the existing ignore file. This proves the rule still enforces.
 
-- [ ] **Step 4: Exempt `/readyz` by hand**
+- [x] **Step 4: Exempt `/readyz` by hand**
 
 Never run `redocly lint --generate-ignore-file` here: it overwrites the file. Replace `.redocly.lint-ignore.yaml` with:
 
@@ -295,12 +295,12 @@ openapi.yaml:
     - '#/paths/~1readyz/get/responses'
 ```
 
-- [ ] **Step 5: Run the linter and confirm it passes**
+- [x] **Step 5: Run the linter and confirm it passes**
 
 Run: `make lint-api`
 Expected: `Woohoo! Your API description is valid.` and `2 problems are explicitly ignored.` with no warnings or errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add openapi.yaml redocly.yaml .redocly.lint-ignore.yaml
@@ -318,7 +318,7 @@ git commit -m "feat(api): move contract to OpenAPI 3.0.3 and add /readyz"
 **Interfaces:**
 - Produces: `config.Config{Addr, DatabaseURL, WebOrigin string}` and `config.Load(getenv func(string) string) (Config, error)`. Defaults: `API_ADDR` → `:8080`, `WEB_ORIGIN` → `http://localhost:3000`; `DATABASE_URL` is required. Task 8 consumes it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package config_test
@@ -379,12 +379,12 @@ func TestLoad(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [x] **Step 2: Run the test and confirm it fails**
 
 Run: `cd backend && go test ./internal/config/ -count=1`
 Expected: FAIL to build: `no non-test Go files` or `undefined: config.Load`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 // Package config loads process configuration from environment variables.
@@ -431,12 +431,12 @@ func withDefault(v, def string) string {
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 Run: `cd backend && go test ./internal/config/ -count=1 -v`
 Expected: `--- PASS: TestLoad` with three passing subtests (`defaults_applied`, `all_set`, `missing_database_url`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/internal/config
@@ -454,7 +454,7 @@ git commit -m "feat(backend): add environment configuration loading"
 **Interfaces:**
 - Produces: `httpapi.WriteProblem(w http.ResponseWriter, status int, code, detail string)` and the constants `CodeValidationFailed`, `CodeNotFound`, `CodeMethodNotAllowed`, `CodeNotReady`, `CodeInternal`. Output is `application/problem+json` with `type` (`urn:mealplanner:problem:<code>`), `title`, `status`, optional `detail`, and `code`. Tasks 7 and 8 and the auth plan use it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package httpapi_test
@@ -512,12 +512,12 @@ func TestWriteProblemOmitsEmptyDetail(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [x] **Step 2: Run the test and confirm it fails**
 
 Run: `cd backend && go test ./internal/httpapi/ -run TestWriteProblem -count=1`
 Expected: FAIL to build with `undefined: httpapi.WriteProblem` and `undefined: httpapi.CodeNotFound`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package httpapi
@@ -559,12 +559,12 @@ func WriteProblem(w http.ResponseWriter, status int, code, detail string) {
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `cd backend && go test ./internal/httpapi/ -count=1 -v`
 Expected: `--- PASS: TestWriteProblem`, `--- PASS: TestWriteProblemOmitsEmptyDetail`, and the existing `--- PASS: TestHealthz`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/internal/httpapi/problem.go backend/internal/httpapi/problem_test.go
@@ -590,12 +590,12 @@ git commit -m "feat(backend): add RFC 9457 problem writer"
   - `testutil.NewDatabase(t *testing.T) string`, the URL of a fresh empty database on a Postgres 17 container shared by the test package. It skips the test when Docker is unavailable and drops the database on cleanup.
   - Migration `00001_init` creates extensions `citext` and `pg_trgm` and the trigger function `set_updated_at()`. Every later table's `updated_at` trigger uses it.
 
-- [ ] **Step 1: Check Docker works**
+- [x] **Step 1: Check Docker works**
 
 Run: `docker info --format 'server={{.ServerVersion}}'`
 Expected: prints `server=<version>`. If it prints "could not be found in this WSL 2 distro", enable Docker Desktop's WSL integration for this distro and retry. Stop and report BLOCKED if Docker cannot be made to work.
 
-- [ ] **Step 2: Add the dependencies**
+- [x] **Step 2: Add the dependencies**
 
 ```bash
 cd backend
@@ -604,7 +604,7 @@ go get github.com/jackc/pgx/v5@v5.11.0 github.com/pressly/goose/v3@v3.28.0 \
   github.com/testcontainers/testcontainers-go/modules/postgres@v0.44.0
 ```
 
-- [ ] **Step 3: Write the migrations package**
+- [x] **Step 3: Write the migrations package**
 
 `backend/migrations/embed.go`:
 
@@ -642,7 +642,7 @@ DROP EXTENSION pg_trgm;
 DROP EXTENSION citext;
 ```
 
-- [ ] **Step 4: Write the test helper**
+- [x] **Step 4: Write the test helper**
 
 ```go
 // Package testutil holds helpers shared by integration tests.
@@ -730,7 +730,7 @@ func randomHex(t *testing.T) string {
 }
 ```
 
-- [ ] **Step 5: Write the failing test**
+- [x] **Step 5: Write the failing test**
 
 ```go
 package db_test
@@ -798,12 +798,12 @@ func TestConnectFailsForUnreachableDatabase(t *testing.T) {
 }
 ```
 
-- [ ] **Step 6: Run the test and confirm it fails**
+- [x] **Step 6: Run the test and confirm it fails**
 
 Run: `cd backend && go test ./internal/db/ -count=1`
 Expected: FAIL to build with `undefined: db.Migrate` and `undefined: db.Connect` (or `no non-test Go files`).
 
-- [ ] **Step 7: Write the implementation**
+- [x] **Step 7: Write the implementation**
 
 ```go
 // Package db opens Postgres connections and applies schema migrations.
@@ -860,14 +860,14 @@ func migrate(ctx context.Context, sqlDB *sql.DB) (int, error) {
 }
 ```
 
-- [ ] **Step 8: Tidy and run the tests**
+- [x] **Step 8: Tidy and run the tests**
 
 Run: `cd backend && go mod tidy && grep '^go ' go.mod`
 Expected: `go 1.26` or `go 1.26.0`. If it shows a higher version, stop and report: a dependency raised the Go floor.
 Run: `cd backend && go test ./internal/db/ -count=1 -v`
 Expected: `--- PASS: TestMigrateAppliesAndIsIdempotent` (about 5 seconds; the first run pulls `postgres:17-alpine` and the testcontainers reaper image) and `--- PASS: TestConnectFailsForUnreachableDatabase`. Container start-up log lines are expected noise under `-v`.
 
-- [ ] **Step 9: Lint and commit**
+- [x] **Step 9: Lint and commit**
 
 Run: `make lint-backend`
 Expected: exits 0 silently.
@@ -891,7 +891,7 @@ git commit -m "feat(backend): add pgx pool, goose migrations and Postgres test h
 - Consumes: `openapi.yaml` from Task 2.
 - Produces: package `api` with `api.ServerInterface { GetHealth(w, r); GetReady(w, r) }`, `api.Health{Status api.HealthStatus}`, `api.HealthStatusOk`, `api.ChiServerOptions{BaseURL string; BaseRouter chi.Router; ErrorHandlerFunc func(w http.ResponseWriter, r *http.Request, err error)}` and `api.HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handler`. `make generate` regenerates it; `make check-generated` fails when committed output differs from the spec. Task 7 implements the interface.
 
-- [ ] **Step 1: Write the generator config**
+- [x] **Step 1: Write the generator config**
 
 `backend/internal/api/oapi.yaml`:
 
@@ -907,7 +907,7 @@ compatibility:
 
 `always-prefix-enum-values` makes enum constants collision-proof (`HealthStatusOk`, not `Ok`).
 
-- [ ] **Step 2: Replace the Makefile with the version that adds `generate` and `check-generated`**
+- [x] **Step 2: Replace the Makefile with the version that adds `generate` and `check-generated`**
 
 Recipe lines **must** start with a real tab character.
 
@@ -949,7 +949,7 @@ db-down: ## Stop local Postgres (data is kept)
 check: lint-api test-backend lint-backend check-generated ## Everything CI runs, except the compose workflow
 ```
 
-- [ ] **Step 3: Add the chi dependency and generate**
+- [x] **Step 3: Add the chi dependency and generate**
 
 ```bash
 cd backend && go get github.com/go-chi/chi/v5@v5.3.2 && cd ..
@@ -958,24 +958,24 @@ make generate
 Expected: the first run prints a `switching to go1.26.x` line (toolchain download) and creates `backend/internal/api/api.gen.go` starting with `// Code generated by github.com/oapi-codegen/oapi-codegen/v2 version v2.8.0 DO NOT EDIT.` It must contain `HealthStatusOk`, `type ServerInterface interface`, `GetHealth`, `GetReady` and `func HandlerWithOptions`.
 Also expected: no warning about OpenAPI 3.1 (the contract is 3.0.3).
 
-- [ ] **Step 4: Tidy and confirm the module builds**
+- [x] **Step 4: Tidy and confirm the module builds**
 
 Run: `cd backend && go mod tidy && go build ./... && go vet ./... && grep '^go ' go.mod`
 Expected: builds and vets clean; go line is `go 1.26` or `go 1.26.0`.
 
-- [ ] **Step 5: Commit the generated code**
+- [x] **Step 5: Commit the generated code**
 
 ```bash
 git add Makefile backend
 git commit -m "feat(backend): generate server interface from openapi.yaml"
 ```
 
-- [ ] **Step 6: Confirm the drift check passes on committed output**
+- [x] **Step 6: Confirm the drift check passes on committed output**
 
 Run: `make check-generated`
 Expected: exits 0 (regeneration produces no diff).
 
-- [ ] **Step 7: Prove the drift check fails when the spec changes without regenerating**
+- [x] **Step 7: Prove the drift check fails when the spec changes without regenerating**
 
 Temporarily add a property under `components.schemas.Health.properties` in `openapi.yaml`:
 
@@ -1014,7 +1014,7 @@ Expected: exits 0 again, and `git status --short` prints nothing.
   - `httpapi.RequestID(ctx context.Context) string`.
   - Every response carries `X-Request-Id`; every request is logged as one JSON line with `request_id`, `method`, `path`, `status`, `bytes`, `duration`; panics become `500` problem responses; CORS allows only `Deps.WebOrigin`; unknown paths return a `404` problem and wrong methods a `405` problem with an `Allow` header.
 
-- [ ] **Step 1: Add the dependencies**
+- [x] **Step 1: Add the dependencies**
 
 ```bash
 cd backend
@@ -1028,7 +1028,7 @@ go get github.com/getkin/kin-openapi/openapi3 github.com/getkin/kin-openapi/open
 
 The second command records go.sum entries for the subpackages the tests import; without it Step 5 fails with a `missing go.sum entry` setup error instead of the intended RED. Do not run `go mod tidy` yet: it would drop `go-chi/cors`, which is not imported until Step 8.
 
-- [ ] **Step 2: Write the failing contract tests**
+- [x] **Step 2: Write the failing contract tests**
 
 They send requests through the real router and fail unless request and response both conform to `openapi.yaml`.
 
@@ -1152,7 +1152,7 @@ func TestReadyzMatchesContract(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Write the failing router tests**
+- [x] **Step 3: Write the failing router tests**
 
 ```go
 package httpapi_test
@@ -1290,7 +1290,7 @@ func TestCORS(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Write the failing recoverer tests**
+- [x] **Step 4: Write the failing recoverer tests**
 
 This file is in package `httpapi` (not `httpapi_test`) because it tests the unexported middleware.
 
@@ -1349,12 +1349,12 @@ func TestRecovererRepanicsOnAbortHandler(t *testing.T) {
 }
 ```
 
-- [ ] **Step 5: Run the tests and confirm they fail**
+- [x] **Step 5: Run the tests and confirm they fail**
 
 Run: `cd backend && go test ./internal/httpapi/ -count=1`
 Expected: FAIL to build with errors such as `undefined: httpapi.Deps` and `undefined: recoverer`: the package does not compile against the new tests yet.
 
-- [ ] **Step 6: Write the middleware**
+- [x] **Step 6: Write the middleware**
 
 ```go
 package httpapi
@@ -1454,7 +1454,7 @@ func recoverer(logger *slog.Logger) func(http.Handler) http.Handler {
 }
 ```
 
-- [ ] **Step 7: Write the handlers**
+- [x] **Step 7: Write the handlers**
 
 ```go
 package httpapi
@@ -1499,7 +1499,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 ```
 
-- [ ] **Step 8: Write the router and remove the old health files**
+- [x] **Step 8: Write the router and remove the old health files**
 
 ```go
 // Package httpapi holds the HTTP layer: routing, request decoding and response
@@ -1582,7 +1582,7 @@ Then delete the old skeleton, whose behaviour the contract tests now cover:
 git rm backend/internal/httpapi/health.go backend/internal/httpapi/health_test.go
 ```
 
-- [ ] **Step 9: Keep `cmd/api` compiling with a minimal edit**
+- [x] **Step 9: Keep `cmd/api` compiling with a minimal edit**
 
 In `backend/cmd/api/main.go`, add `"context"` to the imports (before `"log/slog"`), and replace the line
 
@@ -1602,19 +1602,19 @@ with
 
 Then run `gofmt -w backend/cmd/api/main.go`: the multi-line value changes how gofmt aligns the neighbouring `Addr:` line, and Step 10's `gofmt -l` check fails otherwise. This edit is temporary. Task 8 replaces the whole file.
 
-- [ ] **Step 10: Tidy, format and run the tests**
+- [x] **Step 10: Tidy, format and run the tests**
 
 Run: `cd backend && go mod tidy && gofmt -l . && go vet ./... && go test ./internal/httpapi/ -count=1 -v`
 Expected: `gofmt -l` prints nothing; go line still `go 1.26`/`go 1.26.0`; these pass: `TestHealthzMatchesContract`, `TestReadyzMatchesContract/ready`, `TestReadyzMatchesContract/database_down`, `TestUnknownPathReturnsProblem`, `TestWrongMethodReturnsProblem`, `TestRequestIDIsGeneratedAndReplacedWhenInvalid`, `TestRequestIDIsEchoedWhenValid`, `TestRequestIsLoggedWithRequestID`, `TestCORS`, `TestRecovererReturnsProblemAndLogsPanic`, `TestRecovererRepanicsOnAbortHandler`, `TestWriteProblem`, `TestWriteProblemOmitsEmptyDetail`.
 
-- [ ] **Step 11: Prove the contract test can fail**
+- [x] **Step 11: Prove the contract test can fail**
 
 Temporarily change the body written by `GetHealth` in `backend/internal/httpapi/server.go` to `writeJSON(w, http.StatusOK, map[string]string{"state": "ok"})`.
 Run: `cd backend && go test ./internal/httpapi/ -run TestHealthzMatchesContract -count=1`
 Expected: FAIL with a message containing `does not match contract` and `property "status" is missing`.
 Revert the temporary edit by restoring the original line, `writeJSON(w, http.StatusOK, api.Health{Status: api.HealthStatusOk})`, then re-run `cd backend && go test ./internal/httpapi/ -count=1` and confirm it is green again.
 
-- [ ] **Step 12: Lint and commit**
+- [x] **Step 12: Lint and commit**
 
 Run: `make lint-backend`
 Expected: exits 0 silently.
@@ -1642,7 +1642,7 @@ git commit -m "feat(backend): add chi router, middleware and contract-tested hea
   - `cmd/migrate`: reads `DATABASE_URL`, applies pending migrations, logs the count, exits 0 (exit 2 if the variable is missing, 1 on failure).
   - `make migrate`; `make run-api` and `make migrate` default `DATABASE_URL` to the compose database.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package main
@@ -1723,12 +1723,12 @@ func TestServeFailsWhenDatabaseIsUnreachable(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [x] **Step 2: Run the test and confirm it fails**
 
 Run: `cd backend && go test ./cmd/api/ -count=1`
 Expected: FAIL to build with `undefined: serve`.
 
-- [ ] **Step 3: Replace `main.go`**
+- [x] **Step 3: Replace `main.go`**
 
 ```go
 // Command api runs the Meal Planner HTTP API.
@@ -1824,12 +1824,12 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `cd backend && go vet ./... && go test ./cmd/api/ -count=1 -v`
 Expected: `--- PASS: TestServeReportsReadyThenShutsDownCleanly` and `--- PASS: TestServeFailsWhenDatabaseIsUnreachable`.
 
-- [ ] **Step 5: Write the migrate command**
+- [x] **Step 5: Write the migrate command**
 
 ```go
 // Command migrate applies pending database migrations and exits.
@@ -1861,7 +1861,7 @@ func main() {
 }
 ```
 
-- [ ] **Step 6: Replace the Makefile with the final version**
+- [x] **Step 6: Replace the Makefile with the final version**
 
 Recipe lines **must** start with a real tab character.
 
@@ -1909,12 +1909,12 @@ db-down: ## Stop local Postgres (data is kept)
 check: lint-api test-backend lint-backend check-generated ## Everything CI runs, except the compose workflow
 ```
 
-- [ ] **Step 7: Verify `make help`**
+- [x] **Step 7: Verify `make help`**
 
 Run: `make help`
 Expected: eleven lines: `help`, `lint-api`, `test-backend`, `lint-backend`, `generate`, `check-generated`, `migrate`, `run-api`, `db-up`, `db-down`, `check`.
 
-- [ ] **Step 8: Smoke-test the real binary against compose Postgres**
+- [x] **Step 8: Smoke-test the real binary against compose Postgres**
 
 Shell state does not persist between commands, so run the whole script below in ONE command. It needs Docker.
 
@@ -1954,7 +1954,7 @@ Expected:
 - Startup with the database down: prints `api: ping database: ...connection refused` and `api exit=1`.
 - Port 8080 must be free at the end (`ss -ltn | grep -c ':8080 '` prints 0).
 
-- [ ] **Step 9: Lint and commit**
+- [x] **Step 9: Lint and commit**
 
 Run: `make lint-backend`
 Expected: exits 0 silently.
@@ -1978,7 +1978,7 @@ git commit -m "feat(backend): serve with graceful shutdown and add migrate comma
 - Consumes: `make check-generated`, `make lint-backend`, the tests (which need Docker; GitHub's `ubuntu-latest` runners have it).
 - Produces: a backend workflow that also runs when `openapi.yaml` changes and fails on generated-code drift; documentation that matches the new commands, layout and decisions.
 
-- [ ] **Step 1: Replace `.github/workflows/backend.yml`**
+- [x] **Step 1: Replace `.github/workflows/backend.yml`**
 
 ```yaml
 name: backend
@@ -2027,7 +2027,7 @@ jobs:
         working-directory: .
 ```
 
-- [ ] **Step 2: Replace `.env.example`**
+- [x] **Step 2: Replace `.env.example`**
 
 ```dotenv
 # Docker Compose reads .env: copy this file to .env and adjust. Other processes (including the API) read the shell environment only.
@@ -2045,7 +2045,7 @@ DATABASE_URL=postgres://mealplanner:mealplanner@localhost:5432/mealplanner?sslmo
 WEB_ORIGIN=http://localhost:3000
 ```
 
-- [ ] **Step 3: Replace `backend/CLAUDE.md`**
+- [x] **Step 3: Replace `backend/CLAUDE.md`**
 
 ````markdown
 # Backend (Go)
@@ -2092,7 +2092,7 @@ Dependencies point one way: `httpapi` → `service` → `store`. A package never
 - The `service` and `store` layers and `sqlc`.
 ````
 
-- [ ] **Step 4: Replace `CLAUDE.md`**
+- [x] **Step 4: Replace `CLAUDE.md`**
 
 ````markdown
 # Meal Planner
@@ -2149,7 +2149,7 @@ Copy `.env.example` to `.env` for Docker Compose (`make db-up`). The API reads i
 - Any new environment variable must be added to `.env.example` in the same commit.
 ````
 
-- [ ] **Step 5: Verify the workflow and compose files parse and the workflow shape is right**
+- [x] **Step 5: Verify the workflow and compose files parse and the workflow shape is right**
 
 Run:
 
@@ -2169,7 +2169,7 @@ EOF
 ```
 Expected: `backend.yml ok`.
 
-- [ ] **Step 6: Run the whole check and confirm the docs are accurate**
+- [x] **Step 6: Run the whole check and confirm the docs are accurate**
 
 Run: `make check`
 Expected: `lint-api` valid with `2 problems are explicitly ignored`; `go vet` clean and every package `ok` (the database tests actually ran, not skipped: run `cd backend && go test ./internal/db/ ./cmd/api/ -count=1 -v 2>&1 | grep -E 'SKIP|PASS'` and confirm PASS, no SKIP); `lint-backend` exits 0; `check-generated` exits 0.
@@ -2177,7 +2177,7 @@ Run: `git status --short`
 Expected: prints nothing.
 Confirm every `make` target named in `CLAUDE.md` and `backend/CLAUDE.md` exists in `make help`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add .github/workflows/backend.yml .env.example CLAUDE.md backend/CLAUDE.md

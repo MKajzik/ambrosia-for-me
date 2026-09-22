@@ -183,3 +183,71 @@ func TestIngredientsSchemaEnforcesItsConstraints(t *testing.T) {
 		t.Errorf("ingredient_nutrients rows after deleting the ingredient = %d (err %v), want 0", n, err)
 	}
 }
+
+func TestMealsSchemaEnforcesItsConstraints(t *testing.T) {
+	ctx := context.Background()
+	conn := migratedConn(t)
+
+	var userID string
+	if err := conn.QueryRow(ctx,
+		`INSERT INTO users (email, password_hash, display_name) VALUES ('a@example.com', 'h', 'A') RETURNING id`,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var ingredientID string
+	if err := conn.QueryRow(ctx,
+		`INSERT INTO ingredients (name, category) VALUES ('Chicken Breast', 'meat_seafood') RETURNING id`,
+	).Scan(&ingredientID); err != nil {
+		t.Fatalf("insert ingredient: %v", err)
+	}
+
+	var mealID string
+	if err := conn.QueryRow(ctx,
+		`INSERT INTO meals (owner_id, name, servings) VALUES ($1, 'Chicken and Rice', 2) RETURNING id`, userID,
+	).Scan(&mealID); err != nil {
+		t.Fatalf("valid insert: %v", err)
+	}
+
+	if _, err := conn.Exec(ctx,
+		`INSERT INTO meals (owner_id, name, servings) VALUES (gen_random_uuid(), 'Ghost Meal', 1)`,
+	); err == nil {
+		t.Error("an owner_id that does not reference a user was accepted, want a foreign key violation")
+	}
+	if _, err := conn.Exec(ctx,
+		`INSERT INTO meals (owner_id, name, servings) VALUES ($1, 'Bad Servings', 0)`, userID,
+	); err == nil {
+		t.Error("zero servings was accepted, want a constraint violation")
+	}
+
+	insertLine := func(sql string, args ...any) error {
+		_, err := conn.Exec(ctx, "INSERT INTO meal_ingredients (meal_id, ingredient_id, quantity, unit, position) VALUES "+sql, args...)
+		return err
+	}
+	if err := insertLine(`($1, $2, 300, 'g', 0)`, mealID, ingredientID); err != nil {
+		t.Fatalf("valid line: %v", err)
+	}
+	if err := insertLine(`($1, gen_random_uuid(), 1, 'g', 1)`, mealID); err == nil {
+		t.Error("an ingredient_id that does not reference an ingredient was accepted, want a foreign key violation")
+	}
+	if err := insertLine(`($1, $2, 0, 'g', 2)`, mealID, ingredientID); err == nil {
+		t.Error("zero quantity was accepted, want a constraint violation")
+	}
+	if err := insertLine(`($1, $2, 1, 'litres', 3)`, mealID, ingredientID); err == nil {
+		t.Error("an invalid unit was accepted, want a constraint violation")
+	}
+	if err := insertLine(`($1, $2, 1, 'g', 0)`, mealID, ingredientID); err == nil {
+		t.Error("a duplicate (meal_id, position) was accepted, want a unique violation")
+	}
+
+	if _, err := conn.Exec(ctx, `DELETE FROM ingredients WHERE id = $1`, ingredientID); err == nil {
+		t.Error("deleting an ingredient referenced by a meal_ingredients row was accepted, want a foreign key violation")
+	}
+
+	if _, err := conn.Exec(ctx, `DELETE FROM meals WHERE id = $1`, mealID); err != nil {
+		t.Fatalf("delete meal: %v", err)
+	}
+	var n int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM meal_ingredients WHERE meal_id = $1`, mealID).Scan(&n); err != nil || n != 0 {
+		t.Errorf("meal_ingredients rows after deleting the meal = %d (err %v), want 0", n, err)
+	}
+}

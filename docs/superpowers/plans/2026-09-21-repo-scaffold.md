@@ -60,7 +60,7 @@ Work on a new branch: `git checkout -b feat/repo-scaffold` (from `spec/meal-plan
 **Interfaces:**
 - Produces: `make help`, `make lint-api`, `make test-backend`, `make lint-backend`, `make run-api`, `make db-up`, `make db-down`, `make check`. Later tasks make these targets work; this task defines them all.
 
-- [ ] **Step 1: Write `.gitignore`**
+- [x] **Step 1: Write `.gitignore`**
 
 ```gitignore
 # Secrets and local config
@@ -93,7 +93,7 @@ xcuserdata/
 *.xcuserstate
 ```
 
-- [ ] **Step 2: Write `.editorconfig`**
+- [x] **Step 2: Write `.editorconfig`**
 
 ```ini
 root = true
@@ -119,7 +119,7 @@ indent_size = 4
 trim_trailing_whitespace = false
 ```
 
-- [ ] **Step 3: Write `Makefile`**
+- [x] **Step 3: Write `Makefile`**
 
 Recipe lines **must** start with a tab character, not spaces.
 
@@ -153,7 +153,7 @@ db-down: ## Stop local Postgres (data is kept)
 check: lint-api test-backend lint-backend ## Everything CI runs for the current packages
 ```
 
-- [ ] **Step 4: Verify `make help` lists all eight targets**
+- [x] **Step 4: Verify `make help` lists all eight targets**
 
 Run: `make help`
 Expected output (exactly these eight lines):
@@ -169,7 +169,7 @@ Expected output (exactly these eight lines):
 ```
 If you see `*** missing separator`, the recipe lines were saved with spaces instead of tabs.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .gitignore .editorconfig Makefile
@@ -188,7 +188,7 @@ git commit -m "chore: add repo hygiene files and Makefile"
 - Consumes: `make lint-api` (Task 1).
 - Produces: a valid OpenAPI 3.1 document with server base `http://localhost:8080/v1`, a `bearerAuth` security scheme applied globally, `components.schemas.Problem` (`type`, `title`, `status`, `detail?`, `code`), `components.schemas.Health` (`status: "ok"`), `components.responses.Problem` (`application/problem+json`), and operation `getHealth` at `GET /healthz` with `security: []`. Later backend plans append paths and schemas and reuse `Problem`.
 
-- [ ] **Step 1: Write `redocly.yaml` (the lint rules)**
+- [x] **Step 1: Write `redocly.yaml` (the lint rules)**
 
 ```yaml
 extends:
@@ -200,7 +200,7 @@ rules:
   no-server-example.com: off
 ```
 
-- [ ] **Step 2: Write a deliberately invalid `openapi.yaml` and confirm the linter catches it**
+- [x] **Step 2: Write a deliberately invalid `openapi.yaml` and confirm the linter catches it**
 
 This proves the lint step can fail, so a green result later means something.
 
@@ -214,7 +214,7 @@ paths: {}
 Run: `make lint-api`
 Expected: FAIL, reporting errors such as a missing `info.version`.
 
-- [ ] **Step 3: Replace `openapi.yaml` with the real contract**
+- [x] **Step 3: Replace `openapi.yaml` with the real contract**
 
 ```yaml
 openapi: 3.1.0
@@ -290,12 +290,12 @@ components:
             $ref: '#/components/schemas/Problem'
 ```
 
-- [ ] **Step 4: Run the linter and confirm it passes**
+- [x] **Step 4: Run the linter and confirm it passes**
 
 Run: `make lint-api`
 Expected: `openapi.yaml: validated in ...ms` and `Woohoo! Your API description is valid.` with no warnings.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add openapi.yaml redocly.yaml
@@ -316,7 +316,7 @@ git commit -m "feat(api): add initial OpenAPI contract with health endpoint"
 - Consumes: the `getHealth` operation from Task 2 (`GET /v1/healthz` → `200 {"status":"ok"}`, `Content-Type: application/json`).
 - Produces: `httpapi.NewRouter() http.Handler`, which later backend plans extend with more routes and middleware. Environment variable `API_ADDR` (default `:8080`).
 
-- [ ] **Step 1: Create the module**
+- [x] **Step 1: Create the module**
 
 `backend/go.mod`:
 
@@ -326,7 +326,7 @@ module github.com/InzKazik/mealplanner/backend
 go 1.24
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 `backend/internal/httpapi/health_test.go`:
 
@@ -368,12 +368,12 @@ func TestHealthz(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run the test and confirm it fails**
+- [x] **Step 3: Run the test and confirm it fails**
 
 Run: `cd backend && go test ./internal/httpapi/ -run TestHealthz -v`
 Expected: FAIL to compile with an error like `undefined: httpapi.NewRouter` (or "no non-test Go files").
 
-- [ ] **Step 4: Write the minimal implementation**
+- [x] **Step 4: Write the minimal implementation**
 
 `backend/internal/httpapi/health.go`:
 
@@ -399,12 +399,12 @@ func healthz(w http.ResponseWriter, _ *http.Request) {
 }
 ```
 
-- [ ] **Step 5: Run the test and confirm it passes**
+- [x] **Step 5: Run the test and confirm it passes**
 
 Run: `cd backend && go test ./internal/httpapi/ -run TestHealthz -v`
 Expected: `--- PASS: TestHealthz` and `ok`.
 
-- [ ] **Step 6: Write the process entry point**
+- [x] **Step 6: Write the process entry point**
 
 `backend/cmd/api/main.go`:
 
@@ -443,18 +443,18 @@ func main() {
 }
 ```
 
-- [ ] **Step 7: Verify vet, tests and lint via the Makefile**
+- [x] **Step 7: Verify vet, tests and lint via the Makefile**
 
 Run: `make test-backend lint-backend`
 Expected: `ok  github.com/InzKazik/mealplanner/backend/internal/httpapi`, no vet output, and `golangci-lint` exits 0 with no output. (`golangci-lint` v1.x is what CI pins, see Task 5. If it is not installed locally, run `go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8 run ./...` from `backend/` instead.)
 
-- [ ] **Step 8: Smoke-test the running server**
+- [x] **Step 8: Smoke-test the running server**
 
 Run in one terminal: `make run-api`
 Run in another: `curl -si http://localhost:8080/v1/healthz`
 Expected: `HTTP/1.1 200 OK`, `Content-Type: application/json`, body `{"status":"ok"}`. Stop the server with Ctrl+C.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend
@@ -473,7 +473,7 @@ git commit -m "feat(backend): add API skeleton with /v1/healthz"
 - Consumes: `make db-up` / `make db-down` (Task 1).
 - Produces: a Postgres 17 service named `postgres`, reachable at `localhost:${POSTGRES_PORT}` (default 5432), database `mealplanner`, user `mealplanner`, with a healthcheck so `docker compose up --wait` blocks until ready. Environment variables `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`, `API_ADDR`.
 
-- [ ] **Step 1: Write `.env.example`**
+- [x] **Step 1: Write `.env.example`**
 
 Every variable here is read by something in the repo. Later plans add variables (for example `DATABASE_URL`, `JWT_SECRET`) when code first reads them.
 
@@ -490,7 +490,7 @@ POSTGRES_PORT=5432
 API_ADDR=:8080
 ```
 
-- [ ] **Step 2: Write `docker-compose.yml`**
+- [x] **Step 2: Write `docker-compose.yml`**
 
 ```yaml
 services:
@@ -514,12 +514,12 @@ volumes:
   pgdata:
 ```
 
-- [ ] **Step 3: Validate the file**
+- [x] **Step 3: Validate the file**
 
 Run: `docker compose config -q`
 Expected: no output and exit code 0. If Docker is not installed on this machine, skip this step and Step 4; CI validates the file in Task 5.
 
-- [ ] **Step 4: Start Postgres and check it accepts connections**
+- [x] **Step 4: Start Postgres and check it accepts connections**
 
 Run: `cp .env.example .env && make db-up`
 Expected: the `postgres` container reports `Healthy`.
@@ -528,7 +528,7 @@ Expected: `/var/run/postgresql:5432 - accepting connections`
 Run: `make db-down`
 Expected: the container stops. `.env` stays untracked (`git status` must not list it).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docker-compose.yml .env.example
@@ -548,7 +548,7 @@ git commit -m "chore: add local Postgres via Docker Compose"
 - Consumes: the commands behind `make lint-api`, `make test-backend`, `make lint-backend`, and `docker compose config` (Tasks 1–4).
 - Produces: three workflows that run on pull requests and on pushes to `master`, each only when its own paths change. Web and iOS workflows are added by their plans.
 
-- [ ] **Step 1: Write `.github/workflows/api-contract.yml`**
+- [x] **Step 1: Write `.github/workflows/api-contract.yml`**
 
 ```yaml
 name: api-contract
@@ -577,7 +577,7 @@ jobs:
       - run: npx --yes @redocly/cli@2.53.3 lint openapi.yaml
 ```
 
-- [ ] **Step 2: Write `.github/workflows/backend.yml`**
+- [x] **Step 2: Write `.github/workflows/backend.yml`**
 
 The lint step runs golangci-lint through `go run` at a pinned version so CI and local runs match.
 
@@ -612,7 +612,7 @@ jobs:
       - run: go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8 run ./...
 ```
 
-- [ ] **Step 3: Write `.github/workflows/compose.yml`**
+- [x] **Step 3: Write `.github/workflows/compose.yml`**
 
 ```yaml
 name: compose
@@ -636,19 +636,19 @@ jobs:
       - run: docker compose config -q
 ```
 
-- [ ] **Step 4: Check the workflow YAML parses**
+- [x] **Step 4: Check the workflow YAML parses**
 
 Run: `python3 -c "import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]; print('ok')" .github/workflows/*.yml`
 Expected: `ok`. (If PyYAML is missing: `python3 -m pip install --user pyyaml`.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .github
 git commit -m "ci: add path-filtered workflows for contract, backend and compose"
 ```
 
-- [ ] **Step 6: Confirm on GitHub (only if a remote exists)**
+- [x] **Step 6: Confirm on GitHub (only if a remote exists)**
 
 If `git remote -v` shows an `origin`, push the branch, open a pull request, and confirm that all three workflows run and pass. If there is no remote yet, note this in the task report; the workflows are then unverified until the repo is pushed.
 
@@ -665,7 +665,7 @@ If `git remote -v` shows an `origin`, push the branch, open a pull request, and 
 - Consumes: every command and path from Tasks 1–5. Every command written in these files must exist and work.
 - Produces: root `CLAUDE.md` (loaded every session, kept short), `AGENTS.md` (single home for agent workflow, referenced from `CLAUDE.md`), and `backend/CLAUDE.md`. `web/CLAUDE.md` and `ios/CLAUDE.md` are created by the web and iOS plans when those packages exist.
 
-- [ ] **Step 1: Write `CLAUDE.md`**
+- [x] **Step 1: Write `CLAUDE.md`**
 
 ````markdown
 # Meal Planner
@@ -716,7 +716,7 @@ Copy `.env.example` to `.env` for local configuration. Never commit `.env` or se
 - Any new environment variable must be added to `.env.example` in the same commit.
 ````
 
-- [ ] **Step 2: Write `AGENTS.md`**
+- [x] **Step 2: Write `AGENTS.md`**
 
 ````markdown
 # Agent Guide
@@ -763,7 +763,7 @@ Tool-neutral guidance for any coding agent working in this repo. `CLAUDE.md` hol
 - `CLAUDE.md` / `AGENTS.md` updated if commands, conventions or decisions changed.
 ````
 
-- [ ] **Step 3: Write `backend/CLAUDE.md`**
+- [x] **Step 3: Write `backend/CLAUDE.md`**
 
 ````markdown
 # Backend (Go)
@@ -794,14 +794,14 @@ Dependencies point one way: `httpapi` → `service` → `store`. A package never
 - Configuration comes from environment variables and is documented in `.env.example`.
 ````
 
-- [ ] **Step 4: Check every command the docs mention exists**
+- [x] **Step 4: Check every command the docs mention exists**
 
 Run: `make help`
 Expected: it lists `check`, `lint-api`, `test-backend`, `lint-backend`, `run-api`, `db-up`, `db-down`, all of which `CLAUDE.md` mentions.
 Run: `ls openapi.yaml redocly.yaml backend docker-compose.yml .github/workflows .env.example docs/superpowers/specs docs/superpowers/plans`
 Expected: no "No such file or directory" errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add CLAUDE.md AGENTS.md backend/CLAUDE.md
@@ -817,22 +817,22 @@ git commit -m "docs: add CLAUDE.md, AGENTS.md and backend guidance"
 **Interfaces:**
 - Consumes: everything from Tasks 1–6.
 
-- [ ] **Step 1: Run the full local check**
+- [x] **Step 1: Run the full local check**
 
 Run: `make check`
 Expected: `lint-api` prints "Woohoo! Your API description is valid." with no warnings; `test-backend` shows `ok`; `lint-backend` exits 0 silently.
 
-- [ ] **Step 2: Confirm the working tree is clean and contains only intended files**
+- [x] **Step 2: Confirm the working tree is clean and contains only intended files**
 
 Run: `git status --short && git ls-files`
 Expected: `git status --short` prints nothing. `git ls-files` lists exactly: `.editorconfig`, `.env.example`, `.github/workflows/{api-contract,backend,compose}.yml`, `.gitignore`, `AGENTS.md`, `CLAUDE.md`, `Makefile`, `backend/CLAUDE.md`, `backend/cmd/api/main.go`, `backend/go.mod`, `backend/internal/httpapi/health.go`, `backend/internal/httpapi/health_test.go`, `docker-compose.yml`, `openapi.yaml`, `redocly.yaml`, plus the spec and this plan under `docs/superpowers/`.
 
-- [ ] **Step 3: Check the contract matches the implementation**
+- [x] **Step 3: Check the contract matches the implementation**
 
 Run: `make run-api &` then `curl -s http://localhost:8080/v1/healthz`, then stop the server.
 Expected: `{"status":"ok"}`, matching the `Health` schema and the `getHealth` operation in `openapi.yaml`.
 
-- [ ] **Step 4: Report**
+- [x] **Step 4: Report**
 
 State what passed, and explicitly list anything that could not be verified locally (Docker Compose validation and GitHub Actions runs if there is no Docker or remote).
 

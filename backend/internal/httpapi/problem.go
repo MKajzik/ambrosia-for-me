@@ -17,6 +17,9 @@ const (
 	CodeEmailTaken          = "email_taken"
 	CodeInvalidCredentials  = "invalid_credentials" //nolint:gosec // an error code, not a credential
 	CodeInvalidRefreshToken = "invalid_refresh_token"
+	CodeIngredientInUse     = "ingredient_in_use"
+	CodeInvalidIngredient   = "invalid_ingredient"
+	CodeUnitNotConvertible  = "unit_not_convertible"
 )
 
 // Stable codes for FieldError.Code.

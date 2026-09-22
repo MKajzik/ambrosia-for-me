@@ -57,10 +57,10 @@ type DeleteIngredientParams struct {
 	UserID *uuid.UUID
 }
 
-// The meals plan (not built yet) must add a meal_ingredients foreign key to
-// ingredients and translate its violation into 409 ingredient_in_use here on
-// delete. This query does not check for that yet because nothing references
-// ingredients until then.
+// Deleting an ingredient referenced by a meal_ingredients row fails with a
+// foreign-key violation on meal_ingredients_ingredient_id_fkey, which
+// Ingredients.Delete (internal/service/ingredients.go) translates into
+// ErrIngredientInUse.
 func (q *Queries) DeleteIngredient(ctx context.Context, arg DeleteIngredientParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteIngredient, arg.ID, arg.UserID)
 	if err != nil {
@@ -110,6 +110,46 @@ func (q *Queries) GetIngredientNutrients(ctx context.Context, ingredientIds []uu
 	for rows.Next() {
 		var i IngredientNutrient
 		if err := rows.Scan(&i.IngredientID, &i.NutrientKey, &i.AmountPer100g); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getIngredientsForUser = `-- name: GetIngredientsForUser :many
+SELECT id, name, category, owner_id, usda_fdc_id, grams_per_piece, density_g_per_ml, created_at, updated_at FROM ingredients
+WHERE id = ANY($1::uuid[]) AND (owner_id IS NULL OR owner_id = $2)
+`
+
+type GetIngredientsForUserParams struct {
+	Ids    []uuid.UUID
+	UserID *uuid.UUID
+}
+
+func (q *Queries) GetIngredientsForUser(ctx context.Context, arg GetIngredientsForUserParams) ([]Ingredient, error) {
+	rows, err := q.db.Query(ctx, getIngredientsForUser, arg.Ids, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Ingredient
+	for rows.Next() {
+		var i Ingredient
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Category,
+			&i.OwnerID,
+			&i.UsdaFdcID,
+			&i.GramsPerPiece,
+			&i.DensityGPerMl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

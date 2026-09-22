@@ -94,6 +94,27 @@ func (e IngredientCategory) Valid() bool {
 	}
 }
 
+// Defines values for Unit.
+const (
+	UnitG     Unit = "g"
+	UnitMl    Unit = "ml"
+	UnitPiece Unit = "piece"
+)
+
+// Valid indicates whether the value is a known member of the Unit enum.
+func (e Unit) Valid() bool {
+	switch e {
+	case UnitG:
+		return true
+	case UnitMl:
+		return true
+	case UnitPiece:
+		return true
+	default:
+		return false
+	}
+}
+
 // AuthResponse defines model for AuthResponse.
 type AuthResponse struct {
 	AccessToken string `json:"access_token"`
@@ -117,6 +138,14 @@ type CreateIngredientRequest struct {
 
 	// Nutrients Amount per 100 g for each tracked nutrient the caller wants to set. Supplying the `nutrients` field replaces the ingredient's entire nutrient set — any of the 18 keys omitted, or explicitly set to null, is cleared. Omitting the `nutrients` field entirely from the request body leaves the ingredient's existing nutrients unchanged.
 	Nutrients *NutrientAmountsInput `json:"nutrients,omitempty"`
+}
+
+// CreateMealRequest defines model for CreateMealRequest.
+type CreateMealRequest struct {
+	Name              string                    `json:"name"`
+	Notes             nullable.Nullable[string] `json:"notes,omitempty"`
+	Servings          float64                   `json:"servings"`
+	SharedWithPartner *bool                     `json:"shared_with_partner,omitempty"`
 }
 
 // FieldError defines model for FieldError.
@@ -166,6 +195,56 @@ type IngredientList struct {
 type LoginRequest struct {
 	Email    openapi_types.Email `json:"email"`
 	Password string              `json:"password"`
+}
+
+// Meal defines model for Meal.
+type Meal struct {
+	CreatedAt   time.Time                 `json:"created_at"`
+	Id          openapi_types.UUID        `json:"id"`
+	Ingredients []MealIngredient          `json:"ingredients"`
+	Name        string                    `json:"name"`
+	Notes       nullable.Nullable[string] `json:"notes"`
+
+	// NutritionPerServing Amount per 100 g for each tracked nutrient. A null value means the amount is unknown. Units: kcal for calories; g for protein, carbohydrates, sugar, fibre, fat and saturated_fat; mg for sodium, potassium, calcium, iron, magnesium, zinc and vitamin_c; µg for vitamin_a, vitamin_d, vitamin_b12 and folate.
+	NutritionPerServing NutrientAmounts `json:"nutrition_per_serving"`
+	Servings            float64         `json:"servings"`
+	SharedWithPartner   bool            `json:"shared_with_partner"`
+	UpdatedAt           time.Time       `json:"updated_at"`
+}
+
+// MealIngredient defines model for MealIngredient.
+type MealIngredient struct {
+	Id                 openapi_types.UUID `json:"id"`
+	IngredientCategory IngredientCategory `json:"ingredient_category"`
+	IngredientId       openapi_types.UUID `json:"ingredient_id"`
+	IngredientName     string             `json:"ingredient_name"`
+	Position           int                `json:"position"`
+	Quantity           float64            `json:"quantity"`
+	Unit               Unit               `json:"unit"`
+}
+
+// MealIngredientInput defines model for MealIngredientInput.
+type MealIngredientInput struct {
+	IngredientId openapi_types.UUID `json:"ingredient_id"`
+	Quantity     float64            `json:"quantity"`
+	Unit         Unit               `json:"unit"`
+}
+
+// MealList defines model for MealList.
+type MealList struct {
+	Items      []MealSummary             `json:"items"`
+	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+}
+
+// MealSummary defines model for MealSummary.
+type MealSummary struct {
+	CreatedAt         time.Time                 `json:"created_at"`
+	Id                openapi_types.UUID        `json:"id"`
+	Name              string                    `json:"name"`
+	Notes             nullable.Nullable[string] `json:"notes"`
+	Servings          float64                   `json:"servings"`
+	SharedWithPartner bool                      `json:"shared_with_partner"`
+	UpdatedAt         time.Time                 `json:"updated_at"`
 }
 
 // NutrientAmounts Amount per 100 g for each tracked nutrient. A null value means the amount is unknown. Units: kcal for calories; g for protein, carbohydrates, sugar, fibre, fat and saturated_fat; mg for sodium, potassium, calcium, iron, magnesium, zinc and vitamin_c; µg for vitamin_a, vitamin_d, vitamin_b12 and folate.
@@ -237,6 +316,14 @@ type RegisterRequest struct {
 	Password    string              `json:"password"`
 }
 
+// ReplaceMealIngredientsRequest defines model for ReplaceMealIngredientsRequest.
+type ReplaceMealIngredientsRequest struct {
+	Items []MealIngredientInput `json:"items"`
+}
+
+// Unit defines model for Unit.
+type Unit string
+
 // UpdateIngredientRequest defines model for UpdateIngredientRequest.
 type UpdateIngredientRequest struct {
 	Category      *IngredientCategory        `json:"category,omitempty"`
@@ -246,6 +333,14 @@ type UpdateIngredientRequest struct {
 
 	// Nutrients Amount per 100 g for each tracked nutrient the caller wants to set. Supplying the `nutrients` field replaces the ingredient's entire nutrient set — any of the 18 keys omitted, or explicitly set to null, is cleared. Omitting the `nutrients` field entirely from the request body leaves the ingredient's existing nutrients unchanged.
 	Nutrients *NutrientAmountsInput `json:"nutrients,omitempty"`
+}
+
+// UpdateMealRequest defines model for UpdateMealRequest.
+type UpdateMealRequest struct {
+	Name              *string                   `json:"name,omitempty"`
+	Notes             nullable.Nullable[string] `json:"notes,omitempty"`
+	Servings          *float64                  `json:"servings,omitempty"`
+	SharedWithPartner *bool                     `json:"shared_with_partner,omitempty"`
 }
 
 // UpdateProfileRequest defines model for UpdateProfileRequest.
@@ -293,6 +388,12 @@ type ListIngredientsParams struct {
 	Limit    *int                `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListMealsParams defines parameters for ListMeals.
+type ListMealsParams struct {
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
 type LoginUserJSONRequestBody = LoginRequest
 
@@ -313,6 +414,15 @@ type UpdateIngredientJSONRequestBody = UpdateIngredientRequest
 
 // UpdateMeJSONRequestBody defines body for UpdateMe for application/json ContentType.
 type UpdateMeJSONRequestBody = UpdateProfileRequest
+
+// CreateMealJSONRequestBody defines body for CreateMeal for application/json ContentType.
+type CreateMealJSONRequestBody = CreateMealRequest
+
+// UpdateMealJSONRequestBody defines body for UpdateMeal for application/json ContentType.
+type UpdateMealJSONRequestBody = UpdateMealRequest
+
+// ReplaceMealIngredientsJSONRequestBody defines body for ReplaceMealIngredients for application/json ContentType.
+type ReplaceMealIngredientsJSONRequestBody = ReplaceMealIngredientsRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -352,6 +462,27 @@ type ServerInterface interface {
 	// UpdateMe Update the signed-in user's profile
 	// (PATCH /me)
 	UpdateMe(w http.ResponseWriter, r *http.Request)
+	// ListMeals List the caller's meals
+	// (GET /meals)
+	ListMeals(w http.ResponseWriter, r *http.Request, params ListMealsParams)
+	// CreateMeal Create a meal
+	// (POST /meals)
+	CreateMeal(w http.ResponseWriter, r *http.Request)
+	// DeleteMeal Delete a meal
+	// (DELETE /meals/{id})
+	DeleteMeal(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// GetMeal Get a meal
+	// (GET /meals/{id})
+	GetMeal(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// UpdateMeal Update a meal
+	// (PATCH /meals/{id})
+	UpdateMeal(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// CopyMeal Copy a meal
+	// (POST /meals/{id}/copy)
+	CopyMeal(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// ReplaceMealIngredients Replace a meal's ingredient list
+	// (PUT /meals/{id}/ingredients)
+	ReplaceMealIngredients(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// GetReady Readiness probe
 	// (GET /readyz)
 	GetReady(w http.ResponseWriter, r *http.Request)
@@ -430,6 +561,48 @@ func (_ Unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
 // UpdateMe Update the signed-in user's profile
 // (PATCH /me)
 func (_ Unimplemented) UpdateMe(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListMeals List the caller's meals
+// (GET /meals)
+func (_ Unimplemented) ListMeals(w http.ResponseWriter, r *http.Request, params ListMealsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateMeal Create a meal
+// (POST /meals)
+func (_ Unimplemented) CreateMeal(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteMeal Delete a meal
+// (DELETE /meals/{id})
+func (_ Unimplemented) DeleteMeal(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetMeal Get a meal
+// (GET /meals/{id})
+func (_ Unimplemented) GetMeal(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateMeal Update a meal
+// (PATCH /meals/{id})
+func (_ Unimplemented) UpdateMeal(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CopyMeal Copy a meal
+// (POST /meals/{id}/copy)
+func (_ Unimplemented) CopyMeal(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ReplaceMealIngredients Replace a meal's ingredient list
+// (PUT /meals/{id}/ingredients)
+func (_ Unimplemented) ReplaceMealIngredients(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -698,6 +871,196 @@ func (siw *ServerInterfaceWrapper) UpdateMe(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// ListMeals operation middleware
+func (siw *ServerInterfaceWrapper) ListMeals(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMealsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMeals(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateMeal operation middleware
+func (siw *ServerInterfaceWrapper) CreateMeal(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateMeal(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMeal operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMeal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMeal(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMeal operation middleware
+func (siw *ServerInterfaceWrapper) GetMeal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMeal(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMeal operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMeal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMeal(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CopyMeal operation middleware
+func (siw *ServerInterfaceWrapper) CopyMeal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CopyMeal(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceMealIngredients operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceMealIngredients(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceMealIngredients(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetReady operation middleware
 func (siw *ServerInterfaceWrapper) GetReady(w http.ResponseWriter, r *http.Request) {
 
@@ -838,6 +1201,27 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/ingredients/{id}", wrapper.UpdateIngredient)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/meals", wrapper.ListMeals)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/meals", wrapper.CreateMeal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/meals/{id}", wrapper.DeleteMeal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/meals/{id}", wrapper.GetMeal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/meals/{id}", wrapper.UpdateMeal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/meals/{id}/ingredients", wrapper.ReplaceMealIngredients)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/meals/{id}/copy", wrapper.CopyMeal)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/healthz", wrapper.GetHealth)
 	})
 	r.Group(func(r chi.Router) {
@@ -873,62 +1257,75 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"4t3F/wIAAP//",
+	"7Hzdbty4kv+rFPT/A7OLle22M8HmOFeezMzZHCQzQT6QiyBos6VqNY8pUiEpOz2BgX2IfZV9gX2UfZIF",
+	"i5RaX+3ulu1OJuO7/hDJYtWvqljFKn2JEpUXSqK0Jjr9Emk0hZIG6ctPLH2Nn0o01n1LlLQo6SMrCsET",
+	"ZrmSR4VWM4H5v/3TKOn+M8kCc+Y+/X+N8+g0+n9HqyWO/L/m6JUfFV1fX8dRiibRvHDTRafR2wWC9ssC",
+	"N5AzMVc6xxSUhjnjwsAlEzyl1Q/hV44ihRQt/cM0Apdwjlorbc4Po+s4eqbkXPDkq+0hCesbuOJ2AfiZ",
+	"G8tlBsYyi0Thb8r+qkqZ7p9Co0qdIKQKDUhlPXGx4zR9MjArSQjuv0tu+EwgWAV2gZAwIVAT/dUyeyT/",
+	"TALJGFSSlFpjSoS8Veolk8sAWrNPgl4ziyB4zh0TE8TUkRRHC2QpaqLkNVq9PDibW9TtFe2ywOg04tJi",
+	"htpNfh1H7yQr7UJp/gfuFRcvuTFcZjFwSWrmsVBwjSkkGlOUljNhOnt7//79wVlpF+7fhFkc3KCxmsuM",
+	"9ncdh79ptBv5Ohge973QqkBtubdCLEnQmKlVFygHZosjT56Zcvq7gxMaDDQYBJ+j5TmZCIOJkinto8v/",
+	"ONI412gWN6xJ/0z9z18ilGUenX6IfkKmUUcf4/6A0nix3ySWd4bE79b/VDqOuzlb2++S1iKkxYmw4ooU",
+	"NfsnJpYMokZm8bnMNKYcpW3YeJam3HGOiVcNGcyZMBh3xOLEnCm93LSp1TrPqhEEOmm4XU6zaYF6mgvi",
+	"4udElIZf4ksuee44anWJceTMP7PRaZSqcibcPnP22T/wKI7y6uFJHMlSCOYeCSPD1mWZz7xgM81yQ0sW",
+	"HBMcuerxZDKZ7LiyZDktl7PPL1BmdhGdnoRJqu/HA7CRpdW8cs43sfm38OBZrkppzXNZlLaHJSIiXolu",
+	"PTpeIhPjcDF2o8r68e1x61m7GmpQX3KZmVtIsy3MnvDMgmlMp85/TwumrfS6HJ6bKSWQyXXcrskb4jYd",
+	"X35xnqxv+BKVYt+ivbGOGcDJEs856hjwMDuEauUYrFJTs1Da+o9CNcz51DNi9d1RtPp2yUSJDZu4YvLc",
+	"Edqn5hWzC1BzOhGo+Rxl6o42/3jz+29AIwJx55gzLs4HZu7wzC8T+70PMew/kAmHjS6z3GmqNE1jrC4G",
+	"DHFnuTBqaKGV3RqQzK1sX0Ialk4ZzbxCJrN44NzTEPuH7GUf02Ps34hZeNoaWJY8HaKZm2lSGqvyPmze",
+	"6hJhrjQw8I8Ar1kF6kpiCrNl45j5FMjW0BD3aybUjAl49+bnM0iYZUJlDWzVCrkyu3dmWMmXF+mOAuzA",
+	"jvjVNcZNhvUlNQCB5iZaqGpReDO2nzWQXClOoVVa+iUZ18spZplbIEdmpwbZXKnUE8ilmc40MvdVYFbm",
+	"aKaytGZqEFOiScmU547AqeLC/WIKnqCZLlDP3NcZXqJmGdJfV4hurGTJhfuu7GLNWWpF/gtuBtSTW8zb",
+	"H7ZTUjrY+cWY1oyUVeJnO01KbbyF3uCMunKm9duTDMnjhcq4HOduybC2YOh/iVuO9PGPA2wsmDFXSqcd",
+	"r3t88mSDt+7sslqwnm9oi+5AMWBIR5jCba1PLdbtoeCI3ACHtfakOr9sPK6Q0jrpkh6H08EIK9Q89vSN",
+	"+NgzzB1bN8+WBrHDhLTFtY5Huxm5jjD7VmJXHE1v5/YbE+2+9FrcFcpw71S/DASyn0omLbfLLTFSSm43",
+	"BqnumUGRtzfYJ3+Ylw0iAwGNTW2Wqw90drOZu0uiycexAeOmIGM88zt87/JzHRPvwnm6ed6Uec48xr+K",
+	"92zSsE8Pcwe+4Puy4btY565D62fu6A8oUMPxZAIZnf2RJQuwmiUXmEJ1+j2EM3CcBopeIUcmDUUJzE/B",
+	"DZTyQqoreQhOgcwpXCRM0IQJE0pzNE/DAoVWFrmMIWF6phbLVDOLJgZTZkzHMOczjTHMmQUmUzDMlpp2",
+	"OWf2KeR+DqNSXuYxFMoyY+hjwkRCH7hWMoacZRL9P39wmdBcl9yynMtp8hT+57/9RNVPLK4/pquPs+MT",
+	"GjhXgi4S+gk6WnNkjFcxZvTwBvtGzjHvonf7kU5MY8cSO8dGxtp74hFDa0yMHF+jbex4j/yRo1uaMHYO",
+	"0puxg52Cjhxb69ktx8+OT245Q3LL8enI8c4KjRracRu11VjhqWsLKlFVWur1vIugGg1NYMe1TQua1tSa",
+	"sImmNJt8bfKoLbFa5bdwU9udNsc6skbCC66YtAasAoP2EN6URSGWXGb0yHmd9zn3WVbQWAiWoHd7q/Pg",
+	"DwZQWq5xtYRBC//7n/8FTC6rvO3xE7jApQGVc2sxDde/heAJt2JJI6wiDxs7X5oIdM7/EH53z6+nya8s",
+	"ljDXKqdnqhvxmUqXIJBdDhJc3Y/XE0IpkwWTmb9RfXByD07uwck9OLn9OrmeY2jUvHQKQX59Bn/78fG/",
+	"QyjNqGuTqPqHgfH3dzlLFlzigUaW0g+JSocO8dvdAUIivKnMWeGMtVAJE/wPTMHiZxsu4UKgNpXKTgWX",
+	"F96eDlw12ZBS7ldaUFnVwC0g6oN5sxArhkKjocsc2SjXms4ZF5hWrKHqi63SDI1r0oEsw+rur58Bs9yK",
+	"4Si9Kt5YxfmaH2ico0aZbI6QQ8mFn7+m4Yaby9e+cmNcmr9XkdJI2D8+PtktYd+ebJjWjBuLehyxKTeF",
+	"YMvpQCnAk82VAHu40ZjsfKURtzc1zDM6g7XTk2YcB3dPwnUzouRsPz/3w6kAo601g7m2oW29C2nJ6nYw",
+	"c4Ig3tC95ND93DtK/TwUGP01Coz6iCHxP1QQjasgWsPOV1rNucCvYZAt0xnaqYt2zDQbPkHVvHi8O3LD",
+	"/HNmN85+Mnr2i4SNtQEnk9Grhnjj7vc1CJRQYnr7C5AuXtb76LF3J9tg6g6Asys6xs+wQdIbp7mbG5vq",
+	"3NIS4C4XM2QMk1Jzu3zjDL/H0Izqms9KX3jnv/1akfiP92+jUM5NtszXQNczL6wtfKE5l3PVjx2eKWk1",
+	"S2xd2+UcB7wSTErUcPbq+SG8XXADzvoB9wkjw2UmEEL3gpqD1aVdPKX/Ziy5QJnGcIUzuh/hv7+pwyOm",
+	"ETKUSFG8T0xxe1gf40+j7uJRHF2iNp7UyeHx4cQJSxUoWcGj0+jR4eTwER0U7YJYdcRKuzgSKvNZhkJ5",
+	"Y+00kkKg52l06ut9SF29DNHYn1S6vKHOf7f6/lY90XUbKQ5/9EOj0edkMrmztVvF/GsaT0qD2snS8Exi",
+	"ClxS98aPnoqhyWtqjxo9STTkePOQViuFG3Tyt82Duq0k13H0eBv6Vq0VK02KTj98jCNTXVFHb3gmgcvQ",
+	"D+RUloDaCDYsc4eRD9QZEX10c9W4Uj4BXQGrzdznKeaFsv5SVFbXnqA0MKGRpcsDjZfqAtPQERFae1jo",
+	"pnGa0EOqKu09QrUTFW8F1h8HCkqdVUDjFNVtKuxyNKy+NkJeE/3AIITqB15cYYc3ACQ8vx4hr5VlNuTd",
+	"w8MeC4fwyqdsuMwcICrAlAbT9pOBu36Oq4USK9bPWc7Fsg+jIOU3Nf3fCpT2Z/fOQOJVYGDBuP5rmbxf",
+	"PvsrnBWkAyt8EXibNTfi2yem1gPc968YgnCS0NXbGjvrSzh4FqpFvFOSQ+D1a96rFWzn27bC7vFefXbN",
+	"TGYgnCfHQ3gLNNZtu98CfD2oGpgahuiCmlP+cGtmOGR80ZZaGjiZTOBqgZJwV2hFPYrcQFkcws9VL65V",
+	"ZbKgJ1Jm2YwZ7EPz72hDQ8w9WrawwhpcUO4koaM5E/zSdzTfGeNf8EuUjjuFVjNscD0Q5fneqfUe5P17",
+	"bheqtHD+6TwGQc3NjWHARLFgM7Q8YUIsvcnwNYdQsIzL0G7uZvFTGGQ6WaCB2RJcmEXWRAcBUyCCxkLO",
+	"rHsoJomGify9S+ecxY193iqBLphmOVpqsP3wJXLhRPSpRKqY9XF59KmKu1g34b0xXXYdD0/ZKMvdDhxD",
+	"2de1k/sazviG1uA1I6mxujUwxTkrhY1OTybtTFwjjXLc7+29/niPitLpSxnqrnZwcAesBvS+04NAQ4WN",
+	"dRGIVxhoF/pX6tzE/kdf1j4QN3c7l+/JG69rkN6zV252ogzb3kbT3J245T8HoCpn3G8dXAuojpM4+sLT",
+	"a29FBPo6mDbQfqbfO0DbJgbtSMTPX0lkDHv9QjcPqt8f8m2frWoBeu7uJMBhf1gwOvkEJ0EZ0LZ6Nj3G",
+	"hpy08wyFM899wVL1gXPqzFIGkc2otMF9FDi3jfo0+F2K5bZNrZAwCTOEkJDtHwq696j3ZO7WXdfuOYDe",
+	"bO4Coxps3a+p21kX969aXpY728Yc29awV96TM7e+WAaLFvorQkjoTr54iXpp/dmG0G76ePZ6/xK3tqbN",
+	"mPP2pvSrGTp/ZZFJTA+4pDzDD2YgkAxXvGTtQgjTi/aGmHd3KhheQDOofIWn7k/F/7+jHWZ+2Mwa5t/e",
+	"DZxByrhYgr8cbJZQNyuo1xj8IOP7MvSdSoI9W/mbIFbZ9zbUvttzbLDVOwPUG2wm1uc6nlGgfVDnG+JW",
+	"eqPKWDRyTVwmokyxlRFRGtxmSlt1KLjJn8IcbUJ1rP4O1hESrm7VUIbKRX8viditUhrfe4qg7rtdowL+",
+	"ZPiDIb7+NVIDtrftBuo9dJoZgeFsv5uEoOirrCVgXthl8wAuuLGHcJamLZDT4+ev3r0Fr1IUGTZDxfM+",
+	"pFdvyLrX/EOzgG7PmQfa2xqEei7/BbMNuRd4F5m1Nd4yqVDjZpsDcM3sr5BI+Ip5gTWsjoe93XPvvLq9",
+	"ZKTxFJvU3oua8EKxZ7zybkqCRpYOXq8Mi2uyN1X7xiPcP0G2yQUBN0DqT5RXopfsXcmQOSqrUN/DZF0s",
+	"cW9eql/mvedQ4ibVqUKJBxW606zSVj7wKFGFfxPLPlTr5iIQqixxpMVDGdjYn/8oAmM5UlREV7X0yo/Q",
+	"FOCLSBv3dUAHdVUsgYkrtjRgLNP1WXKg0v/cv71w4CSpiuWwg9nPWc5t4kE7bn1CJChsqRudUoW9qEg5",
+	"oCFnVuWh1qH18oA55ai6YdMvl6iXoNUV8Pr1+5jCv3ROXHlpwjvkSWlmOPzS+NirFHX28zBq5tAoL1Fb",
+	"9/y/wgznyrlEWSWVDVxpbi3Kp6vw7pza1s6Betp8Ws3vgqgeKOQa6tC7t5Kum9oBH1zld2oMgtiDPfjB",
+	"dHVpjYWgWtsdC8eqyit3GNT0QhGnUlWxWAyPJ4+AXqJ6xdfUjr12q34TpWO0f7IS7ALBajaf8ySUkj26",
+	"q5pqlvINtWTt4e3Glw8fnTF1NFfWur2jFyphAlK8RKGK3N+4lVqEFpjToyNqyl8oY0+fTJ5Mji6PIzdh",
+	"IKI3W1X45svKKtKTBSYXdLUW3EPF4bgPmYwb6+UdAzWkhLkGKsqbM9Ju+/O9HUpTqytZpapp8nCp1Zit",
+	"SlsPTxje40xVuagPQglurTCNVzuH6Zp2uz8laRTMSi5saO5ZPR7OeqtcwFD4H1bxmnn98fr/AgAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

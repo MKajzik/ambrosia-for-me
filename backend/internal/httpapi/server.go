@@ -18,6 +18,7 @@ type server struct {
 	ready       func(context.Context) error
 	auth        AuthService
 	ingredients IngredientsService
+	meals       MealsService
 }
 
 var _ api.ServerInterface = (*server)(nil)

@@ -42,6 +42,10 @@ const (
 // ingredient only to its owner.
 var ErrIngredientNotFound = errors.New("ingredient not found")
 
+// ErrIngredientInUse means the ingredient cannot be deleted because a meal
+// still references it.
+var ErrIngredientInUse = errors.New("ingredient is in use")
+
 // Ingredient is an ingredient as the rest of the application sees it.
 type Ingredient struct {
 	ID            uuid.UUID
@@ -170,9 +174,13 @@ func (s *Ingredients) Update(ctx context.Context, ownerID, id uuid.UUID, in Upda
 	return ing, nil
 }
 
-// Delete removes a custom ingredient owned by ownerID.
+// Delete removes a custom ingredient owned by ownerID. It fails with
+// ErrIngredientInUse if a meal still references the ingredient.
 func (s *Ingredients) Delete(ctx context.Context, ownerID, id uuid.UUID) error {
 	n, err := s.st.DeleteIngredient(ctx, sqlc.DeleteIngredientParams{ID: id, UserID: &ownerID})
+	if store.IsForeignKeyViolation(err, "meal_ingredients_ingredient_id_fkey") {
+		return ErrIngredientInUse
+	}
 	if err != nil {
 		return fmt.Errorf("delete ingredient: %w", err)
 	}

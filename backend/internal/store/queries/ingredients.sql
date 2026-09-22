@@ -36,10 +36,10 @@ UPDATE ingredients SET
 WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id')
 RETURNING *;
 
--- The meals plan (not built yet) must add a meal_ingredients foreign key to
--- ingredients and translate its violation into 409 ingredient_in_use here on
--- delete. This query does not check for that yet because nothing references
--- ingredients until then.
+-- Deleting an ingredient referenced by a meal_ingredients row fails with a
+-- foreign-key violation on meal_ingredients_ingredient_id_fkey, which
+-- Ingredients.Delete (internal/service/ingredients.go) translates into
+-- ErrIngredientInUse.
 -- name: DeleteIngredient :execrows
 DELETE FROM ingredients WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id');
 
@@ -53,6 +53,10 @@ ON CONFLICT (ingredient_id, nutrient_key) DO UPDATE SET amount_per_100g = EXCLUD
 
 -- name: GetIngredientNutrients :many
 SELECT * FROM ingredient_nutrients WHERE ingredient_id = ANY(sqlc.arg('ingredient_ids')::uuid[]);
+
+-- name: GetIngredientsForUser :many
+SELECT * FROM ingredients
+WHERE id = ANY(sqlc.arg('ids')::uuid[]) AND (owner_id IS NULL OR owner_id = sqlc.arg('user_id'));
 
 -- name: UpsertUSDAIngredient :one
 INSERT INTO ingredients (name, category, usda_fdc_id)

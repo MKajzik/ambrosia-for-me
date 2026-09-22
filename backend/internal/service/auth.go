@@ -240,15 +240,29 @@ func (a *Auth) UpdateUser(ctx context.Context, id uuid.UUID, in UpdateInput) (Us
 
 // DeleteUser permanently deletes the account and, through cascading foreign
 // keys, everything that belongs to it.
+//
+// The caller's meals go first, in the same transaction. users cascades to both
+// ingredients and meals, but meal_ingredients.ingredient_id is deliberately NO
+// ACTION (it is what makes deleting an in-use ingredient a 409), and Postgres
+// runs the ingredients cascade before the meals one. Without this first delete,
+// an account that owns a custom ingredient its own meal references fails with a
+// foreign-key violation on meal_ingredients_ingredient_id_fkey. Deleting the
+// meals removes their meal_ingredients rows (ON DELETE CASCADE on meal_id), so
+// nothing references the ingredients by the time the users row goes.
 func (a *Auth) DeleteUser(ctx context.Context, id uuid.UUID) error {
-	n, err := a.st.DeleteUser(ctx, id)
-	if err != nil {
-		return fmt.Errorf("delete user: %w", err)
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return a.st.InTx(ctx, func(q *sqlc.Queries) error {
+		if err := q.DeleteMealsForUser(ctx, id); err != nil {
+			return fmt.Errorf("delete meals: %w", err)
+		}
+		n, err := q.DeleteUser(ctx, id)
+		if err != nil {
+			return fmt.Errorf("delete user: %w", err)
+		}
+		if n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 func (a *Auth) newSession(ctx context.Context, q *sqlc.Queries, user sqlc.User, family uuid.UUID) (Session, error) {

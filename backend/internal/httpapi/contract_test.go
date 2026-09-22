@@ -79,6 +79,10 @@ func (stubAuth) GetUser(_ context.Context, id uuid.UUID) (service.User, error) {
 // ingredients service fail loudly if they do.
 type stubIngredients struct{ httpapi.IngredientsService }
 
+// stubMeals panics on any call, so tests that must not reach the meals
+// service fail loudly if they do.
+type stubMeals struct{ httpapi.MealsService }
+
 func newTestRouter(t *testing.T, mods ...func(*httpapi.Deps)) http.Handler {
 	t.Helper()
 	d := httpapi.Deps{
@@ -87,6 +91,7 @@ func newTestRouter(t *testing.T, mods ...func(*httpapi.Deps)) http.Handler {
 		WebOrigin:   "http://localhost:3000",
 		Auth:        stubAuth{},
 		Ingredients: stubIngredients{},
+		Meals:       stubMeals{},
 		Tokens:      stubTokens{},
 	}
 	for _, m := range mods {
@@ -237,13 +242,14 @@ func TestReadyzGivesUpOnAHungDatabase(t *testing.T) {
 func TestNewRouterPanicsWithoutRequiredDependencies(t *testing.T) {
 	full := httpapi.Deps{
 		Logger: slog.New(slog.DiscardHandler), Ready: alwaysReady,
-		WebOrigin: "http://localhost:3000", Auth: stubAuth{}, Ingredients: stubIngredients{}, Tokens: stubTokens{},
+		WebOrigin: "http://localhost:3000", Auth: stubAuth{}, Ingredients: stubIngredients{}, Meals: stubMeals{}, Tokens: stubTokens{},
 	}
 	tests := map[string]func(*httpapi.Deps){
 		"no logger":           func(d *httpapi.Deps) { d.Logger = nil },
 		"no ready":            func(d *httpapi.Deps) { d.Ready = nil },
 		"no auth":             func(d *httpapi.Deps) { d.Auth = nil },
 		"no ingredients":      func(d *httpapi.Deps) { d.Ingredients = nil },
+		"no meals":            func(d *httpapi.Deps) { d.Meals = nil },
 		"no tokens":           func(d *httpapi.Deps) { d.Tokens = nil },
 		"empty web origin":    func(d *httpapi.Deps) { d.WebOrigin = "" },
 		"wildcard web origin": func(d *httpapi.Deps) { d.WebOrigin = "*" },
