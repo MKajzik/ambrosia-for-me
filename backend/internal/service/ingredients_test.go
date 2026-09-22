@@ -133,7 +133,7 @@ func TestIngredientsUpdatePreservesNutrientsWhenNotProvided(t *testing.T) {
 	}
 }
 
-func TestIngredientsDeleteRejectsNonOwnersAndGlobals(t *testing.T) {
+func TestIngredientsDeleteRejectsNonOwners(t *testing.T) {
 	svc, st := newIngredientsFixture(t)
 	owner := newTestUser(t, st, "owner@example.com")
 	other := newTestUser(t, st, "other@example.com")
@@ -147,6 +147,86 @@ func TestIngredientsDeleteRejectsNonOwnersAndGlobals(t *testing.T) {
 	}
 	if err := svc.Delete(context.Background(), owner, ing.ID); err != nil {
 		t.Fatalf("Delete by the owner: %v", err)
+	}
+}
+
+// insertGlobalIngredient inserts an ingredient with owner_id IS NULL, exactly
+// as the USDA import does, by calling the store's generated CreateIngredient
+// query directly (bypassing the service, which always sets an owner) with no
+// OwnerID. This is a "raw SQL insert" in spirit without hand-writing SQL: the
+// sqlc-generated query already runs the equivalent
+// `INSERT INTO ingredients (name, category, owner_id, ...) VALUES ($1, $2, NULL, ...)`.
+func insertGlobalIngredient(t *testing.T, st *store.Store, name, category string) uuid.UUID {
+	t.Helper()
+	row, err := st.CreateIngredient(context.Background(), sqlc.CreateIngredientParams{
+		Name: name, Category: category,
+	})
+	if err != nil {
+		t.Fatalf("insert global ingredient: %v", err)
+	}
+	if row.OwnerID != nil {
+		t.Fatalf("inserted ingredient has OwnerID = %v, want nil (global)", row.OwnerID)
+	}
+	return row.ID
+}
+
+// TestIngredientsGlobalCatalogIsVisibleToEveryoneAndReadOnly covers the
+// global (USDA-imported, owner_id IS NULL) catalog, which had no test
+// coverage anywhere on the branch: every user sees a global ingredient in
+// List and Search, its IsCustom is false, and nobody can mutate it through
+// the service (Update/Delete both answer ErrIngredientNotFound, the same 404
+// used for "not visible to this caller" everywhere else, never a 403).
+func TestIngredientsGlobalCatalogIsVisibleToEveryoneAndReadOnly(t *testing.T) {
+	svc, st := newIngredientsFixture(t)
+	user1 := newTestUser(t, st, "one@example.com")
+	user2 := newTestUser(t, st, "two@example.com")
+
+	globalID := insertGlobalIngredient(t, st, "Global Apple", "produce")
+
+	for _, u := range []uuid.UUID{user1, user2} {
+		page, err := svc.List(context.Background(), u, service.ListIngredientsInput{Limit: 10})
+		if err != nil {
+			t.Fatalf("List(%s): %v", u, err)
+		}
+		found := false
+		for _, ing := range page.Items {
+			if ing.ID == globalID {
+				found = true
+				if ing.IsCustom {
+					t.Errorf("List(%s): global ingredient IsCustom = true, want false", u)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("List(%s) did not include the global ingredient", u)
+		}
+
+		results, err := svc.Search(context.Background(), u, "Global Apple", nil, 10)
+		if err != nil {
+			t.Fatalf("Search(%s): %v", u, err)
+		}
+		found = false
+		for _, r := range results {
+			if r.ID == globalID {
+				found = true
+				if r.IsCustom {
+					t.Errorf("Search(%s): global ingredient IsCustom = true, want false", u)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Search(%s) did not include the global ingredient", u)
+		}
+	}
+
+	newName := "Hijacked"
+	for _, u := range []uuid.UUID{user1, user2} {
+		if _, err := svc.Update(context.Background(), u, globalID, service.UpdateIngredientInput{Name: &newName}); !errors.Is(err, service.ErrIngredientNotFound) {
+			t.Errorf("Update(%s) on a global ingredient: err = %v, want ErrIngredientNotFound", u, err)
+		}
+		if err := svc.Delete(context.Background(), u, globalID); !errors.Is(err, service.ErrIngredientNotFound) {
+			t.Errorf("Delete(%s) on a global ingredient: err = %v, want ErrIngredientNotFound", u, err)
+		}
 	}
 }
 
