@@ -260,6 +260,8 @@ func TestNewRouterPanicsWithoutRequiredDependencies(t *testing.T) {
 		"no auth":             func(d *httpapi.Deps) { d.Auth = nil },
 		"no ingredients":      func(d *httpapi.Deps) { d.Ingredients = nil },
 		"no meals":            func(d *httpapi.Deps) { d.Meals = nil },
+		"no diet templates":   func(d *httpapi.Deps) { d.DietTemplates = nil },
+		"no plan":             func(d *httpapi.Deps) { d.Plan = nil },
 		"no tokens":           func(d *httpapi.Deps) { d.Tokens = nil },
 		"empty web origin":    func(d *httpapi.Deps) { d.WebOrigin = "" },
 		"wildcard web origin": func(d *httpapi.Deps) { d.WebOrigin = "*" },
