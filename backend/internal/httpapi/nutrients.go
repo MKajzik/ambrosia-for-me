@@ -9,7 +9,7 @@ import (
 
 // nutrientsFromAPI returns one map entry per key present in n with a non-null
 // value; an absent or explicitly null key is simply omitted.
-func nutrientsFromAPI(n api.NutrientAmounts) map[string]float64 {
+func nutrientsFromAPI(n api.NutrientAmountsInput) map[string]float64 {
 	m := make(map[string]float64, 18)
 	set := func(key string, v nullable.Nullable[float64]) {
 		if v.IsSpecified() && !v.IsNull() {
