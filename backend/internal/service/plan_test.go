@@ -19,14 +19,39 @@ func newPlanFixture(t *testing.T) (*service.Plan, *service.Meals, *service.Ingre
 
 func TestPlanSetEntryUpsertsNonSnackSlotsAndClearsProvenance(t *testing.T) {
 	plan, meals, _, st := newPlanFixture(t)
+	tpls := service.NewDietTemplates(st)
 	owner := newTestUser(t, st, "planowner1@example.com")
 	meal1 := mustCreateMeal(t, meals, owner, "First")
 	meal2 := mustCreateMeal(t, meals, owner, "Second")
 	date := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 
-	first, err := plan.SetEntry(context.Background(), owner, date, "breakfast", service.SetPlanEntryInput{MealID: meal1.ID, Portion: 1})
+	// The entry must have real provenance before SetEntry can meaningfully
+	// clear it, so it comes from applying a template rather than from a
+	// first SetEntry (which writes from_template_id = NULL itself, making
+	// the assertion below unfalsifiable).
+	tpl, err := tpls.Create(context.Background(), owner, service.CreateDietTemplateInput{Name: "One Day", DayCount: 1})
 	if err != nil {
-		t.Fatalf("SetEntry (first): %v", err)
+		t.Fatalf("create diet template: %v", err)
+	}
+	if _, err := tpls.ReplaceSlots(context.Background(), owner, tpl.ID, []service.TemplateSlotInput{
+		{DayIndex: 0, Slot: "breakfast", MealID: meal1.ID, Portion: 1},
+	}); err != nil {
+		t.Fatalf("ReplaceSlots: %v", err)
+	}
+	if _, err := tpls.Apply(context.Background(), owner, tpl.ID, service.ApplyTemplateInput{StartDate: date}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	applied, err := plan.GetRange(context.Background(), owner, date, date)
+	if err != nil {
+		t.Fatalf("GetRange (after Apply): %v", err)
+	}
+	if len(applied.Days) != 1 || len(applied.Days[0].Entries) != 1 {
+		t.Fatalf("Days after Apply = %+v, want exactly one day with exactly one entry", applied.Days)
+	}
+	first := applied.Days[0].Entries[0]
+	if first.FromTemplateID == nil || *first.FromTemplateID != tpl.ID {
+		t.Fatalf("FromTemplateID after Apply = %v, want the applied template's id %v", first.FromTemplateID, tpl.ID)
 	}
 
 	second, err := plan.SetEntry(context.Background(), owner, date, "breakfast", service.SetPlanEntryInput{MealID: meal2.ID, Portion: 2})
@@ -40,7 +65,7 @@ func TestPlanSetEntryUpsertsNonSnackSlotsAndClearsProvenance(t *testing.T) {
 		t.Errorf("second = %+v, want meal2 at portion 2", second)
 	}
 	if second.FromTemplateID != nil {
-		t.Errorf("FromTemplateID = %v, want nil after a manual set", second.FromTemplateID)
+		t.Errorf("FromTemplateID = %v, want nil after a manual set over a template-applied entry", second.FromTemplateID)
 	}
 
 	rng, err := plan.GetRange(context.Background(), owner, date, date)
@@ -49,6 +74,9 @@ func TestPlanSetEntryUpsertsNonSnackSlotsAndClearsProvenance(t *testing.T) {
 	}
 	if len(rng.Days) != 1 || len(rng.Days[0].Entries) != 1 {
 		t.Fatalf("Days = %+v, want exactly one day with exactly one entry", rng.Days)
+	}
+	if got := rng.Days[0].Entries[0].FromTemplateID; got != nil {
+		t.Errorf("FromTemplateID on re-read = %v, want nil", got)
 	}
 }
 
