@@ -156,9 +156,12 @@ func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err e
 		WriteProblem(w, http.StatusUnauthorized, CodeInvalidCredentials, "")
 	case errors.Is(err, service.ErrInvalidRefreshToken):
 		WriteProblem(w, http.StatusUnauthorized, CodeInvalidRefreshToken, "")
+	case errors.Is(err, service.ErrIngredientNotFound):
+		WriteProblem(w, http.StatusNotFound, CodeNotFound, "")
 	case errors.Is(err, service.ErrNotFound):
-		// Only the signed-in user's own account is looked up: a valid token
-		// for an account that no longer exists is simply no longer authorized.
+		// The signed-in user's own account no longer exists: a valid access
+		// token for a deleted user is simply no longer authorized. Reused by
+		// Ingredients.Create for the same reason (see ingredients.go).
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		WriteProblem(w, http.StatusUnauthorized, CodeUnauthorized, "")
 	default:
