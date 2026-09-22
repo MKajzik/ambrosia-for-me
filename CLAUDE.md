@@ -50,3 +50,17 @@ Copy `.env.example` to `.env` for Docker Compose (`make db-up`). The API reads i
 - Never hand-edit generated code (`backend/internal/api`, `backend/internal/store/sqlc`). Regenerate it with `make generate`.
 - Keep commits small; one logical change each.
 - Any new environment variable must be added to `.env.example` in the same commit.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues (github.com/MKajzik/ambrosia-for-me), used via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
