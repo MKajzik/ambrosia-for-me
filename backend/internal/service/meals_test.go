@@ -252,6 +252,41 @@ func TestMealsAreOwnerOnlyForNow(t *testing.T) {
 	}
 }
 
+// TestMealsReplaceIngredientsRejectsAnotherUsersCustomIngredient pins the
+// visibility half of the write-path guard: the ingredient exists, so only the
+// (owner_id IS NULL OR owner_id = user_id) filter in GetIngredientsForUser
+// keeps it out. Without it, another user's private ingredient — its name,
+// category and nutrition — would leak into this meal's response.
+func TestMealsReplaceIngredientsRejectsAnotherUsersCustomIngredient(t *testing.T) {
+	meals, ing, st := newMealsFixture(t)
+	userA := newTestUser(t, st, "a10@example.com")
+	userB := newTestUser(t, st, "b10@example.com")
+
+	secret := mustCreateIngredient(t, ing, userA, service.CreateIngredientInput{
+		Name: "Secret Blend", Category: "condiments_oils",
+		Nutrients: map[string]float64{service.NutrientCalories: 500},
+	})
+
+	meal, err := meals.Create(context.Background(), userB, service.CreateMealInput{Name: "Curious Meal", Servings: 1})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := meals.ReplaceIngredients(context.Background(), userB, meal.ID, []service.MealIngredientInput{
+		{IngredientID: secret.ID, Quantity: 100, Unit: "g"},
+	}); !errors.Is(err, service.ErrMealIngredientNotFound) {
+		t.Fatalf("ReplaceIngredients with another user's ingredient: err = %v, want ErrMealIngredientNotFound", err)
+	}
+
+	// Nothing was written: the meal still has no ingredients.
+	got, err := meals.Get(context.Background(), userB, meal.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(got.Ingredients) != 0 {
+		t.Errorf("Ingredients = %+v, want none", got.Ingredients)
+	}
+}
+
 func TestMealsCopyDuplicatesIngredientsAndStartsPrivate(t *testing.T) {
 	meals, ing, st := newMealsFixture(t)
 	owner := newTestUser(t, st, "chef8@example.com")
