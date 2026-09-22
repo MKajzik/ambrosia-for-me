@@ -184,6 +184,13 @@ func (s *Ingredients) Delete(ctx context.Context, ownerID, id uuid.UUID) error {
 
 // List returns a page of the alphabetical ingredient catalog visible to userID.
 func (s *Ingredients) List(ctx context.Context, userID uuid.UUID, in ListIngredientsInput) (IngredientPage, error) {
+	// Defensive clamp: the OpenAPI schema enforces minimum:1 for every HTTP
+	// caller, but a future non-HTTP caller (e.g. internal/usda) could reach
+	// this service directly with Limit <= 0, which would panic below at
+	// rows[in.Limit-1].
+	if in.Limit < 1 {
+		in.Limit = 1
+	}
 	params := sqlc.ListIngredientsParams{UserID: &userID, Category: in.Category, RowLimit: toRowLimit(in.Limit + 1)}
 	if in.Cursor != nil {
 		params.HasCursor = true
@@ -211,6 +218,9 @@ func (s *Ingredients) List(ctx context.Context, userID uuid.UUID, in ListIngredi
 // Search returns the best-matching ingredients for query, visible to userID.
 // Results are not paginated: a type-ahead search never needs a second page.
 func (s *Ingredients) Search(ctx context.Context, userID uuid.UUID, query string, category *string, limit int) ([]Ingredient, error) {
+	if limit < 1 {
+		limit = 1
+	}
 	rows, err := s.st.SearchIngredients(ctx, sqlc.SearchIngredientsParams{
 		UserID: &userID, Category: category, Query: query, RowLimit: toRowLimit(limit),
 	})
