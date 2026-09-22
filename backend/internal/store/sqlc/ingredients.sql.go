@@ -120,6 +120,46 @@ func (q *Queries) GetIngredientNutrients(ctx context.Context, ingredientIds []uu
 	return items, nil
 }
 
+const getIngredientsForUser = `-- name: GetIngredientsForUser :many
+SELECT id, name, category, owner_id, usda_fdc_id, grams_per_piece, density_g_per_ml, created_at, updated_at FROM ingredients
+WHERE id = ANY($1::uuid[]) AND (owner_id IS NULL OR owner_id = $2)
+`
+
+type GetIngredientsForUserParams struct {
+	Ids    []uuid.UUID
+	UserID *uuid.UUID
+}
+
+func (q *Queries) GetIngredientsForUser(ctx context.Context, arg GetIngredientsForUserParams) ([]Ingredient, error) {
+	rows, err := q.db.Query(ctx, getIngredientsForUser, arg.Ids, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Ingredient
+	for rows.Next() {
+		var i Ingredient
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Category,
+			&i.OwnerID,
+			&i.UsdaFdcID,
+			&i.GramsPerPiece,
+			&i.DensityGPerMl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIngredients = `-- name: ListIngredients :many
 SELECT id, name, category, owner_id, usda_fdc_id, grams_per_piece, density_g_per_ml, created_at, updated_at FROM ingredients
 WHERE (owner_id IS NULL OR owner_id = $1)

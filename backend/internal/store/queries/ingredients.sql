@@ -54,6 +54,10 @@ ON CONFLICT (ingredient_id, nutrient_key) DO UPDATE SET amount_per_100g = EXCLUD
 -- name: GetIngredientNutrients :many
 SELECT * FROM ingredient_nutrients WHERE ingredient_id = ANY(sqlc.arg('ingredient_ids')::uuid[]);
 
+-- name: GetIngredientsForUser :many
+SELECT * FROM ingredients
+WHERE id = ANY(sqlc.arg('ids')::uuid[]) AND (owner_id IS NULL OR owner_id = sqlc.arg('user_id'));
+
 -- name: UpsertUSDAIngredient :one
 INSERT INTO ingredients (name, category, usda_fdc_id)
 VALUES ($1, $2, $3)
