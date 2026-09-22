@@ -1558,7 +1558,7 @@ git commit -m "feat(backend): implement the ingredients handlers"
 
 - [ ] **Step 1: Read `cmd/api/main.go` and wire the service**
 
-Read `backend/internal/cmd/api/main.go` (find the exact line that constructs `service.NewAuth` and the `httpapi.Deps{...}` literal) and add, next to the existing `auth := service.NewAuth(...)` line:
+Read `backend/cmd/api/main.go` (find the exact line that constructs `service.NewAuth` and the `httpapi.Deps{...}` literal) and add, next to the existing `auth := service.NewAuth(...)` line:
 
 ```go
 	ingredients := service.NewIngredients(st)
