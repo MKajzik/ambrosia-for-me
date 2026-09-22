@@ -33,6 +33,9 @@ var (
 	// ingredient is later edited to clear that field (ingredients has no
 	// awareness of meals, so nothing prevents that edit).
 	ErrUnitNotConvertible = errors.New("ingredient does not have the data needed to convert this unit")
+	// ErrMealInUse means the meal cannot be deleted because a diet
+	// template's slot or a plan entry still references it.
+	ErrMealInUse = errors.New("meal is in use")
 )
 
 // allNutrientKeys is the ordered set of the 18 tracked nutrient keys, used to
@@ -223,9 +226,13 @@ func (s *Meals) Update(ctx context.Context, ownerID, id uuid.UUID, in UpdateMeal
 }
 
 // Delete removes a meal owned by ownerID. Its meal_ingredients rows are
-// removed by ON DELETE CASCADE.
+// removed by ON DELETE CASCADE. Fails with ErrMealInUse if a diet template's
+// slot or a plan entry still references the meal.
 func (s *Meals) Delete(ctx context.Context, ownerID, id uuid.UUID) error {
 	n, err := s.st.DeleteMeal(ctx, sqlc.DeleteMealParams{ID: id, UserID: ownerID})
+	if store.IsForeignKeyViolation(err, "template_slots_meal_id_fkey") || store.IsForeignKeyViolation(err, "plan_entries_meal_id_fkey") {
+		return ErrMealInUse
+	}
 	if err != nil {
 		return fmt.Errorf("delete meal: %w", err)
 	}

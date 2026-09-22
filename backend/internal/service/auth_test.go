@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/InzKazik/mealplanner/backend/internal/auth"
 	"github.com/InzKazik/mealplanner/backend/internal/db"
@@ -285,6 +286,45 @@ func TestDeleteUserWithAMealThatUsesTheirOwnCustomIngredient(t *testing.T) {
 	}
 	if _, err := f.svc.GetUser(ctx, s.User.ID); !errors.Is(err, service.ErrNotFound) {
 		t.Errorf("GetUser after delete: err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestDeleteUserWithAPlanEntryAndTemplateUsingTheirOwnMeal extends the same
+// cascade-ordering guard one level up: diet_templates and plan_entries both
+// cascade from users, but template_slots_meal_id_fkey and
+// plan_entries_meal_id_fkey are NO ACTION on meals, so DeleteUser must clear
+// plan_entries and diet_templates before deleting the caller's meals.
+func TestDeleteUserWithAPlanEntryAndTemplateUsingTheirOwnMeal(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	s := register(t, f, "deleteme@example.com")
+
+	meals := service.NewMeals(f.store)
+	meal, err := meals.Create(ctx, s.User.ID, service.CreateMealInput{Name: "Toast", Servings: 1})
+	if err != nil {
+		t.Fatalf("create meal: %v", err)
+	}
+	tpl, err := f.store.CreateDietTemplate(ctx, sqlc.CreateDietTemplateParams{OwnerID: s.User.ID, Name: "Week", DayCount: 1})
+	if err != nil {
+		t.Fatalf("create template: %v", err)
+	}
+	if _, err := f.store.InsertTemplateSlot(ctx, sqlc.InsertTemplateSlotParams{
+		TemplateID: tpl.ID, DayIndex: 0, Slot: "breakfast", MealID: meal.ID, Portion: 1,
+	}); err != nil {
+		t.Fatalf("insert template slot: %v", err)
+	}
+	if _, err := f.store.InsertPlanEntry(ctx, sqlc.InsertPlanEntryParams{
+		OwnerID: s.User.ID, Date: pgtype.Date{Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+		Slot: "breakfast", MealID: meal.ID, Portion: 1,
+	}); err != nil {
+		t.Fatalf("insert plan entry: %v", err)
+	}
+
+	if err := f.svc.DeleteUser(ctx, s.User.ID); err != nil {
+		t.Errorf("DeleteUser with a template and a plan entry using the caller's own meal: %v", err)
+	}
+	if _, err := f.svc.GetUser(ctx, s.User.ID); !errors.Is(err, service.ErrNotFound) {
+		t.Errorf("GetUser after DeleteUser: err = %v, want ErrNotFound", err)
 	}
 }
 

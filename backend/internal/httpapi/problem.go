@@ -20,6 +20,7 @@ const (
 	CodeIngredientInUse     = "ingredient_in_use"
 	CodeInvalidIngredient   = "invalid_ingredient"
 	CodeUnitNotConvertible  = "unit_not_convertible"
+	CodeMealInUse           = "meal_in_use"
 )
 
 // Stable codes for FieldError.Code.
