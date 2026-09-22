@@ -21,6 +21,8 @@ tags:
     description: Meals built from ingredients, with nutrition computed on read.
   - name: DietTemplates
     description: Reusable meal-schedule templates that can be applied to the plan.
+  - name: Plan
+    description: The calendar of scheduled meals and their computed nutrition totals.
 paths:
   /ingredients:
     get:
@@ -578,6 +580,95 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /plan:
+    get:
+      tags: [Plan]
+      operationId: getPlan
+      summary: Get the plan for a date range
+      description: One DailyTotal per calendar date in [from, to] inclusive, with nutrition computed from each entry's meal and compared against the caller's targets. Capped at 92 days.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: The plan for the range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanRange'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /plan/{date}/{slot}:
+    parameters:
+      - name: date
+        in: path
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: slot
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Slot'
+    put:
+      tags: [Plan]
+      operationId: setPlanEntry
+      summary: Set or swap the meal for a date and slot
+      description: For breakfast/lunch/dinner this upserts the one entry for that date+slot. For snack, since the URL can't select among several, this always adds a new entry. Either way, the written entry's from_template_id is null.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPlanEntryRequest'
+      responses:
+        '200':
+          description: The entry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanEntry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [Plan]
+      operationId: deletePlanEntry
+      summary: Remove the plan entry (or entries) for a date and slot
+      description: For breakfast/lunch/dinner this removes the one entry. For snack this removes every snack entry for that date.
+      responses:
+        '204':
+          description: The entry (or entries) was removed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '500':
@@ -1383,6 +1474,100 @@ components:
         next_cursor:
           type: string
           nullable: true
+    PlanEntry:
+      type: object
+      required: [id, date, slot, meal_id, meal_name, portion, from_template_id, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        slot:
+          $ref: '#/components/schemas/Slot'
+        meal_id:
+          type: string
+          format: uuid
+        meal_name:
+          type: string
+        portion:
+          type: number
+          format: double
+        from_template_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DailyTotal:
+      type: object
+      required: [date, entries, nutrition_per_day]
+      properties:
+        date:
+          type: string
+          format: date
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlanEntry'
+        nutrition_per_day:
+          $ref: '#/components/schemas/NutrientAmounts'
+    Targets:
+      type: object
+      required: [target_kcal, target_protein_g, target_carbs_g, target_fat_g]
+      properties:
+        target_kcal:
+          type: number
+          format: double
+          nullable: true
+        target_protein_g:
+          type: number
+          format: double
+          nullable: true
+        target_carbs_g:
+          type: number
+          format: double
+          nullable: true
+        target_fat_g:
+          type: number
+          format: double
+          nullable: true
+    PlanRange:
+      type: object
+      required: [from, to, days, targets]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyTotal'
+        targets:
+          $ref: '#/components/schemas/Targets'
+    SetPlanEntryRequest:
+      type: object
+      additionalProperties: false
+      required: [meal_id]
+      properties:
+        meal_id:
+          type: string
+          format: uuid
+        portion:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 100
+          default: 1
   responses:
     Problem:
       description: An error occurred.

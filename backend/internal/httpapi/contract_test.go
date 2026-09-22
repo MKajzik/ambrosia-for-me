@@ -87,6 +87,10 @@ type stubMeals struct{ httpapi.MealsService }
 // diet templates service fail loudly if they do.
 type stubDietTemplates struct{ httpapi.DietTemplatesService }
 
+// stubPlan panics on any call, so tests that must not reach the plan
+// service fail loudly if they do.
+type stubPlan struct{ httpapi.PlanService }
+
 func newTestRouter(t *testing.T, mods ...func(*httpapi.Deps)) http.Handler {
 	t.Helper()
 	d := httpapi.Deps{
@@ -97,6 +101,7 @@ func newTestRouter(t *testing.T, mods ...func(*httpapi.Deps)) http.Handler {
 		Ingredients:   stubIngredients{},
 		Meals:         stubMeals{},
 		DietTemplates: stubDietTemplates{},
+		Plan:          stubPlan{},
 		Tokens:        stubTokens{},
 	}
 	for _, m := range mods {
@@ -247,7 +252,7 @@ func TestReadyzGivesUpOnAHungDatabase(t *testing.T) {
 func TestNewRouterPanicsWithoutRequiredDependencies(t *testing.T) {
 	full := httpapi.Deps{
 		Logger: slog.New(slog.DiscardHandler), Ready: alwaysReady,
-		WebOrigin: "http://localhost:3000", Auth: stubAuth{}, Ingredients: stubIngredients{}, Meals: stubMeals{}, Tokens: stubTokens{}, DietTemplates: stubDietTemplates{},
+		WebOrigin: "http://localhost:3000", Auth: stubAuth{}, Ingredients: stubIngredients{}, Meals: stubMeals{}, Tokens: stubTokens{}, DietTemplates: stubDietTemplates{}, Plan: stubPlan{},
 	}
 	tests := map[string]func(*httpapi.Deps){
 		"no logger":           func(d *httpapi.Deps) { d.Logger = nil },

@@ -178,6 +178,12 @@ func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err e
 		WriteProblem(w, http.StatusConflict, CodeDuplicateSlot, "")
 	case errors.Is(err, service.ErrPlanConflict):
 		WriteProblem(w, http.StatusConflict, CodePlanConflict, "")
+	case errors.Is(err, service.ErrPlanEntryNotFound):
+		WriteProblem(w, http.StatusNotFound, CodeNotFound, "")
+	case errors.Is(err, service.ErrPlanMealNotFound):
+		WriteProblem(w, http.StatusBadRequest, CodeInvalidMeal, "")
+	case errors.Is(err, service.ErrPlanRangeTooLong):
+		WriteProblem(w, http.StatusBadRequest, CodePlanRangeTooLong, "")
 	case errors.Is(err, service.ErrNotFound):
 		// The signed-in user's own account no longer exists: a valid access
 		// token for a deleted user is simply no longer authorized. Reused by
