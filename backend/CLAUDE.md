@@ -11,6 +11,7 @@ Module: `github.com/InzKazik/mealplanner/backend`. Go 1.26, `chi` router, `pgx` 
 - `internal/httpapi/`: HTTP layer. Router, middleware (request ID, client IP, logging, panic recovery, CORS, body limit, rate limits), the OpenAPI request validator that also authenticates, the problem+json writer, and the handlers that implement `api.ServerInterface` (`account.go`, `server.go`). Calls services only.
 - `internal/auth/`: password hashing (argon2id) and access/refresh tokens. Pure: no database or HTTP.
 - `internal/service/`: business rules. `Auth` covers registration, login, refresh-token sessions and the signed-in user's account. Never speaks HTTP.
+- `internal/usda/`: the FoodData Central client and its category/nutrient mapping tables, used only by `cmd/import-usda`. Talks to `store` directly, not through `internal/service`.
 - `internal/store/`: **all SQL**. `queries/*.sql` is the source; `sqlc/` is generated from it and the migrations (never hand-edit). `Store` adds transactions.
 - `internal/db/`: pgx pool and the goose migration runner.
 - `internal/testutil/`: integration-test helpers (Postgres via testcontainers; a migrated template database copied per test).
@@ -53,10 +54,12 @@ Dependencies point one way: `httpapi` → `service` → `store`; `auth` is a lea
 - **Proxies.** `TRUSTED_PROXY_COUNT` must equal the real number of proxies in front of the API: too high lets clients forge their IP, too low makes everyone share the proxy's bucket. Bind the API only to the proxy network. A proxy that puts ports in `X-Forwarded-For` makes every client share one bucket.
 - **Personal data in logs.** The request log records `remote_ip`. Decide and document a retention period before production.
 - **Header and body edge cases.** A request with more than one `Authorization` header is rejected (401). A body over 64 KiB is `400 request body is too large` on unauthenticated routes; on secured routes it currently reads as `401`, because kin-openapi wraps the read error in a security error.
+- **Ingredient search is not paginated.** `GET /ingredients?q=` ranks by trigram similarity and returns up to `limit` results with no cursor; only the plain alphabetical listing (no `q`) paginates. A type-ahead UI never needs a second page of search results, and cursoring a similarity-ranked result set has no stable order to cursor over.
+- **Nutrients use two schemas on purpose.** `NutrientAmounts` (the `Ingredient` response) requires all 18 keys, always present, `null` where unknown. `NutrientAmountsInput` (`CreateIngredientRequest`/`UpdateIngredientRequest`) requires none, so a client can send just the nutrients it knows. Reusing `NutrientAmounts` for requests too was tried first and rejected: it made the request validator reject any partial nutrient object, defeating the whole point of optional input.
 
 ## Decide before the domain plans
 
-- **Access tokens versus deleted or logged-out users.** The validator trusts the JWT alone and does not check that the user exists. Today `/me` loads the user and answers 401 for a missing one, but a route that writes with `httpapi.UserID(ctx)` into a user-owned table would hit a foreign-key error (500) for a deleted user's token. Decide: a cached existence check in the validator, or a written rule that every handler resolves the user first.
+- ~~**Access tokens versus deleted or logged-out users.**~~ Resolved for ingredients: `Ingredients.Create` translates the `ingredients_owner_id_fkey` foreign-key violation into `service.ErrNotFound`, mapped to `401` exactly like `GetUser`. Every future user-owned write table should follow the same pattern (a named FK constraint plus a `store.IsForeignKeyViolation` check) rather than adopting the validator-level fix that was also considered.
 - **`DELETE /me` needs no re-authentication.** A stolen 15-minute access token irreversibly deletes the account and, later, everything it owns. Changing this after the web and iOS clients exist is a breaking contract change: decide whether the request must carry the password or a fresh refresh token.
 - **Registration reveals whether an email exists** (`409 email_taken`) while login is equalised. Accept it and record it in the privacy notes, or move to an always-`201` flow with email verification once email exists.
 - **argon2id memory is not bounded by concurrency.** Each in-flight hash holds 64 MiB and the only brake is the per-IP limit, counted per replica. Add a bounded semaphore (about `GOMAXPROCS`) that answers 503 when full, before public exposure.
@@ -65,7 +68,7 @@ Dependencies point one way: `httpapi` → `service` → `store`; `auth` is a lea
 
 - **Sign in with Apple** (`POST /v1/auth/apple`): its own plan, needs Apple Developer credentials (Service ID, keys) to test against.
 - Email verification and password reset; deleting expired or revoked refresh tokens (a scheduled cleanup).
-- The domain: ingredients, meals, diets, plan, shopping lists, partners (later plans).
+- The domain beyond ingredients: meals, diets, plan, shopping lists, partners (later plans). The meals plan must add a `meal_ingredients` foreign key to `ingredients` and translate its violation into `409 ingredient_in_use` on delete (see the note in `internal/store/queries/ingredients.sql`) — `DeleteIngredient` does not check for that yet because nothing references ingredients until then.
 - The contract now declares `500` for every auth operation, but still not `404` or `405`: the router returns problem+json for both, outside the contract, so contract tests cannot check them. `HEAD` and `OPTIONS` answer 405 on every route.
 
 ## Carried forward (hardening to schedule)
