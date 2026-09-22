@@ -131,7 +131,14 @@ func (s *Plan) GetRange(ctx context.Context, ownerID uuid.UUID, from, to time.Ti
 		byDate[key] = append(byDate[key], r)
 	}
 
+	// Access tokens stay valid for up to 15 minutes after DELETE /me, so the
+	// caller's row can be gone while their token still authenticates. Answer
+	// that the same way Auth.GetUser does — ErrNotFound, mapped to 401 — not
+	// as an unexpected store failure (500).
 	user, err := s.st.GetUserByID(ctx, ownerID)
+	if store.IsNotFound(err) {
+		return PlanRange{}, ErrNotFound
+	}
 	if err != nil {
 		return PlanRange{}, fmt.Errorf("get user: %w", err)
 	}

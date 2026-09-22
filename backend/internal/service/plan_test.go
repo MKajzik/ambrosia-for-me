@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/InzKazik/mealplanner/backend/internal/auth"
 	"github.com/InzKazik/mealplanner/backend/internal/service"
 	"github.com/InzKazik/mealplanner/backend/internal/store"
 )
@@ -15,6 +16,18 @@ func newPlanFixture(t *testing.T) (*service.Plan, *service.Meals, *service.Ingre
 	_, st := newIngredientsFixture(t)
 	meals := service.NewMeals(st)
 	return service.NewPlan(st, meals), meals, service.NewIngredients(st), st
+}
+
+// newAuthForStore builds an Auth on an existing store, so a test can delete a
+// user out from under another service. Same light argon2 parameters and
+// development-only token settings as auth_test.go's fixture.
+func newAuthForStore(t *testing.T, st *store.Store) *service.Auth {
+	t.Helper()
+	now := func() time.Time { return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC) }
+	return service.NewAuth(st,
+		auth.NewHasher(auth.HashParams{MemoryKiB: 8, Iterations: 1, Parallelism: 1}),
+		auth.NewTokenIssuer([]byte("0123456789abcdef0123456789abcdef"), 15*time.Minute, now),
+		30*24*time.Hour, now)
 }
 
 func TestPlanSetEntryUpsertsNonSnackSlotsAndClearsProvenance(t *testing.T) {
@@ -235,5 +248,30 @@ func TestPlanGetRangeIncludesEmptyDaysAndRejectsATooLongRange(t *testing.T) {
 	_, err = plan.GetRange(context.Background(), owner, from, from.AddDate(0, 0, 93))
 	if !errors.Is(err, service.ErrPlanRangeTooLong) {
 		t.Errorf("a 93-day range: err = %v, want ErrPlanRangeTooLong", err)
+	}
+}
+
+// TestPlanGetRangeForADeletedUserIsNotFound guards the deleted-account
+// window: access tokens are stateless for up to 15 minutes after DELETE /me,
+// so a still-valid token can reach GetRange after the user row is gone.
+// GetRange reads the user row directly for the caller's targets, and must
+// translate the missing row into ErrNotFound (401) like Auth.GetUser does,
+// not a wrapped store error (500).
+func TestPlanGetRangeForADeletedUserIsNotFound(t *testing.T) {
+	plan, _, _, st := newPlanFixture(t)
+	auths := newAuthForStore(t, st)
+	owner := newTestUser(t, st, "planowner7@example.com")
+
+	date := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := plan.GetRange(context.Background(), owner, date, date); err != nil {
+		t.Fatalf("GetRange before deletion: %v", err)
+	}
+	if err := auths.DeleteUser(context.Background(), owner); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+
+	_, err := plan.GetRange(context.Background(), owner, date, date)
+	if !errors.Is(err, service.ErrNotFound) {
+		t.Errorf("GetRange after the user was deleted: err = %v, want service.ErrNotFound", err)
 	}
 }
