@@ -389,7 +389,7 @@ func (s *Meals) toMeal(ctx context.Context, r ingredientReader, row sqlc.Meal, m
 	unknown := make(map[string]bool, len(allNutrientKeys))
 
 	if len(miRows) > 0 {
-		ids := uniqueIngredientIDs(miRows)
+		ids := uniqueUUIDs(miRows, func(r sqlc.MealIngredient) uuid.UUID { return r.IngredientID })
 		ingredientRows, err := r.GetIngredientsForUser(ctx, sqlc.GetIngredientsForUserParams{Ids: ids, UserID: &row.OwnerID})
 		if err != nil {
 			return Meal{}, fmt.Errorf("get ingredients: %w", err)
@@ -474,19 +474,4 @@ func gramsFor(quantity float64, unit string, gramsPerPiece, densityGPerMl *float
 	default:
 		return 0, fmt.Errorf("meals: unknown unit %q", unit)
 	}
-}
-
-// uniqueIngredientIDs returns the distinct ingredient ids referenced by
-// rows, in first-seen order. A meal may reference the same ingredient more
-// than once (two lines of the same thing at different quantities/units).
-func uniqueIngredientIDs(rows []sqlc.MealIngredient) []uuid.UUID {
-	seen := make(map[uuid.UUID]bool, len(rows))
-	ids := make([]uuid.UUID, 0, len(rows))
-	for _, r := range rows {
-		if !seen[r.IngredientID] {
-			seen[r.IngredientID] = true
-			ids = append(ids, r.IngredientID)
-		}
-	}
-	return ids
 }
