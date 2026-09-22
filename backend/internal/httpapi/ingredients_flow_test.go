@@ -2,9 +2,7 @@ package httpapi_test
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -18,31 +16,6 @@ import (
 	"github.com/InzKazik/mealplanner/backend/internal/store/sqlc"
 	"github.com/InzKazik/mealplanner/backend/internal/testutil"
 )
-
-// allNutrientKeys mirrors NutrientAmounts in openapi.yaml, whose schema (also
-// used, unlike the service and handlers, for CreateIngredientRequest and
-// UpdateIngredientRequest) marks all 18 keys "required": present, though each
-// may be null. nutrientsJSON fills in the ones a test does not care about as
-// null so a partial nutrient set can still be sent as a contract-valid body.
-var allNutrientKeys = []string{
-	"calories", "protein", "carbohydrates", "sugar", "fibre", "fat", "saturated_fat",
-	"sodium", "potassium", "calcium", "iron", "magnesium", "zinc",
-	"vitamin_a", "vitamin_c", "vitamin_d", "vitamin_b12", "folate",
-}
-
-// nutrientsJSON renders a complete NutrientAmounts JSON object: the given
-// values, nulls for every other key.
-func nutrientsJSON(values map[string]float64) string {
-	parts := make([]string, len(allNutrientKeys))
-	for i, key := range allNutrientKeys {
-		if v, ok := values[key]; ok {
-			parts[i] = fmt.Sprintf("%q:%v", key, v)
-		} else {
-			parts[i] = fmt.Sprintf("%q:null", key)
-		}
-	}
-	return "{" + strings.Join(parts, ",") + "}"
-}
 
 // stubTwoUserTokens accepts two fixed tokens, each mapped to a user actually
 // created in Postgres by newIngredientsRouter (unlike the package-level
@@ -89,10 +62,12 @@ func newIngredientsRouter(t *testing.T) (router http.Handler, token1, token2 str
 func TestIngredientsLifecycle(t *testing.T) {
 	router, token1, token2 := newIngredientsRouter(t)
 
-	// Create a custom ingredient as user 1.
+	// Create a custom ingredient as user 1, sending a genuinely partial
+	// nutrients object (only 2 of the 18 keys, no explicit nulls for the
+	// rest): proves NutrientAmountsInput really requires none of them.
 	rec := contract(t, router, http.MethodPost, "/ingredients", withBearer(token1), withBody(`{
 		"name": "Custom Oats", "category": "grains_bread",
-		"nutrients": `+nutrientsJSON(map[string]float64{"calories": 389, "protein": 17})+`
+		"nutrients": {"calories": 389, "protein": 17}
 	}`))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: status = %d, body = %s", rec.Code, rec.Body.String())
@@ -124,9 +99,11 @@ func TestIngredientsLifecycle(t *testing.T) {
 		t.Errorf("user 2 PATCH: status = %d, want 404", rec.Code)
 	}
 
-	// User 1 updates it: the request replaces the full nutrient set.
+	// User 1 updates it with another genuinely partial nutrients object: the
+	// request replaces the full nutrient set, so calories (set above) is
+	// cleared and only fibre survives.
 	rec = contract(t, router, http.MethodPatch, "/ingredients/"+created.Id.String(), withBearer(token1), withBody(`{
-		"nutrients": `+nutrientsJSON(map[string]float64{"fibre": 10})+`
+		"nutrients": {"fibre": 10}
 	}`))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update: status = %d, body = %s", rec.Code, rec.Body.String())
