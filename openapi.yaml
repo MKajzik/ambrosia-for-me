@@ -504,7 +504,7 @@ components:
       enum: [produce, dairy_eggs, meat_seafood, grains_bread, legumes_nuts_seeds, condiments_oils, spices_herbs, beverages, sweets_snacks, other]
     NutrientAmounts:
       type: object
-      description: Amount per 100 g for each tracked nutrient. A null value means the amount is unknown.
+      description: "Amount per 100 g for each tracked nutrient. A null value means the amount is unknown. Units: kcal for calories; g for protein, carbohydrates, sugar, fibre, fat and saturated_fat; mg for sodium, potassium, calcium, iron, magnesium, zinc and vitamin_c; µg for vitamin_a, vitamin_d, vitamin_b12 and folate."
       required: [calories, protein, carbohydrates, sugar, fibre, fat, saturated_fat, sodium, potassium, calcium, iron, magnesium, zinc, vitamin_a, vitamin_c, vitamin_d, vitamin_b12, folate]
       properties:
         calories: { type: number, format: double, nullable: true }
@@ -527,7 +527,8 @@ components:
         folate: { type: number, format: double, nullable: true }
     NutrientAmountsInput:
       type: object
-      description: Amount per 100 g for each tracked nutrient the caller wants to set. Unlisted keys are left unspecified (unchanged on update, unset on create); a listed key set to null is explicitly cleared.
+      additionalProperties: false
+      description: Amount per 100 g for each tracked nutrient the caller wants to set. Supplying the `nutrients` field replaces the ingredient's entire nutrient set — any of the 18 keys omitted, or explicitly set to null, is cleared. Omitting the `nutrients` field entirely from the request body leaves the ingredient's existing nutrients unchanged.
       properties:
         calories: { type: number, format: double, nullable: true }
         protein: { type: number, format: double, nullable: true }
