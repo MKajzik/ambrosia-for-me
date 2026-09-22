@@ -74,6 +74,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 	tokens := auth.NewTokenIssuer([]byte(cfg.JWTSecret), accessTokenTTL, time.Now)
 	accounts := service.NewAuth(st, auth.NewHasher(auth.DefaultHashParams), tokens, refreshTokenTTL, time.Now)
 	ingredients := service.NewIngredients(st)
+	meals := service.NewMeals(st)
 
 	srv := &http.Server{
 		Handler: httpapi.NewRouter(httpapi.Deps{
@@ -82,6 +83,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 			WebOrigin:      cfg.WebOrigin,
 			Auth:           accounts,
 			Ingredients:    ingredients,
+			Meals:          meals,
 			Tokens:         tokens,
 			TrustedProxies: cfg.TrustedProxies,
 		}),
