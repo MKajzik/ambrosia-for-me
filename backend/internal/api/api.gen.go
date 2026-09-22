@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/nullable"
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
@@ -50,6 +52,48 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for IngredientCategory.
+const (
+	IngredientCategoryBeverages        IngredientCategory = "beverages"
+	IngredientCategoryCondimentsOils   IngredientCategory = "condiments_oils"
+	IngredientCategoryDairyEggs        IngredientCategory = "dairy_eggs"
+	IngredientCategoryGrainsBread      IngredientCategory = "grains_bread"
+	IngredientCategoryLegumesNutsSeeds IngredientCategory = "legumes_nuts_seeds"
+	IngredientCategoryMeatSeafood      IngredientCategory = "meat_seafood"
+	IngredientCategoryOther            IngredientCategory = "other"
+	IngredientCategoryProduce          IngredientCategory = "produce"
+	IngredientCategorySpicesHerbs      IngredientCategory = "spices_herbs"
+	IngredientCategorySweetsSnacks     IngredientCategory = "sweets_snacks"
+)
+
+// Valid indicates whether the value is a known member of the IngredientCategory enum.
+func (e IngredientCategory) Valid() bool {
+	switch e {
+	case IngredientCategoryBeverages:
+		return true
+	case IngredientCategoryCondimentsOils:
+		return true
+	case IngredientCategoryDairyEggs:
+		return true
+	case IngredientCategoryGrainsBread:
+		return true
+	case IngredientCategoryLegumesNutsSeeds:
+		return true
+	case IngredientCategoryMeatSeafood:
+		return true
+	case IngredientCategoryOther:
+		return true
+	case IngredientCategoryProduce:
+		return true
+	case IngredientCategorySpicesHerbs:
+		return true
+	case IngredientCategorySweetsSnacks:
+		return true
+	default:
+		return false
+	}
+}
+
 // AuthResponse defines model for AuthResponse.
 type AuthResponse struct {
 	AccessToken string `json:"access_token"`
@@ -63,6 +107,17 @@ type AuthResponse struct {
 
 // AuthResponseTokenType defines model for AuthResponse.TokenType.
 type AuthResponseTokenType string
+
+// CreateIngredientRequest defines model for CreateIngredientRequest.
+type CreateIngredientRequest struct {
+	Category      IngredientCategory         `json:"category"`
+	DensityGPerMl nullable.Nullable[float64] `json:"density_g_per_ml,omitempty"`
+	GramsPerPiece nullable.Nullable[float64] `json:"grams_per_piece,omitempty"`
+	Name          string                     `json:"name"`
+
+	// Nutrients Amount per 100 g for each tracked nutrient. A null value means the amount is unknown.
+	Nutrients *NutrientAmounts `json:"nutrients,omitempty"`
+}
 
 // FieldError defines model for FieldError.
 type FieldError struct {
@@ -81,10 +136,58 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// Ingredient defines model for Ingredient.
+type Ingredient struct {
+	Category      IngredientCategory         `json:"category"`
+	CreatedAt     time.Time                  `json:"created_at"`
+	DensityGPerMl nullable.Nullable[float64] `json:"density_g_per_ml"`
+	GramsPerPiece nullable.Nullable[float64] `json:"grams_per_piece"`
+	Id            openapi_types.UUID         `json:"id"`
+
+	// IsCustom True for a custom ingredient owned by the caller; false for the global USDA catalog.
+	IsCustom bool   `json:"is_custom"`
+	Name     string `json:"name"`
+
+	// Nutrients Amount per 100 g for each tracked nutrient. A null value means the amount is unknown.
+	Nutrients NutrientAmounts `json:"nutrients"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+// IngredientCategory defines model for IngredientCategory.
+type IngredientCategory string
+
+// IngredientList defines model for IngredientList.
+type IngredientList struct {
+	Items      []Ingredient              `json:"items"`
+	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+}
+
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	Email    openapi_types.Email `json:"email"`
 	Password string              `json:"password"`
+}
+
+// NutrientAmounts Amount per 100 g for each tracked nutrient. A null value means the amount is unknown.
+type NutrientAmounts struct {
+	Calcium       nullable.Nullable[float64] `json:"calcium"`
+	Calories      nullable.Nullable[float64] `json:"calories"`
+	Carbohydrates nullable.Nullable[float64] `json:"carbohydrates"`
+	Fat           nullable.Nullable[float64] `json:"fat"`
+	Fibre         nullable.Nullable[float64] `json:"fibre"`
+	Folate        nullable.Nullable[float64] `json:"folate"`
+	Iron          nullable.Nullable[float64] `json:"iron"`
+	Magnesium     nullable.Nullable[float64] `json:"magnesium"`
+	Potassium     nullable.Nullable[float64] `json:"potassium"`
+	Protein       nullable.Nullable[float64] `json:"protein"`
+	SaturatedFat  nullable.Nullable[float64] `json:"saturated_fat"`
+	Sodium        nullable.Nullable[float64] `json:"sodium"`
+	Sugar         nullable.Nullable[float64] `json:"sugar"`
+	VitaminA      nullable.Nullable[float64] `json:"vitamin_a"`
+	VitaminB12    nullable.Nullable[float64] `json:"vitamin_b12"`
+	VitaminC      nullable.Nullable[float64] `json:"vitamin_c"`
+	VitaminD      nullable.Nullable[float64] `json:"vitamin_d"`
+	Zinc          nullable.Nullable[float64] `json:"zinc"`
 }
 
 // Problem RFC 9457 problem details with a stable machine-readable code.
@@ -110,6 +213,17 @@ type RegisterRequest struct {
 	DisplayName string              `json:"display_name"`
 	Email       openapi_types.Email `json:"email"`
 	Password    string              `json:"password"`
+}
+
+// UpdateIngredientRequest defines model for UpdateIngredientRequest.
+type UpdateIngredientRequest struct {
+	Category      *IngredientCategory        `json:"category,omitempty"`
+	DensityGPerMl nullable.Nullable[float64] `json:"density_g_per_ml,omitempty"`
+	GramsPerPiece nullable.Nullable[float64] `json:"grams_per_piece,omitempty"`
+	Name          *string                    `json:"name,omitempty"`
+
+	// Nutrients Amount per 100 g for each tracked nutrient. A null value means the amount is unknown.
+	Nutrients *NutrientAmounts `json:"nutrients,omitempty"`
 }
 
 // UpdateProfileRequest defines model for UpdateProfileRequest.
@@ -140,11 +254,22 @@ type BadRequest = Problem
 // Conflict RFC 9457 problem details with a stable machine-readable code.
 type Conflict = Problem
 
+// NotFound RFC 9457 problem details with a stable machine-readable code.
+type NotFound = Problem
+
 // TooManyRequests RFC 9457 problem details with a stable machine-readable code.
 type TooManyRequests = Problem
 
 // Unauthorized RFC 9457 problem details with a stable machine-readable code.
 type Unauthorized = Problem
+
+// ListIngredientsParams defines parameters for ListIngredients.
+type ListIngredientsParams struct {
+	Q        *string             `form:"q,omitempty" json:"q,omitempty"`
+	Category *IngredientCategory `form:"category,omitempty" json:"category,omitempty"`
+	Cursor   *string             `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit    *int                `form:"limit,omitempty" json:"limit,omitempty"`
+}
 
 // LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
 type LoginUserJSONRequestBody = LoginRequest
@@ -157,6 +282,12 @@ type RefreshSessionJSONRequestBody = RefreshRequest
 
 // RegisterUserJSONRequestBody defines body for RegisterUser for application/json ContentType.
 type RegisterUserJSONRequestBody = RegisterRequest
+
+// CreateIngredientJSONRequestBody defines body for CreateIngredient for application/json ContentType.
+type CreateIngredientJSONRequestBody = CreateIngredientRequest
+
+// UpdateIngredientJSONRequestBody defines body for UpdateIngredient for application/json ContentType.
+type UpdateIngredientJSONRequestBody = UpdateIngredientRequest
 
 // UpdateMeJSONRequestBody defines body for UpdateMe for application/json ContentType.
 type UpdateMeJSONRequestBody = UpdateProfileRequest
@@ -178,6 +309,18 @@ type ServerInterface interface {
 	// GetHealth Liveness probe
 	// (GET /healthz)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// ListIngredients List or search ingredients
+	// (GET /ingredients)
+	ListIngredients(w http.ResponseWriter, r *http.Request, params ListIngredientsParams)
+	// CreateIngredient Create a custom ingredient
+	// (POST /ingredients)
+	CreateIngredient(w http.ResponseWriter, r *http.Request)
+	// DeleteIngredient Delete a custom ingredient
+	// (DELETE /ingredients/{id})
+	DeleteIngredient(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// UpdateIngredient Update a custom ingredient
+	// (PATCH /ingredients/{id})
+	UpdateIngredient(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// DeleteMe Delete the signed-in user's account
 	// (DELETE /me)
 	DeleteMe(w http.ResponseWriter, r *http.Request)
@@ -223,6 +366,30 @@ func (_ Unimplemented) RegisterUser(w http.ResponseWriter, r *http.Request) {
 // GetHealth Liveness probe
 // (GET /healthz)
 func (_ Unimplemented) GetHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListIngredients List or search ingredients
+// (GET /ingredients)
+func (_ Unimplemented) ListIngredients(w http.ResponseWriter, r *http.Request, params ListIngredientsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateIngredient Create a custom ingredient
+// (POST /ingredients)
+func (_ Unimplemented) CreateIngredient(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteIngredient Delete a custom ingredient
+// (DELETE /ingredients/{id})
+func (_ Unimplemented) DeleteIngredient(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateIngredient Update a custom ingredient
+// (PATCH /ingredients/{id})
+func (_ Unimplemented) UpdateIngredient(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -320,6 +487,144 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListIngredients operation middleware
+func (siw *ServerInterfaceWrapper) ListIngredients(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListIngredientsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListIngredients(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateIngredient operation middleware
+func (siw *ServerInterfaceWrapper) CreateIngredient(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateIngredient(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteIngredient operation middleware
+func (siw *ServerInterfaceWrapper) DeleteIngredient(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteIngredient(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateIngredient operation middleware
+func (siw *ServerInterfaceWrapper) UpdateIngredient(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateIngredient(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -499,6 +804,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ingredients", wrapper.ListIngredients)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/ingredients", wrapper.CreateIngredient)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/ingredients/{id}", wrapper.DeleteIngredient)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/ingredients/{id}", wrapper.UpdateIngredient)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/healthz", wrapper.GetHealth)
 	})
 	r.Group(func(r chi.Router) {
@@ -534,41 +851,57 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
