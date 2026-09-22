@@ -266,9 +266,8 @@ func (s *DietTemplates) ReplaceSlots(ctx context.Context, ownerID, id uuid.UUID,
 		if err := q.DeleteTemplateSlots(ctx, id); err != nil {
 			return fmt.Errorf("clear template slots: %w", err)
 		}
-		inserted := make([]sqlc.TemplateSlot, len(slots))
-		for i, sl := range slots {
-			ins, err := q.InsertTemplateSlot(ctx, sqlc.InsertTemplateSlotParams{
+		for _, sl := range slots {
+			_, err := q.InsertTemplateSlot(ctx, sqlc.InsertTemplateSlotParams{
 				TemplateID: id, DayIndex: toInt32(sl.DayIndex), Slot: sl.Slot, MealID: sl.MealID, Portion: sl.Portion,
 			})
 			if store.IsUniqueViolation(err, "template_slots_unique_slot_idx") {
@@ -277,9 +276,16 @@ func (s *DietTemplates) ReplaceSlots(ctx context.Context, ownerID, id uuid.UUID,
 			if err != nil {
 				return fmt.Errorf("insert template slot: %w", err)
 			}
-			inserted[i] = ins
 		}
-		tpl, err = s.toTemplate(ctx, q, row, inserted)
+		// Re-read rather than answering from the insert order: GetTemplateSlots
+		// orders by day_index, slot, which is what Get, Update and Apply return,
+		// so a client that PUTs slots out of order sees the same order here as
+		// on its next GET.
+		slotRows, err := q.GetTemplateSlots(ctx, id)
+		if err != nil {
+			return fmt.Errorf("get template slots: %w", err)
+		}
+		tpl, err = s.toTemplate(ctx, q, row, slotRows)
 		return err
 	})
 	if err != nil {

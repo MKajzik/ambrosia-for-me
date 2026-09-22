@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -129,6 +130,55 @@ func TestDietTemplatesReplaceSlotsLeavesExistingSlotsUntouchedOnFailure(t *testi
 	}
 	if len(got.Slots) != 1 || got.Slots[0].Slot != "breakfast" || got.Slots[0].MealID != meal.ID {
 		t.Errorf("slots after failed ReplaceSlots = %+v, want the original 1 breakfast slot untouched", got.Slots)
+	}
+}
+
+// TestDietTemplatesReplaceSlotsReturnsSlotsInReadOrder pins ReplaceSlots's
+// response order to GetTemplateSlots' ORDER BY day_index, slot — the order
+// Get, Update and Apply already use — so a client that PUTs its slots out of
+// order does not get one order back from the PUT and a different one on the
+// next GET.
+func TestDietTemplatesReplaceSlotsReturnsSlotsInReadOrder(t *testing.T) {
+	tpls, meals, _, st := newDietTemplatesFixture(t)
+	owner := newTestUser(t, st, "planner10@example.com")
+	meal := mustCreateMeal(t, meals, owner, "Meal")
+
+	tpl, err := tpls.Create(context.Background(), owner, service.CreateDietTemplateInput{Name: "Three Days", DayCount: 3})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	put, err := tpls.ReplaceSlots(context.Background(), owner, tpl.ID, []service.TemplateSlotInput{
+		{DayIndex: 2, Slot: "lunch", MealID: meal.ID, Portion: 1},
+		{DayIndex: 0, Slot: "lunch", MealID: meal.ID, Portion: 1},
+		{DayIndex: 0, Slot: "breakfast", MealID: meal.ID, Portion: 1},
+	})
+	if err != nil {
+		t.Fatalf("ReplaceSlots: %v", err)
+	}
+
+	type pos struct {
+		day  int
+		slot string
+	}
+	want := []pos{{0, "breakfast"}, {0, "lunch"}, {2, "lunch"}}
+	order := func(slots []service.TemplateSlot) []pos {
+		out := make([]pos, len(slots))
+		for i, sl := range slots {
+			out[i] = pos{sl.DayIndex, sl.Slot}
+		}
+		return out
+	}
+	if got := order(put.Slots); !slices.Equal(got, want) {
+		t.Errorf("ReplaceSlots order = %+v, want %+v (day_index, then slot)", got, want)
+	}
+
+	read, err := tpls.Get(context.Background(), owner, tpl.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got := order(read.Slots); !slices.Equal(got, order(put.Slots)) {
+		t.Errorf("Get order = %+v, want the same order ReplaceSlots returned (%+v)", got, order(put.Slots))
 	}
 }
 
