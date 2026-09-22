@@ -247,7 +247,7 @@ func TestReadyzGivesUpOnAHungDatabase(t *testing.T) {
 func TestNewRouterPanicsWithoutRequiredDependencies(t *testing.T) {
 	full := httpapi.Deps{
 		Logger: slog.New(slog.DiscardHandler), Ready: alwaysReady,
-		WebOrigin: "http://localhost:3000", Auth: stubAuth{}, Ingredients: stubIngredients{}, Meals: stubMeals{}, Tokens: stubTokens{},
+		WebOrigin: "http://localhost:3000", Auth: stubAuth{}, Ingredients: stubIngredients{}, Meals: stubMeals{}, Tokens: stubTokens{}, DietTemplates: stubDietTemplates{},
 	}
 	tests := map[string]func(*httpapi.Deps){
 		"no logger":           func(d *httpapi.Deps) { d.Logger = nil },
