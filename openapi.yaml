@@ -17,6 +17,8 @@ tags:
     description: The signed-in user's own profile and account.
   - name: Ingredients
     description: The global and per-user ingredient catalog.
+  - name: Meals
+    description: Meals built from ingredients, with nutrition computed on read.
 paths:
   /ingredients:
     get:
@@ -129,6 +131,208 @@ paths:
       responses:
         '204':
           description: The ingredient was deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /meals:
+    get:
+      tags: [Meals]
+      operationId: listMeals
+      summary: List the caller's meals
+      description: Cursor-paginated, alphabetical by name. Does not include ingredients or computed nutrition; fetch a single meal for those.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: The caller's meals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    post:
+      tags: [Meals]
+      operationId: createMeal
+      summary: Create a meal
+      description: Creates the meal with an empty ingredient list. Add ingredients with `PUT /meals/{id}/ingredients`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMealRequest'
+      responses:
+        '201':
+          description: The meal was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Meal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /meals/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Meals]
+      operationId: getMeal
+      summary: Get a meal
+      description: Includes the ingredient list and nutrition per serving, computed on read.
+      responses:
+        '200':
+          description: The meal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Meal'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    patch:
+      tags: [Meals]
+      operationId: updateMeal
+      summary: Update a meal
+      description: Fields that are absent are left unchanged. Only the owner can update a meal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMealRequest'
+      responses:
+        '200':
+          description: The updated meal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Meal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [Meals]
+      operationId: deleteMeal
+      summary: Delete a meal
+      responses:
+        '204':
+          description: The meal was deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /meals/{id}/ingredients:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [Meals]
+      operationId: replaceMealIngredients
+      summary: Replace a meal's ingredient list
+      description: Atomically replaces the full ingredient list. Every row is validated (the ingredient must exist and be visible to the caller, and its unit must be convertible) before anything is written; an empty `items` array clears the list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceMealIngredientsRequest'
+      responses:
+        '200':
+          description: The updated meal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Meal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /meals/{id}/copy:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Meals]
+      operationId: copyMeal
+      summary: Copy a meal
+      description: Creates a new meal, owned by the caller, with the same name, notes, servings and ingredients. The copy always starts with `shared_with_partner` false.
+      responses:
+        '201':
+          description: The copy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Meal'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -641,6 +845,160 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Ingredient'
+        next_cursor:
+          type: string
+          nullable: true
+    Unit:
+      type: string
+      enum: [g, ml, piece]
+    MealIngredient:
+      type: object
+      required: [id, ingredient_id, ingredient_name, ingredient_category, quantity, unit, position]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ingredient_id:
+          type: string
+          format: uuid
+        ingredient_name:
+          type: string
+        ingredient_category:
+          $ref: '#/components/schemas/IngredientCategory'
+        quantity:
+          type: number
+          format: double
+        unit:
+          $ref: '#/components/schemas/Unit'
+        position:
+          type: integer
+    Meal:
+      type: object
+      required: [id, name, notes, servings, shared_with_partner, ingredients, nutrition_per_serving, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        servings:
+          type: number
+          format: double
+        shared_with_partner:
+          type: boolean
+        ingredients:
+          type: array
+          items:
+            $ref: '#/components/schemas/MealIngredient'
+        nutrition_per_serving:
+          $ref: '#/components/schemas/NutrientAmounts'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    MealSummary:
+      type: object
+      required: [id, name, notes, servings, shared_with_partner, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        servings:
+          type: number
+          format: double
+        shared_with_partner:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateMealRequest:
+      type: object
+      additionalProperties: false
+      required: [name, servings]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        notes:
+          type: string
+          nullable: true
+          maxLength: 2000
+        servings:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 1000
+        shared_with_partner:
+          type: boolean
+    UpdateMealRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        notes:
+          type: string
+          nullable: true
+          maxLength: 2000
+        servings:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 1000
+        shared_with_partner:
+          type: boolean
+    MealIngredientInput:
+      type: object
+      additionalProperties: false
+      required: [ingredient_id, quantity, unit]
+      properties:
+        ingredient_id:
+          type: string
+          format: uuid
+        quantity:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 100000
+        unit:
+          $ref: '#/components/schemas/Unit'
+    ReplaceMealIngredientsRequest:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/MealIngredientInput'
+    MealList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MealSummary'
         next_cursor:
           type: string
           nullable: true
