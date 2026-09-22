@@ -36,6 +36,10 @@ UPDATE ingredients SET
 WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id')
 RETURNING *;
 
+-- The meals plan (not built yet) must add a meal_ingredients foreign key to
+-- ingredients and translate its violation into 409 ingredient_in_use here on
+-- delete. This query does not check for that yet because nothing references
+-- ingredients until then.
 -- name: DeleteIngredient :execrows
 DELETE FROM ingredients WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id');
 

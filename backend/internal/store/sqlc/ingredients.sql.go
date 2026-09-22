@@ -57,6 +57,10 @@ type DeleteIngredientParams struct {
 	UserID *uuid.UUID
 }
 
+// The meals plan (not built yet) must add a meal_ingredients foreign key to
+// ingredients and translate its violation into 409 ingredient_in_use here on
+// delete. This query does not check for that yet because nothing references
+// ingredients until then.
 func (q *Queries) DeleteIngredient(ctx context.Context, arg DeleteIngredientParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteIngredient, arg.ID, arg.UserID)
 	if err != nil {
