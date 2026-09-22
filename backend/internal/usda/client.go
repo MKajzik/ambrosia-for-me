@@ -21,6 +21,7 @@ type Food struct {
 type FoodNutrient struct {
 	NutrientNumber string
 	Value          float64
+	UnitName       string
 }
 
 type searchResponse struct {
@@ -31,6 +32,7 @@ type searchResponse struct {
 		FoodNutrients []struct {
 			NutrientNumber string  `json:"nutrientNumber"`
 			Value          float64 `json:"value"`
+			UnitName       string  `json:"unitName"`
 		} `json:"foodNutrients"`
 	} `json:"foods"`
 }
@@ -121,7 +123,7 @@ func (c *Client) doFetch(ctx context.Context, u string) ([]Food, bool, error) {
 	for i, f := range parsed.Foods {
 		nutrients := make([]FoodNutrient, len(f.FoodNutrients))
 		for j, n := range f.FoodNutrients {
-			nutrients[j] = FoodNutrient{NutrientNumber: n.NutrientNumber, Value: n.Value}
+			nutrients[j] = FoodNutrient{NutrientNumber: n.NutrientNumber, Value: n.Value, UnitName: n.UnitName}
 		}
 		foods[i] = Food{FdcID: f.FdcID, Description: f.Description, FoodCategory: f.FoodCategory, FoodNutrients: nutrients}
 	}

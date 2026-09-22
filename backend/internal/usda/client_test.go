@@ -38,6 +38,9 @@ func TestFetchFoundationFoodsPagesUntilEmpty(t *testing.T) {
 	if len(foods[0].FoodNutrients) != 1 || foods[0].FoodNutrients[0].NutrientNumber != "208" || foods[0].FoodNutrients[0].Value != 52 {
 		t.Errorf("nutrients = %+v", foods[0].FoodNutrients)
 	}
+	if foods[0].FoodNutrients[0].UnitName != "KCAL" {
+		t.Errorf("unit name = %q, want KCAL", foods[0].FoodNutrients[0].UnitName)
+	}
 	if calls != 2 {
 		t.Errorf("calls = %d, want 2 (one page of results, one empty page to stop)", calls)
 	}

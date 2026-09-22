@@ -13,6 +13,7 @@ import (
 type Stats struct {
 	Imported        int
 	UnknownCategory int
+	UnitMismatch    int
 }
 
 // Import fetches every Foundation Foods item and upserts it, keyed by
@@ -39,7 +40,14 @@ func Import(ctx context.Context, st *store.Store, client *Client, logger *slog.L
 			if err != nil {
 				return fmt.Errorf("upsert ingredient %d: %w", fdcID, err)
 			}
-			for key, amount := range MapNutrients(f.FoodNutrients) {
+			nutrients, mismatches := MapNutrients(f.FoodNutrients)
+			for _, m := range mismatches {
+				stats.UnitMismatch++
+				logger.WarnContext(ctx, "unexpected USDA nutrient unit, skipping",
+					slog.String("nutrient", m.NutrientKey), slog.String("want_unit", m.WantUnit),
+					slog.String("got_unit", m.GotUnit), slog.Int("fdc_id", int(fdcID)))
+			}
+			for key, amount := range nutrients {
 				if err := q.UpsertIngredientNutrient(ctx, sqlc.UpsertIngredientNutrientParams{
 					IngredientID: ing.ID, NutrientKey: sqlc.NutrientKey(key), AmountPer100g: amount,
 				}); err != nil {
