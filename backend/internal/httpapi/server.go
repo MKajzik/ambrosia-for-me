@@ -5,14 +5,18 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/InzKazik/mealplanner/backend/internal/api"
 )
 
-// server implements api.ServerInterface.
+const readyTimeout = 2 * time.Second
+
+// server implements api.ServerInterface. The account endpoints live in account.go.
 type server struct {
 	logger *slog.Logger
 	ready  func(context.Context) error
+	auth   AuthService
 }
 
 var _ api.ServerInterface = (*server)(nil)
@@ -22,7 +26,9 @@ func (s *server) GetHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *server) GetReady(w http.ResponseWriter, r *http.Request) {
-	if err := s.ready(r.Context()); err != nil {
+	ctx, cancel := context.WithTimeout(r.Context(), readyTimeout)
+	defer cancel()
+	if err := s.ready(ctx); err != nil {
 		s.logger.WarnContext(r.Context(), "readiness check failed",
 			slog.String("request_id", RequestID(r.Context())),
 			slog.Any("err", err),

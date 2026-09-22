@@ -2,7 +2,9 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -86,11 +88,7 @@ func TestRequestIDIsEchoedWhenValid(t *testing.T) {
 
 func TestRequestIsLoggedWithRequestID(t *testing.T) {
 	var buf bytes.Buffer
-	h := httpapi.NewRouter(httpapi.Deps{
-		Logger:    slog.New(slog.NewJSONHandler(&buf, nil)),
-		Ready:     alwaysReady,
-		WebOrigin: "http://localhost:3000",
-	})
+	h := newTestRouter(t, func(d *httpapi.Deps) { d.Logger = slog.New(slog.NewJSONHandler(&buf, nil)) })
 	req := httptest.NewRequest(http.MethodGet, "/v1/healthz", nil)
 	req.Header.Set("X-Request-Id", "log-me")
 
@@ -129,5 +127,84 @@ func TestCORS(t *testing.T) {
 	denied := preflight("https://evil.example")
 	if got := denied.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("disallowed origin got Allow-Origin = %q, want none", got)
+	}
+}
+
+// requestLogLine returns the "request" log entry from JSON-lines output.
+func requestLogLine(t *testing.T, out string) map[string]any {
+	t.Helper()
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("log line is not JSON: %q (%v)", line, err)
+		}
+		if entry["msg"] == "request" {
+			return entry
+		}
+	}
+	t.Fatalf("no request log line in %q", out)
+	return nil
+}
+
+func TestRequestLogIncludesClientIPUserAndDuration(t *testing.T) {
+	var buf bytes.Buffer
+	h := newTestRouter(t, func(d *httpapi.Deps) { d.Logger = slog.New(slog.NewJSONHandler(&buf, nil)) })
+	req := httptest.NewRequest(http.MethodGet, "/v1/me?secret=do-not-log", nil)
+	req.RemoteAddr = "203.0.113.5:4321"
+	req.Header.Set("Authorization", "Bearer "+validToken)
+
+	do(t, h, req)
+
+	line := requestLogLine(t, buf.String())
+	if line["remote_ip"] != "203.0.113.5" {
+		t.Errorf("remote_ip = %v, want 203.0.113.5", line["remote_ip"])
+	}
+	if line["user_id"] != stubUserID.String() {
+		t.Errorf("user_id = %v, want %s", line["user_id"], stubUserID)
+	}
+	if _, ok := line["duration_ms"].(float64); !ok {
+		t.Errorf("duration_ms = %v (%T), want a number", line["duration_ms"], line["duration_ms"])
+	}
+	if strings.Contains(buf.String(), "do-not-log") || strings.Contains(buf.String(), validToken) {
+		t.Errorf("the log leaked a query string or a token: %s", buf.String())
+	}
+}
+
+func TestUnauthenticatedRequestLogHasNoUser(t *testing.T) {
+	var buf bytes.Buffer
+	h := newTestRouter(t, func(d *httpapi.Deps) { d.Logger = slog.New(slog.NewJSONHandler(&buf, nil)) })
+
+	do(t, h, httptest.NewRequest(http.MethodGet, "/v1/healthz", nil))
+
+	if _, ok := requestLogLine(t, buf.String())["user_id"]; ok {
+		t.Error("user_id present on an unauthenticated request")
+	}
+}
+
+func TestRequestLogLevelFollowsStatus(t *testing.T) {
+	tests := []struct {
+		name      string
+		ready     func(context.Context) error
+		path      string
+		wantLevel string
+	}{
+		{"success is INFO", alwaysReady, "/v1/healthz", "INFO"},
+		{"client error is INFO", alwaysReady, "/v1/nope", "INFO"},
+		{"server error is ERROR", func(context.Context) error { return errors.New("db down") }, "/v1/readyz", "ERROR"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			h := newTestRouter(t, func(d *httpapi.Deps) {
+				d.Logger = slog.New(slog.NewJSONHandler(&buf, nil))
+				d.Ready = tt.ready
+			})
+
+			do(t, h, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+			if got := requestLogLine(t, buf.String())["level"]; got != tt.wantLevel {
+				t.Errorf("level = %v, want %s", got, tt.wantLevel)
+			}
+		})
 	}
 }

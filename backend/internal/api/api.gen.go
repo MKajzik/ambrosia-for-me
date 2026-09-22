@@ -4,11 +4,36 @@
 package api
 
 import (
+	"bytes"
+	"compress/flate"
+	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/url"
+	"path"
+	"strings"
+	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
+	"github.com/oapi-codegen/nullable"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// Defines values for AuthResponseTokenType.
+const (
+	AuthResponseTokenTypeBearer AuthResponseTokenType = "Bearer"
+)
+
+// Valid indicates whether the value is a known member of the AuthResponseTokenType enum.
+func (e AuthResponseTokenType) Valid() bool {
+	switch e {
+	case AuthResponseTokenTypeBearer:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for HealthStatus.
 const (
@@ -25,6 +50,29 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// AuthResponse defines model for AuthResponse.
+type AuthResponse struct {
+	AccessToken string `json:"access_token"`
+
+	// ExpiresIn Access token lifetime in seconds.
+	ExpiresIn    int                   `json:"expires_in"`
+	RefreshToken string                `json:"refresh_token"`
+	TokenType    AuthResponseTokenType `json:"token_type"`
+	User         User                  `json:"user"`
+}
+
+// AuthResponseTokenType defines model for AuthResponse.TokenType.
+type AuthResponseTokenType string
+
+// FieldError defines model for FieldError.
+type FieldError struct {
+	// Code Stable identifier, e.g. required, too_short, too_long, invalid_format, invalid_type, invalid_value.
+	Code string `json:"code"`
+
+	// Field Path of the offending JSON field, e.g. `email`.
+	Field string `json:"field"`
+}
+
 // Health defines model for Health.
 type Health struct {
 	Status HealthStatus `json:"status"`
@@ -33,21 +81,112 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	Email    openapi_types.Email `json:"email"`
+	Password string              `json:"password"`
+}
+
 // Problem RFC 9457 problem details with a stable machine-readable code.
 type Problem struct {
 	// Code Stable identifier clients map to localized text, e.g. partner_not_linked.
 	Code   string  `json:"code"`
 	Detail *string `json:"detail,omitempty"`
-	Status int     `json:"status"`
-	Title  string  `json:"title"`
-	Type   string  `json:"type"`
+
+	// Errors Per-field details, present on validation_failed problems.
+	Errors *[]FieldError `json:"errors,omitempty"`
+	Status int           `json:"status"`
+	Title  string        `json:"title"`
+	Type   string        `json:"type"`
 }
+
+// RefreshRequest defines model for RefreshRequest.
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// RegisterRequest defines model for RegisterRequest.
+type RegisterRequest struct {
+	DisplayName string              `json:"display_name"`
+	Email       openapi_types.Email `json:"email"`
+	Password    string              `json:"password"`
+}
+
+// UpdateProfileRequest defines model for UpdateProfileRequest.
+type UpdateProfileRequest struct {
+	DisplayName    *string                    `json:"display_name,omitempty"`
+	TargetCarbsG   nullable.Nullable[float64] `json:"target_carbs_g,omitempty"`
+	TargetFatG     nullable.Nullable[float64] `json:"target_fat_g,omitempty"`
+	TargetKcal     nullable.Nullable[float64] `json:"target_kcal,omitempty"`
+	TargetProteinG nullable.Nullable[float64] `json:"target_protein_g,omitempty"`
+}
+
+// User defines model for User.
+type User struct {
+	CreatedAt      time.Time                  `json:"created_at"`
+	DisplayName    string                     `json:"display_name"`
+	Email          string                     `json:"email"`
+	Id             openapi_types.UUID         `json:"id"`
+	TargetCarbsG   nullable.Nullable[float64] `json:"target_carbs_g,omitempty"`
+	TargetFatG     nullable.Nullable[float64] `json:"target_fat_g,omitempty"`
+	TargetKcal     nullable.Nullable[float64] `json:"target_kcal,omitempty"`
+	TargetProteinG nullable.Nullable[float64] `json:"target_protein_g,omitempty"`
+	UpdatedAt      time.Time                  `json:"updated_at"`
+}
+
+// BadRequest RFC 9457 problem details with a stable machine-readable code.
+type BadRequest = Problem
+
+// Conflict RFC 9457 problem details with a stable machine-readable code.
+type Conflict = Problem
+
+// TooManyRequests RFC 9457 problem details with a stable machine-readable code.
+type TooManyRequests = Problem
+
+// Unauthorized RFC 9457 problem details with a stable machine-readable code.
+type Unauthorized = Problem
+
+// LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
+type LoginUserJSONRequestBody = LoginRequest
+
+// LogoutUserJSONRequestBody defines body for LogoutUser for application/json ContentType.
+type LogoutUserJSONRequestBody = RefreshRequest
+
+// RefreshSessionJSONRequestBody defines body for RefreshSession for application/json ContentType.
+type RefreshSessionJSONRequestBody = RefreshRequest
+
+// RegisterUserJSONRequestBody defines body for RegisterUser for application/json ContentType.
+type RegisterUserJSONRequestBody = RegisterRequest
+
+// UpdateMeJSONRequestBody defines body for UpdateMe for application/json ContentType.
+type UpdateMeJSONRequestBody = UpdateProfileRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// LoginUser Sign in with email and password
+	// (POST /auth/login)
+	LoginUser(w http.ResponseWriter, r *http.Request)
+	// LogoutUser Revoke a refresh-token session
+	// (POST /auth/logout)
+	LogoutUser(w http.ResponseWriter, r *http.Request)
+	// RefreshSession Exchange a refresh token for a new token pair
+	// (POST /auth/refresh)
+	RefreshSession(w http.ResponseWriter, r *http.Request)
+	// RegisterUser Create an account
+	// (POST /auth/register)
+	RegisterUser(w http.ResponseWriter, r *http.Request)
 	// GetHealth Liveness probe
 	// (GET /healthz)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// DeleteMe Delete the signed-in user's account
+	// (DELETE /me)
+	DeleteMe(w http.ResponseWriter, r *http.Request)
+	// GetMe Get the signed-in user's profile
+	// (GET /me)
+	GetMe(w http.ResponseWriter, r *http.Request)
+	// UpdateMe Update the signed-in user's profile
+	// (PATCH /me)
+	UpdateMe(w http.ResponseWriter, r *http.Request)
 	// GetReady Readiness probe
 	// (GET /readyz)
 	GetReady(w http.ResponseWriter, r *http.Request)
@@ -57,9 +196,51 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// LoginUser Sign in with email and password
+// (POST /auth/login)
+func (_ Unimplemented) LoginUser(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// LogoutUser Revoke a refresh-token session
+// (POST /auth/logout)
+func (_ Unimplemented) LogoutUser(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RefreshSession Exchange a refresh token for a new token pair
+// (POST /auth/refresh)
+func (_ Unimplemented) RefreshSession(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RegisterUser Create an account
+// (POST /auth/register)
+func (_ Unimplemented) RegisterUser(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // GetHealth Liveness probe
 // (GET /healthz)
 func (_ Unimplemented) GetHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteMe Delete the signed-in user's account
+// (DELETE /me)
+func (_ Unimplemented) DeleteMe(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetMe Get the signed-in user's profile
+// (GET /me)
+func (_ Unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateMe Update the signed-in user's profile
+// (PATCH /me)
+func (_ Unimplemented) UpdateMe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -78,11 +259,109 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
+// LoginUser operation middleware
+func (siw *ServerInterfaceWrapper) LoginUser(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LoginUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LogoutUser operation middleware
+func (siw *ServerInterfaceWrapper) LogoutUser(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LogoutUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshSession operation middleware
+func (siw *ServerInterfaceWrapper) RefreshSession(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshSession(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RegisterUser operation middleware
+func (siw *ServerInterfaceWrapper) RegisterUser(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RegisterUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetHealth operation middleware
 func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMe operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMe(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMe operation middleware
+func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMe operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMe(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMe(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -225,6 +504,160 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/readyz", wrapper.GetReady)
 	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/register", wrapper.RegisterUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/login", wrapper.LoginUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/refresh", wrapper.RefreshSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/logout", wrapper.LogoutUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/me", wrapper.DeleteMe)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me", wrapper.GetMe)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/me", wrapper.UpdateMe)
+	})
 
 	return r
+}
+
+// Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
+// Stored as a slice of fixed-width chunks rather than one concatenated
+// const string: with thousands of chunks the chained `+` fold is several
+// times slower for the Go compiler than parsing a slice literal.
+var swaggerSpec = []string{
+	"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",
+}
+
+// decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
+// after base64-decoding and flate-decompressing the embedded blob.
+func decodeSpec() ([]byte, error) {
+	encoded := strings.Join(swaggerSpec, "")
+	compressed, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("error base64 decoding spec: %w", err)
+	}
+	zr := flate.NewReader(bytes.NewReader(compressed))
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(zr); err != nil {
+		return nil, fmt.Errorf("read flate: %w", err)
+	}
+	if err := zr.Close(); err != nil {
+		return nil, fmt.Errorf("close flate reader: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+var rawSpec = decodeSpecCached()
+
+// a naive cache of the decoded OpenAPI spec
+func decodeSpecCached() func() ([]byte, error) {
+	data, err := decodeSpec()
+	return func() ([]byte, error) {
+		return data, err
+	}
+}
+
+// Constructs a synthetic filesystem for resolving external references when loading openapi specifications.
+func PathToRawSpec(pathToFile string) map[string]func() ([]byte, error) {
+	res := make(map[string]func() ([]byte, error))
+	if len(pathToFile) > 0 {
+		res[pathToFile] = rawSpec
+	}
+
+	return res
+}
+
+// GetSpec returns the OpenAPI specification corresponding to the generated
+// code in this file. External references in the spec are resolved through
+// PathToRawSpec; externally-referenced files must be embedded in their
+// corresponding Go packages (via the import-mapping feature). URL-based
+// external refs are not supported.
+func GetSpec() (swagger *openapi3.T, err error) {
+	resolvePath := PathToRawSpec("")
+
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+	loader.ReadFromURIFunc = func(loader *openapi3.Loader, url *url.URL) ([]byte, error) {
+		pathToFile := url.String()
+		pathToFile = path.Clean(pathToFile)
+		getSpec, ok := resolvePath[pathToFile]
+		if !ok {
+			err1 := fmt.Errorf("path not found: %s", pathToFile)
+			return nil, err1
+		}
+		return getSpec()
+	}
+	var specData []byte
+	specData, err = rawSpec()
+	if err != nil {
+		return
+	}
+	swagger, err = loader.LoadFromData(specData)
+	if err != nil {
+		return
+	}
+	return
+}
+
+// GetSpecJSON returns the raw JSON bytes of the embedded OpenAPI
+// specification: decompressed but not unmarshaled. External references
+// are not resolved here; the bytes are the spec exactly as embedded by
+// codegen. The result is cached at package init time, so repeated calls
+// are cheap.
+func GetSpecJSON() ([]byte, error) {
+	return rawSpec()
+}
+
+// GetSwagger returns the OpenAPI specification corresponding to the
+// generated code in this file.
+//
+// Deprecated: GetSwagger predates kin-openapi renaming openapi3.Swagger
+// to openapi3.T. Use [GetSpec] instead. This wrapper is retained for
+// backwards compatibility.
+func GetSwagger() (*openapi3.T, error) {
+	return GetSpec()
 }

@@ -2,9 +2,16 @@
 REDOCLY := npx --yes @redocly/cli@2.53.3
 GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 OAPICODEGEN := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
+SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+GENERATED := backend/internal/api backend/internal/store/sqlc
 
 # Local development database; matches the docker-compose.yml defaults.
 migrate run-api: export DATABASE_URL ?= postgres://mealplanner:mealplanner@localhost:5432/mealplanner?sslmode=disable
+
+# The development signing secret is public. The API accepts it only with ALLOW_DEV_JWT_SECRET=1, and
+# `make run-api` sets both so it works out of the box. Never use either anywhere else.
+run-api: export JWT_SECRET ?= dev-only-secret-change-me-0123456789
+run-api: export ALLOW_DEV_JWT_SECRET ?= 1
 
 .PHONY: help lint-api test-backend lint-backend generate check-generated migrate run-api db-up db-down check
 
@@ -20,11 +27,13 @@ test-backend: ## Vet and test the Go backend (needs Docker)
 lint-backend: ## Run golangci-lint on the Go backend
 	cd backend && $(GOLANGCI) run ./...
 
-generate: ## Regenerate backend code from openapi.yaml
+generate: ## Regenerate backend code (oapi-codegen from openapi.yaml, sqlc from migrations and queries)
 	cd backend && $(OAPICODEGEN) -config internal/api/oapi.yaml ../openapi.yaml
+	cd backend && $(SQLC) generate
 
 check-generated: generate ## Fail if the committed generated code is out of date
-	git diff --exit-code -- backend/internal/api
+	git add -AN -- $(GENERATED)
+	git diff --exit-code -- $(GENERATED)
 
 migrate: ## Apply database migrations to DATABASE_URL
 	cd backend && go run ./cmd/migrate
