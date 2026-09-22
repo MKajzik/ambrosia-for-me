@@ -22,7 +22,7 @@
 - Nutrition is stored per 100 g; meal/plan nutrition (a later plan) is computed on read, never stored here.
 - USDA import scope, locked this session: **Foundation Foods only** (no SR Legacy, no branded/packaged items).
 - Shopping categories, locked this session (10, fixed): `produce`, `dairy_eggs`, `meat_seafood`, `grains_bread`, `legumes_nuts_seeds`, `condiments_oils`, `spices_herbs`, `beverages`, `sweets_snacks`, `other`.
-- Nutrient set, locked in the spec (17, fixed, stored as rows not columns): `calories`, `protein`, `carbohydrates`, `sugar`, `fibre`, `fat`, `saturated_fat`, `sodium`, `potassium`, `calcium`, `iron`, `magnesium`, `zinc`, `vitamin_a`, `vitamin_c`, `vitamin_d`, `vitamin_b12`, `folate`.
+- Nutrient set, locked in the spec (18, fixed, stored as rows not columns): `calories`, `protein`, `carbohydrates`, `sugar`, `fibre`, `fat`, `saturated_fat`, `sodium`, `potassium`, `calcium`, `iron`, `magnesium`, `zinc`, `vitamin_a`, `vitamin_c`, `vitamin_d`, `vitamin_b12`, `folate`.
 - Any new environment variable is added to `.env.example` in the same commit.
 
 ---
@@ -32,7 +32,7 @@
 - `backend/migrations/00004_ingredients.sql` — the two tables, the `nutrient_key` enum, indexes, trigger.
 - `backend/internal/store/queries/ingredients.sql` — sqlc source; generates into `backend/internal/store/sqlc/ingredients.sql.go` (never hand-edited).
 - `backend/internal/store/store.go` — gains `IsForeignKeyViolation`, alongside the existing `IsUniqueViolation`.
-- `backend/internal/service/ingredients.go` — the `Ingredients` service: CRUD, list, search, nutrient mapping. Owns the 17 nutrient-key string constants (the shared vocabulary `httpapi` and `usda` both import).
+- `backend/internal/service/ingredients.go` — the `Ingredients` service: CRUD, list, search, nutrient mapping. Owns the 18 nutrient-key string constants (the shared vocabulary `httpapi` and `usda` both import).
 - `backend/internal/service/ingredients_test.go` — its tests, against a real migrated Postgres.
 - `openapi.yaml` — `/ingredients` and `/ingredients/{id}`, their schemas, and a new reusable `NotFound` response.
 - `backend/internal/httpapi/ingredients.go` — the four handlers, cursor encode/decode, `IngredientsService` interface.
