@@ -17,7 +17,7 @@ Module: `github.com/InzKazik/mealplanner/backend`. Go 1.26, `chi` router, `pgx` 
 - `internal/testutil/`: integration-test helpers (Postgres via testcontainers; a migrated template database copied per test).
 - `migrations/`: embedded goose SQL migrations.
 
-Dependencies point one way: `httpapi` → `service` → `store`; `auth` is a leaf used by `service` and `config`. A package never imports one to its left.
+Dependencies point one way: `httpapi` → `service` → `store`; `auth` is a leaf used by `service` and `config`. A package never imports one to its left. `internal/usda` is a separate leaf-like package beside `httpapi`, not below `service`: it imports `service` directly (for the nutrient-key constants only) and `store` directly, so `service` must never import `usda`.
 
 ## Commands (from repo root)
 
@@ -55,7 +55,7 @@ Dependencies point one way: `httpapi` → `service` → `store`; `auth` is a lea
 - **Personal data in logs.** The request log records `remote_ip`. Decide and document a retention period before production.
 - **Header and body edge cases.** A request with more than one `Authorization` header is rejected (401). A body over 64 KiB is `400 request body is too large` on unauthenticated routes; on secured routes it currently reads as `401`, because kin-openapi wraps the read error in a security error.
 - **Ingredient search is not paginated.** `GET /ingredients?q=` ranks by trigram similarity and returns up to `limit` results with no cursor; only the plain alphabetical listing (no `q`) paginates. A type-ahead UI never needs a second page of search results, and cursoring a similarity-ranked result set has no stable order to cursor over.
-- **Nutrients use two schemas on purpose.** `NutrientAmounts` (the `Ingredient` response) requires all 18 keys, always present, `null` where unknown. `NutrientAmountsInput` (`CreateIngredientRequest`/`UpdateIngredientRequest`) requires none, so a client can send just the nutrients it knows. Reusing `NutrientAmounts` for requests too was tried first and rejected: it made the request validator reject any partial nutrient object, defeating the whole point of optional input.
+- **Nutrients use two schemas on purpose.** `NutrientAmounts` (the `Ingredient` response) requires all 18 keys, always present, `null` where unknown. `NutrientAmountsInput` (`CreateIngredientRequest`/`UpdateIngredientRequest`) requires none, so a client can send just the nutrients it knows. Reusing `NutrientAmounts` for requests too was tried first and rejected: it made the request validator reject any partial nutrient object, defeating the whole point of optional input. On update, supplying the `nutrients` field at all replaces the ingredient's entire nutrient set (any of the 18 keys not included is cleared, not left alone); only omitting the `nutrients` field entirely leaves the existing nutrients unchanged.
 
 ## Decide before the domain plans
 
