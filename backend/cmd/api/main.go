@@ -70,8 +70,10 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 	}
 	defer pool.Close()
 
+	st := store.New(pool)
 	tokens := auth.NewTokenIssuer([]byte(cfg.JWTSecret), accessTokenTTL, time.Now)
-	accounts := service.NewAuth(store.New(pool), auth.NewHasher(auth.DefaultHashParams), tokens, refreshTokenTTL, time.Now)
+	accounts := service.NewAuth(st, auth.NewHasher(auth.DefaultHashParams), tokens, refreshTokenTTL, time.Now)
+	ingredients := service.NewIngredients(st)
 
 	srv := &http.Server{
 		Handler: httpapi.NewRouter(httpapi.Deps{
@@ -79,6 +81,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 			Ready:          pool.Ping,
 			WebOrigin:      cfg.WebOrigin,
 			Auth:           accounts,
+			Ingredients:    ingredients,
 			Tokens:         tokens,
 			TrustedProxies: cfg.TrustedProxies,
 		}),

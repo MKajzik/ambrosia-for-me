@@ -48,7 +48,7 @@ mealPlanner/
 - **Auth:** JWT access tokens (15 min); rotating refresh tokens stored hashed with a `family_id`; reuse of a rotated token revokes the whole family. Passwords use argon2id. Sign in with Apple verifies Apple's identity token against Apple's JWKS.
 - **Middleware:** rate limiting (strict per-IP on `auth/*`, per-user elsewhere), CORS allowlisted to the web origin, panic recovery, request ID.
 - **Ops endpoints:** `/healthz` (liveness), `/readyz` (DB reachable).
-- **USDA import:** `cmd/import-usda` loads a curated subset of FoodData Central (Foundation and SR Legacy datasets) into `ingredients` and `ingredient_nutrients`. It is idempotent, keyed by `usda_fdc_id`.
+- **USDA import:** `cmd/import-usda` loads the FoodData Central **Foundation Foods** dataset (whole/minimally-processed foods with lab-analyzed nutrients; excludes branded/packaged items, consistent with the no-barcode-scanning non-goal) into `ingredients` and `ingredient_nutrients`. It is idempotent, keyed by `usda_fdc_id`; rerunning picks up USDA data updates. USDA food groups map to our shopping categories via a hand-written lookup table in the importer; an unmapped group falls back to `other` and logs a warning rather than failing the import.
 - **Realtime:** one SSE endpoint per shopping list. Writes always go through REST.
 
 ### 2.3 Contract flow
@@ -82,7 +82,7 @@ All primary keys are UUIDs. Every table has `created_at` and `updated_at`. Delet
 
 ### 3.2 Ingredients and nutrition
 
-- **ingredients:** `name`, `category` (produce, dairy, meat, and so on; drives shopping-list grouping), `owner_id` (NULL = global/USDA, otherwise a custom ingredient), `usda_fdc_id` (nullable, unique), `grams_per_piece` (nullable), `density_g_per_ml` (nullable). Search uses `pg_trgm` on `name`.
+- **ingredients:** `name`, `category` (one of `produce`, `dairy_eggs`, `meat_seafood`, `grains_bread`, `legumes_nuts_seeds`, `condiments_oils`, `spices_herbs`, `beverages`, `sweets_snacks`, `other`; drives shopping-list grouping), `owner_id` (NULL = global/USDA, otherwise a custom ingredient), `usda_fdc_id` (nullable, unique), `grams_per_piece` (nullable), `density_g_per_ml` (nullable). Search uses `pg_trgm` on `name`.
 - **ingredient_nutrients:** `ingredient_id`, `nutrient_key` (enum), `amount_per_100g`. Nutrients are rows, not columns, so adding one needs no migration.
 
 **Nutrient set (v1):** calories (kcal), protein, carbohydrates, sugar, fibre, fat, saturated fat, sodium, potassium, calcium, iron, magnesium, zinc, vitamin A, vitamin C, vitamin D, vitamin B12, folate. Macronutrients are shown in the summary tier; the rest in the expandable full-nutrient tier against daily reference values.
@@ -215,7 +215,6 @@ Each step gets its own implementation plan.
 
 ## 10. Open items to resolve during planning
 
-- Exact USDA subset and category mapping from FoodData Central food groups to our shopping categories.
 - Daily reference values used for micronutrient percentages (source and whether they vary by user).
 - Invite code format and expiry duration.
 - Production hosting choice (post-API).

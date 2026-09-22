@@ -15,7 +15,128 @@ tags:
     description: Registration, login and refresh-token sessions.
   - name: Profile
     description: The signed-in user's own profile and account.
+  - name: Ingredients
+    description: The global and per-user ingredient catalog.
 paths:
+  /ingredients:
+    get:
+      tags: [Ingredients]
+      operationId: listIngredients
+      summary: List or search ingredients
+      description: Without `q`, lists ingredients alphabetically with cursor pagination. With `q`, searches by name and returns the best matches, not paginated.
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/IngredientCategory'
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Matching ingredients.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngredientList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    post:
+      tags: [Ingredients]
+      operationId: createIngredient
+      summary: Create a custom ingredient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIngredientRequest'
+      responses:
+        '201':
+          description: The ingredient was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ingredient'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /ingredients/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [Ingredients]
+      operationId: updateIngredient
+      summary: Update a custom ingredient
+      description: Fields that are absent are left unchanged. Only a custom ingredient owned by the caller can be updated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIngredientRequest'
+      responses:
+        '200':
+          description: The updated ingredient.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ingredient'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [Ingredients]
+      operationId: deleteIngredient
+      summary: Delete a custom ingredient
+      responses:
+        '204':
+          description: The ingredient was deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
   /healthz:
     get:
       tags: [Health]
@@ -378,6 +499,149 @@ components:
           nullable: true
           minimum: 0
           maximum: 2000
+    IngredientCategory:
+      type: string
+      enum: [produce, dairy_eggs, meat_seafood, grains_bread, legumes_nuts_seeds, condiments_oils, spices_herbs, beverages, sweets_snacks, other]
+    NutrientAmounts:
+      type: object
+      description: "Amount per 100 g for each tracked nutrient. A null value means the amount is unknown. Units: kcal for calories; g for protein, carbohydrates, sugar, fibre, fat and saturated_fat; mg for sodium, potassium, calcium, iron, magnesium, zinc and vitamin_c; µg for vitamin_a, vitamin_d, vitamin_b12 and folate."
+      required: [calories, protein, carbohydrates, sugar, fibre, fat, saturated_fat, sodium, potassium, calcium, iron, magnesium, zinc, vitamin_a, vitamin_c, vitamin_d, vitamin_b12, folate]
+      properties:
+        calories: { type: number, format: double, nullable: true }
+        protein: { type: number, format: double, nullable: true }
+        carbohydrates: { type: number, format: double, nullable: true }
+        sugar: { type: number, format: double, nullable: true }
+        fibre: { type: number, format: double, nullable: true }
+        fat: { type: number, format: double, nullable: true }
+        saturated_fat: { type: number, format: double, nullable: true }
+        sodium: { type: number, format: double, nullable: true }
+        potassium: { type: number, format: double, nullable: true }
+        calcium: { type: number, format: double, nullable: true }
+        iron: { type: number, format: double, nullable: true }
+        magnesium: { type: number, format: double, nullable: true }
+        zinc: { type: number, format: double, nullable: true }
+        vitamin_a: { type: number, format: double, nullable: true }
+        vitamin_c: { type: number, format: double, nullable: true }
+        vitamin_d: { type: number, format: double, nullable: true }
+        vitamin_b12: { type: number, format: double, nullable: true }
+        folate: { type: number, format: double, nullable: true }
+    NutrientAmountsInput:
+      type: object
+      additionalProperties: false
+      description: Amount per 100 g for each tracked nutrient the caller wants to set. Supplying the `nutrients` field replaces the ingredient's entire nutrient set — any of the 18 keys omitted, or explicitly set to null, is cleared. Omitting the `nutrients` field entirely from the request body leaves the ingredient's existing nutrients unchanged.
+      properties:
+        calories: { type: number, format: double, nullable: true }
+        protein: { type: number, format: double, nullable: true }
+        carbohydrates: { type: number, format: double, nullable: true }
+        sugar: { type: number, format: double, nullable: true }
+        fibre: { type: number, format: double, nullable: true }
+        fat: { type: number, format: double, nullable: true }
+        saturated_fat: { type: number, format: double, nullable: true }
+        sodium: { type: number, format: double, nullable: true }
+        potassium: { type: number, format: double, nullable: true }
+        calcium: { type: number, format: double, nullable: true }
+        iron: { type: number, format: double, nullable: true }
+        magnesium: { type: number, format: double, nullable: true }
+        zinc: { type: number, format: double, nullable: true }
+        vitamin_a: { type: number, format: double, nullable: true }
+        vitamin_c: { type: number, format: double, nullable: true }
+        vitamin_d: { type: number, format: double, nullable: true }
+        vitamin_b12: { type: number, format: double, nullable: true }
+        folate: { type: number, format: double, nullable: true }
+    Ingredient:
+      type: object
+      required: [id, name, category, is_custom, grams_per_piece, density_g_per_ml, nutrients, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        category:
+          $ref: '#/components/schemas/IngredientCategory'
+        is_custom:
+          type: boolean
+          description: True for a custom ingredient owned by the caller; false for the global USDA catalog.
+        grams_per_piece:
+          type: number
+          format: double
+          nullable: true
+        density_g_per_ml:
+          type: number
+          format: double
+          nullable: true
+        nutrients:
+          $ref: '#/components/schemas/NutrientAmounts'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateIngredientRequest:
+      type: object
+      additionalProperties: false
+      required: [name, category]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        category:
+          $ref: '#/components/schemas/IngredientCategory'
+        grams_per_piece:
+          type: number
+          format: double
+          nullable: true
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 10000
+        density_g_per_ml:
+          type: number
+          format: double
+          nullable: true
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 3
+        nutrients:
+          $ref: '#/components/schemas/NutrientAmountsInput'
+    UpdateIngredientRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        category:
+          $ref: '#/components/schemas/IngredientCategory'
+        grams_per_piece:
+          type: number
+          format: double
+          nullable: true
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 10000
+        density_g_per_ml:
+          type: number
+          format: double
+          nullable: true
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 3
+        nutrients:
+          $ref: '#/components/schemas/NutrientAmountsInput'
+    IngredientList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ingredient'
+        next_cursor:
+          type: string
+          nullable: true
   responses:
     Problem:
       description: An error occurred.
@@ -397,6 +661,12 @@ components:
         WWW-Authenticate:
           schema:
             type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: The resource does not exist, or exists but is not visible to the caller.
       content:
         application/problem+json:
           schema:

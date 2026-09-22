@@ -13,7 +13,7 @@ migrate run-api: export DATABASE_URL ?= postgres://mealplanner:mealplanner@local
 run-api: export JWT_SECRET ?= dev-only-secret-change-me-0123456789
 run-api: export ALLOW_DEV_JWT_SECRET ?= 1
 
-.PHONY: help lint-api test-backend lint-backend generate check-generated migrate run-api db-up db-down check
+.PHONY: help lint-api test-backend lint-backend generate check-generated migrate run-api import-usda db-up db-down check
 
 help: ## List available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -40,6 +40,9 @@ migrate: ## Apply database migrations to DATABASE_URL
 
 run-api: ## Run the API locally on :8080
 	cd backend && go run ./cmd/api
+
+import-usda: ## Run the USDA Foundation Foods import (needs FDC_API_KEY and DATABASE_URL)
+	cd backend && go run ./cmd/import-usda
 
 db-up: ## Start local Postgres and wait until healthy
 	docker compose up -d --wait postgres

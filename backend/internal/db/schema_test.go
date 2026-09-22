@@ -121,3 +121,65 @@ func TestRefreshTokensCascadeWithTheirUser(t *testing.T) {
 		t.Errorf("refresh_tokens rows after deleting the user = %d (err %v), want 0", n, err)
 	}
 }
+
+func TestIngredientsSchemaEnforcesItsConstraints(t *testing.T) {
+	ctx := context.Background()
+	conn := migratedConn(t)
+
+	var userID string
+	if err := conn.QueryRow(ctx,
+		`INSERT INTO users (email, password_hash, display_name) VALUES ('a@example.com', 'h', 'A') RETURNING id`,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	insert := func(sql string, args ...any) error {
+		_, err := conn.Exec(ctx, "INSERT INTO ingredients (name, category, owner_id, usda_fdc_id) VALUES "+sql, args...)
+		return err
+	}
+	if err := insert(`('Apple', 'produce', NULL, 100)`); err != nil {
+		t.Fatalf("valid global insert: %v", err)
+	}
+	if err := insert(`('My Mix', 'other', $1, NULL)`, userID); err != nil {
+		t.Fatalf("valid custom insert: %v", err)
+	}
+	if err := insert(`('Bad Category', 'not_a_category', NULL, 101)`); err == nil {
+		t.Error("an invalid category was accepted, want a constraint violation")
+	}
+	if err := insert(`('Duplicate FDC', 'produce', NULL, 100)`); err == nil {
+		t.Error("a duplicate usda_fdc_id was accepted, want a unique violation")
+	}
+	if err := insert(`('Ghost', 'other', gen_random_uuid(), NULL)`); err == nil {
+		t.Error("an owner_id that does not reference a user was accepted, want a foreign key violation")
+	}
+
+	var ingredientID string
+	if err := conn.QueryRow(ctx,
+		`INSERT INTO ingredients (name, category) VALUES ('Banana', 'produce') RETURNING id`,
+	).Scan(&ingredientID); err != nil {
+		t.Fatalf("insert ingredient: %v", err)
+	}
+	if _, err := conn.Exec(ctx,
+		`INSERT INTO ingredient_nutrients (ingredient_id, nutrient_key, amount_per_100g) VALUES ($1, 'calories', 89)`, ingredientID,
+	); err != nil {
+		t.Fatalf("insert nutrient: %v", err)
+	}
+	if _, err := conn.Exec(ctx,
+		`INSERT INTO ingredient_nutrients (ingredient_id, nutrient_key, amount_per_100g) VALUES ($1, 'not_a_nutrient', 1)`, ingredientID,
+	); err == nil {
+		t.Error("an invalid nutrient_key was accepted, want an enum violation")
+	}
+	if _, err := conn.Exec(ctx,
+		`INSERT INTO ingredient_nutrients (ingredient_id, nutrient_key, amount_per_100g) VALUES ($1, 'protein', -1)`, ingredientID,
+	); err == nil {
+		t.Error("a negative amount was accepted, want a constraint violation")
+	}
+
+	if _, err := conn.Exec(ctx, `DELETE FROM ingredients WHERE id = $1`, ingredientID); err != nil {
+		t.Fatalf("delete ingredient: %v", err)
+	}
+	var n int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM ingredient_nutrients WHERE ingredient_id = $1`, ingredientID).Scan(&n); err != nil || n != 0 {
+		t.Errorf("ingredient_nutrients rows after deleting the ingredient = %d (err %v), want 0", n, err)
+	}
+}
