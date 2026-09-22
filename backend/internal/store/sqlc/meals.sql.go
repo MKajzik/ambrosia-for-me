@@ -64,6 +64,21 @@ func (q *Queries) DeleteMeal(ctx context.Context, arg DeleteMealParams) (int64, 
 	return result.RowsAffected(), nil
 }
 
+const deleteMealsForUser = `-- name: DeleteMealsForUser :exec
+DELETE FROM meals WHERE owner_id = $1
+`
+
+// Used by account deletion, before the users row itself goes. users cascades
+// to both ingredients and meals, but meal_ingredients.ingredient_id is NO
+// ACTION (that is what makes deleting an in-use ingredient a 409), and
+// Postgres fires the ingredients cascade first. Clearing the owner's meals up
+// front removes the meal_ingredients rows (ON DELETE CASCADE on meal_id) that
+// would otherwise block that cascade.
+func (q *Queries) DeleteMealsForUser(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteMealsForUser, userID)
+	return err
+}
+
 const getMealForUser = `-- name: GetMealForUser :one
 SELECT id, owner_id, name, notes, servings, shared_with_partner, created_at, updated_at FROM meals
 WHERE id = $1 AND owner_id = $2

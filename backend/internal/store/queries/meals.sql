@@ -33,6 +33,15 @@ RETURNING *;
 -- name: DeleteMeal :execrows
 DELETE FROM meals WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id');
 
+-- name: DeleteMealsForUser :exec
+-- Used by account deletion, before the users row itself goes. users cascades
+-- to both ingredients and meals, but meal_ingredients.ingredient_id is NO
+-- ACTION (that is what makes deleting an in-use ingredient a 409), and
+-- Postgres fires the ingredients cascade first. Clearing the owner's meals up
+-- front removes the meal_ingredients rows (ON DELETE CASCADE on meal_id) that
+-- would otherwise block that cascade.
+DELETE FROM meals WHERE owner_id = sqlc.arg('user_id');
+
 -- name: ReplaceMealIngredients :exec
 DELETE FROM meal_ingredients WHERE meal_id = $1;
 

@@ -247,6 +247,47 @@ func TestDeleteUserRemovesAccountAndSessions(t *testing.T) {
 	}
 }
 
+// TestDeleteUserWithAMealThatUsesTheirOwnCustomIngredient guards a cascade
+// ordering trap. users cascades to both ingredients and meals, but
+// meal_ingredients.ingredient_id is NO ACTION on purpose (it is what makes
+// Ingredients.Delete answer 409 ingredient_in_use). Postgres fires the
+// ingredients cascade before the meals one, so a bare DELETE FROM users tried
+// to remove the custom ingredient while the owner's own meal still referenced
+// it and aborted the whole delete with a foreign-key violation (a 500 on
+// DELETE /me). DeleteUser now removes the caller's meals first.
+func TestDeleteUserWithAMealThatUsesTheirOwnCustomIngredient(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	s := register(t, f, "cook@example.com")
+
+	ingredients := service.NewIngredients(f.store)
+	meals := service.NewMeals(f.store)
+
+	custom, err := ingredients.Create(ctx, s.User.ID, service.CreateIngredientInput{
+		Name: "Grandma's Sauce", Category: "condiments_oils",
+		Nutrients: map[string]float64{service.NutrientCalories: 90},
+	})
+	if err != nil {
+		t.Fatalf("Create ingredient: %v", err)
+	}
+	meal, err := meals.Create(ctx, s.User.ID, service.CreateMealInput{Name: "Pasta", Servings: 1})
+	if err != nil {
+		t.Fatalf("Create meal: %v", err)
+	}
+	if _, err := meals.ReplaceIngredients(ctx, s.User.ID, meal.ID, []service.MealIngredientInput{
+		{IngredientID: custom.ID, Quantity: 150, Unit: "g"},
+	}); err != nil {
+		t.Fatalf("ReplaceIngredients: %v", err)
+	}
+
+	if err := f.svc.DeleteUser(ctx, s.User.ID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	if _, err := f.svc.GetUser(ctx, s.User.ID); !errors.Is(err, service.ErrNotFound) {
+		t.Errorf("GetUser after delete: err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestConcurrentRefreshOfOneTokenSucceedsExactlyOnce(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
