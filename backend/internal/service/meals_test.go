@@ -219,6 +219,9 @@ func TestMealsEmptyMealHasZeroNutritionForEveryKey(t *testing.T) {
 	if got := meal.NutritionPerServing[service.NutrientFolate]; got != 0 {
 		t.Errorf("folate = %v, want 0", got)
 	}
+	if len(meal.NutritionPerServing) != 18 {
+		t.Errorf("len(NutritionPerServing) = %d, want 18", len(meal.NutritionPerServing))
+	}
 	if len(meal.Ingredients) != 0 {
 		t.Errorf("Ingredients = %+v, want empty", meal.Ingredients)
 	}
