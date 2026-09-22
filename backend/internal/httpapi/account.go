@@ -158,6 +158,8 @@ func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err e
 		WriteProblem(w, http.StatusUnauthorized, CodeInvalidRefreshToken, "")
 	case errors.Is(err, service.ErrIngredientNotFound):
 		WriteProblem(w, http.StatusNotFound, CodeNotFound, "")
+	case errors.Is(err, service.ErrIngredientInUse):
+		WriteProblem(w, http.StatusConflict, CodeIngredientInUse, "")
 	case errors.Is(err, service.ErrNotFound):
 		// The signed-in user's own account no longer exists: a valid access
 		// token for a deleted user is simply no longer authorized. Reused by

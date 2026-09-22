@@ -230,6 +230,35 @@ func TestIngredientsGlobalCatalogIsVisibleToEveryoneAndReadOnly(t *testing.T) {
 	}
 }
 
+func TestIngredientsDeleteIsBlockedWhileInUseByAMeal(t *testing.T) {
+	svc, st := newIngredientsFixture(t)
+	owner := newTestUser(t, st, "owner@example.com")
+	ing, err := svc.Create(context.Background(), owner, service.CreateIngredientInput{Name: "Oats", Category: "grains_bread"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	meal, err := st.CreateMeal(context.Background(), sqlc.CreateMealParams{OwnerID: owner, Name: "Porridge", Servings: 1})
+	if err != nil {
+		t.Fatalf("create meal: %v", err)
+	}
+	if _, err := st.InsertMealIngredient(context.Background(), sqlc.InsertMealIngredientParams{
+		MealID: meal.ID, IngredientID: ing.ID, Quantity: 100, Unit: "g", Position: 0,
+	}); err != nil {
+		t.Fatalf("insert meal ingredient: %v", err)
+	}
+
+	if err := svc.Delete(context.Background(), owner, ing.ID); !errors.Is(err, service.ErrIngredientInUse) {
+		t.Errorf("Delete while referenced by a meal: err = %v, want ErrIngredientInUse", err)
+	}
+
+	if err := st.ReplaceMealIngredients(context.Background(), meal.ID); err != nil {
+		t.Fatalf("clear meal ingredients: %v", err)
+	}
+	if err := svc.Delete(context.Background(), owner, ing.ID); err != nil {
+		t.Errorf("Delete once no longer referenced: %v", err)
+	}
+}
+
 func TestIngredientsListPaginatesAndFiltersByOwnership(t *testing.T) {
 	svc, st := newIngredientsFixture(t)
 	owner := newTestUser(t, st, "owner@example.com")
