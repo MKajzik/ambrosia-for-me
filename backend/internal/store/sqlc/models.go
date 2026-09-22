@@ -5,10 +5,88 @@
 package sqlc
 
 import (
+	"database/sql/driver"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+type NutrientKey string
+
+const (
+	NutrientKeyCalories      NutrientKey = "calories"
+	NutrientKeyProtein       NutrientKey = "protein"
+	NutrientKeyCarbohydrates NutrientKey = "carbohydrates"
+	NutrientKeySugar         NutrientKey = "sugar"
+	NutrientKeyFibre         NutrientKey = "fibre"
+	NutrientKeyFat           NutrientKey = "fat"
+	NutrientKeySaturatedFat  NutrientKey = "saturated_fat"
+	NutrientKeySodium        NutrientKey = "sodium"
+	NutrientKeyPotassium     NutrientKey = "potassium"
+	NutrientKeyCalcium       NutrientKey = "calcium"
+	NutrientKeyIron          NutrientKey = "iron"
+	NutrientKeyMagnesium     NutrientKey = "magnesium"
+	NutrientKeyZinc          NutrientKey = "zinc"
+	NutrientKeyVitaminA      NutrientKey = "vitamin_a"
+	NutrientKeyVitaminC      NutrientKey = "vitamin_c"
+	NutrientKeyVitaminD      NutrientKey = "vitamin_d"
+	NutrientKeyVitaminB12    NutrientKey = "vitamin_b12"
+	NutrientKeyFolate        NutrientKey = "folate"
+)
+
+func (e *NutrientKey) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = NutrientKey(s)
+	case string:
+		*e = NutrientKey(s)
+	default:
+		return fmt.Errorf("unsupported scan type for NutrientKey: %T", src)
+	}
+	return nil
+}
+
+type NullNutrientKey struct {
+	NutrientKey NutrientKey
+	Valid       bool // Valid is true if NutrientKey is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullNutrientKey) Scan(value interface{}) error {
+	if value == nil {
+		ns.NutrientKey, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.NutrientKey.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullNutrientKey) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.NutrientKey), nil
+}
+
+type Ingredient struct {
+	ID            uuid.UUID
+	Name          string
+	Category      string
+	OwnerID       *uuid.UUID
+	UsdaFdcID     *int32
+	GramsPerPiece *float64
+	DensityGPerMl *float64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type IngredientNutrient struct {
+	IngredientID  uuid.UUID
+	NutrientKey   NutrientKey
+	AmountPer100g float64
+}
 
 type RefreshToken struct {
 	ID        uuid.UUID
