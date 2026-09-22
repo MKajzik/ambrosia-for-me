@@ -66,6 +66,19 @@ func TestDietTemplatesLifecycle(t *testing.T) {
 		t.Fatalf("replace meal ingredients: status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 
+	// day_count's 1..31 bound is enforced by the request validator, never by
+	// the service: service.DietTemplates' toInt32 clamp assumes the value
+	// already fits, so this HTTP-level rejection is what keeps it honest.
+	for _, body := range []string{`{"name":"Zero","day_count":0}`, `{"name":"Too Long","day_count":32}`} {
+		rec = contract(t, router, http.MethodPost, "/diet-templates", withBearer(token1), withInvalidRequest(), withBody(body))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("create diet template with %s: status = %d, want 400", body, rec.Code)
+		}
+		if p := decodeProblemBody(t, rec); len(p.Errors) != 1 || p.Errors[0].Field != "day_count" || p.Errors[0].Code != httpapi.FieldOutOfRange {
+			t.Errorf("create diet template with %s: problem = %+v, want one out_of_range error on day_count", body, p)
+		}
+	}
+
 	rec = contract(t, router, http.MethodPost, "/diet-templates", withBearer(token1), withBody(`{"name":"One Week","day_count":7}`))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create diet template: status = %d, body = %s", rec.Code, rec.Body.String())
