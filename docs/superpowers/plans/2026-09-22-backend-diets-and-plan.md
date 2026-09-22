@@ -1259,6 +1259,7 @@ func (s *DietTemplates) List(ctx context.Context, ownerID uuid.UUID, in ListDiet
 	}
 	return DietTemplatePage{Items: items, NextCursor: next}, nil
 }
+```
 
 ```go
 // ReplaceSlots atomically replaces a template's full slot list. Every
