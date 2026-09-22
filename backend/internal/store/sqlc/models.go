@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type NutrientKey string
@@ -70,6 +71,16 @@ func (ns NullNutrientKey) Value() (driver.Value, error) {
 	return string(ns.NutrientKey), nil
 }
 
+type DietTemplate struct {
+	ID                uuid.UUID
+	OwnerID           uuid.UUID
+	Name              string
+	DayCount          int32
+	SharedWithPartner bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
 type Ingredient struct {
 	ID            uuid.UUID
 	Name          string
@@ -108,6 +119,18 @@ type MealIngredient struct {
 	Position     int32
 }
 
+type PlanEntry struct {
+	ID             uuid.UUID
+	OwnerID        uuid.UUID
+	Date           pgtype.Date
+	Slot           string
+	MealID         uuid.UUID
+	Portion        float64
+	FromTemplateID *uuid.UUID
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type RefreshToken struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID
@@ -117,6 +140,15 @@ type RefreshToken struct {
 	RevokedAt *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type TemplateSlot struct {
+	ID         uuid.UUID
+	TemplateID uuid.UUID
+	DayIndex   int32
+	Slot       string
+	MealID     uuid.UUID
+	Portion    float64
 }
 
 type User struct {

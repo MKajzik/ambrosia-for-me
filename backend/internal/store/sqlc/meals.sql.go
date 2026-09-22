@@ -139,6 +139,49 @@ func (q *Queries) GetMealIngredients(ctx context.Context, mealID uuid.UUID) ([]M
 	return items, nil
 }
 
+const getMealsForUser = `-- name: GetMealsForUser :many
+SELECT id, owner_id, name, notes, servings, shared_with_partner, created_at, updated_at FROM meals
+WHERE id = ANY($1::uuid[]) AND owner_id = $2
+`
+
+type GetMealsForUserParams struct {
+	Ids    []uuid.UUID
+	UserID uuid.UUID
+}
+
+// The batch counterpart to GetMealForUser: given a set of meal ids, returns
+// only the ones that exist and are owned by user_id. Used by DietTemplates
+// and Plan (Tasks 5, 6) to validate a slot's or entry's meal_id, and by
+// DietTemplates.toTemplate to fetch each slot's meal name in one query.
+func (q *Queries) GetMealsForUser(ctx context.Context, arg GetMealsForUserParams) ([]Meal, error) {
+	rows, err := q.db.Query(ctx, getMealsForUser, arg.Ids, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Meal
+	for rows.Next() {
+		var i Meal
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerID,
+			&i.Name,
+			&i.Notes,
+			&i.Servings,
+			&i.SharedWithPartner,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertMealIngredient = `-- name: InsertMealIngredient :one
 INSERT INTO meal_ingredients (meal_id, ingredient_id, quantity, unit, position)
 VALUES ($1, $2, $3, $4, $5)
