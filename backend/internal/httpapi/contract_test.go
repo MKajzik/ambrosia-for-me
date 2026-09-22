@@ -83,16 +83,21 @@ type stubIngredients struct{ httpapi.IngredientsService }
 // service fail loudly if they do.
 type stubMeals struct{ httpapi.MealsService }
 
+// stubDietTemplates panics on any call, so tests that must not reach the
+// diet templates service fail loudly if they do.
+type stubDietTemplates struct{ httpapi.DietTemplatesService }
+
 func newTestRouter(t *testing.T, mods ...func(*httpapi.Deps)) http.Handler {
 	t.Helper()
 	d := httpapi.Deps{
-		Logger:      slog.New(slog.DiscardHandler),
-		Ready:       func(context.Context) error { return nil },
-		WebOrigin:   "http://localhost:3000",
-		Auth:        stubAuth{},
-		Ingredients: stubIngredients{},
-		Meals:       stubMeals{},
-		Tokens:      stubTokens{},
+		Logger:        slog.New(slog.DiscardHandler),
+		Ready:         func(context.Context) error { return nil },
+		WebOrigin:     "http://localhost:3000",
+		Auth:          stubAuth{},
+		Ingredients:   stubIngredients{},
+		Meals:         stubMeals{},
+		DietTemplates: stubDietTemplates{},
+		Tokens:        stubTokens{},
 	}
 	for _, m := range mods {
 		m(&d)

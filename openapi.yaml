@@ -19,6 +19,8 @@ tags:
     description: The global and per-user ingredient catalog.
   - name: Meals
     description: Meals built from ingredients, with nutrition computed on read.
+  - name: DietTemplates
+    description: Reusable meal-schedule templates that can be applied to the plan.
 paths:
   /ingredients:
     get:
@@ -137,6 +139,237 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /diet-templates:
+    get:
+      tags: [DietTemplates]
+      operationId: listDietTemplates
+      summary: List the caller's diet templates
+      description: Cursor-paginated, alphabetical by name. Does not include slots; fetch a single template for those.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: The caller's diet templates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DietTemplateList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    post:
+      tags: [DietTemplates]
+      operationId: createDietTemplate
+      summary: Create a diet template
+      description: Creates the template with no slots. Add slots with `PUT /diet-templates/{id}/slots`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDietTemplateRequest'
+      responses:
+        '201':
+          description: The template was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DietTemplate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /diet-templates/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [DietTemplates]
+      operationId: getDietTemplate
+      summary: Get a diet template
+      description: Includes the slot list.
+      responses:
+        '200':
+          description: The template.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DietTemplate'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    patch:
+      tags: [DietTemplates]
+      operationId: updateDietTemplate
+      summary: Update a diet template
+      description: Fields that are absent are left unchanged. day_count cannot be changed after creation; recreate or copy the template instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDietTemplateRequest'
+      responses:
+        '200':
+          description: The updated template.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DietTemplate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [DietTemplates]
+      operationId: deleteDietTemplate
+      summary: Delete a diet template
+      description: Any plan entries created by applying this template keep their row, with from_template_id set to null.
+      responses:
+        '204':
+          description: The template was deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /diet-templates/{id}/slots:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [DietTemplates]
+      operationId: replaceTemplateSlots
+      summary: Replace a diet template's slot list
+      description: Atomically replaces the full slot list. Every row is validated (day_index must be within the template's day_count, and the meal must exist and be visible to the caller) before anything is written; an empty `items` array clears the list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceTemplateSlotsRequest'
+      responses:
+        '200':
+          description: The updated template.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DietTemplate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /diet-templates/{id}/apply:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [DietTemplates]
+      operationId: applyDietTemplate
+      summary: Apply a template to the plan
+      description: Copies the template's slots into plan entries starting at `start_date`. Without `overwrite`, fails if any non-snack target date+slot already has an entry; snack slots are always added. With `overwrite`, the same non-snack targets are replaced.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyDietTemplateRequest'
+      responses:
+        '204':
+          description: The template was applied.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /diet-templates/{id}/copy:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [DietTemplates]
+      operationId: copyDietTemplate
+      summary: Copy a diet template
+      description: Creates a new template, owned by the caller, with the same name, day_count and slots. The copy always starts with `shared_with_partner` false.
+      responses:
+        '201':
+          description: The copy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DietTemplate'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '500':
@@ -857,6 +1090,9 @@ components:
     Unit:
       type: string
       enum: [g, ml, piece]
+    Slot:
+      type: string
+      enum: [breakfast, lunch, dinner, snack]
     MealIngredient:
       type: object
       required: [id, ingredient_id, ingredient_name, ingredient_category, quantity, unit, position]
@@ -1005,6 +1241,145 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MealSummary'
+        next_cursor:
+          type: string
+          nullable: true
+    TemplateSlot:
+      type: object
+      required: [id, day_index, slot, meal_id, meal_name, portion]
+      properties:
+        id:
+          type: string
+          format: uuid
+        day_index:
+          type: integer
+        slot:
+          $ref: '#/components/schemas/Slot'
+        meal_id:
+          type: string
+          format: uuid
+        meal_name:
+          type: string
+        portion:
+          type: number
+          format: double
+    DietTemplate:
+      type: object
+      required: [id, name, day_count, shared_with_partner, slots, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        day_count:
+          type: integer
+        shared_with_partner:
+          type: boolean
+        slots:
+          type: array
+          items:
+            $ref: '#/components/schemas/TemplateSlot'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DietTemplateSummary:
+      type: object
+      required: [id, name, day_count, shared_with_partner, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        day_count:
+          type: integer
+        shared_with_partner:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateDietTemplateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, day_count]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        day_count:
+          type: integer
+          minimum: 1
+          maximum: 31
+        shared_with_partner:
+          type: boolean
+    UpdateDietTemplateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        shared_with_partner:
+          type: boolean
+    TemplateSlotInput:
+      type: object
+      additionalProperties: false
+      required: [day_index, slot, meal_id]
+      properties:
+        day_index:
+          type: integer
+          minimum: 0
+          maximum: 30
+        slot:
+          $ref: '#/components/schemas/Slot'
+        meal_id:
+          type: string
+          format: uuid
+        portion:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 100
+          default: 1
+    ReplaceTemplateSlotsRequest:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/TemplateSlotInput'
+    ApplyDietTemplateRequest:
+      type: object
+      additionalProperties: false
+      required: [start_date]
+      properties:
+        start_date:
+          type: string
+          format: date
+        overwrite:
+          type: boolean
+          default: false
+    DietTemplateList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DietTemplateSummary'
         next_cursor:
           type: string
           nullable: true

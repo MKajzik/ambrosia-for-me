@@ -94,6 +94,30 @@ func (e IngredientCategory) Valid() bool {
 	}
 }
 
+// Defines values for Slot.
+const (
+	SlotBreakfast Slot = "breakfast"
+	SlotDinner    Slot = "dinner"
+	SlotLunch     Slot = "lunch"
+	SlotSnack     Slot = "snack"
+)
+
+// Valid indicates whether the value is a known member of the Slot enum.
+func (e Slot) Valid() bool {
+	switch e {
+	case SlotBreakfast:
+		return true
+	case SlotDinner:
+		return true
+	case SlotLunch:
+		return true
+	case SlotSnack:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Unit.
 const (
 	UnitG     Unit = "g"
@@ -115,6 +139,12 @@ func (e Unit) Valid() bool {
 	}
 }
 
+// ApplyDietTemplateRequest defines model for ApplyDietTemplateRequest.
+type ApplyDietTemplateRequest struct {
+	Overwrite *bool              `json:"overwrite,omitempty"`
+	StartDate openapi_types.Date `json:"start_date"`
+}
+
 // AuthResponse defines model for AuthResponse.
 type AuthResponse struct {
 	AccessToken string `json:"access_token"`
@@ -128,6 +158,13 @@ type AuthResponse struct {
 
 // AuthResponseTokenType defines model for AuthResponse.TokenType.
 type AuthResponseTokenType string
+
+// CreateDietTemplateRequest defines model for CreateDietTemplateRequest.
+type CreateDietTemplateRequest struct {
+	DayCount          int    `json:"day_count"`
+	Name              string `json:"name"`
+	SharedWithPartner *bool  `json:"shared_with_partner,omitempty"`
+}
 
 // CreateIngredientRequest defines model for CreateIngredientRequest.
 type CreateIngredientRequest struct {
@@ -146,6 +183,33 @@ type CreateMealRequest struct {
 	Notes             nullable.Nullable[string] `json:"notes,omitempty"`
 	Servings          float64                   `json:"servings"`
 	SharedWithPartner *bool                     `json:"shared_with_partner,omitempty"`
+}
+
+// DietTemplate defines model for DietTemplate.
+type DietTemplate struct {
+	CreatedAt         time.Time          `json:"created_at"`
+	DayCount          int                `json:"day_count"`
+	Id                openapi_types.UUID `json:"id"`
+	Name              string             `json:"name"`
+	SharedWithPartner bool               `json:"shared_with_partner"`
+	Slots             []TemplateSlot     `json:"slots"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+}
+
+// DietTemplateList defines model for DietTemplateList.
+type DietTemplateList struct {
+	Items      []DietTemplateSummary     `json:"items"`
+	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+}
+
+// DietTemplateSummary defines model for DietTemplateSummary.
+type DietTemplateSummary struct {
+	CreatedAt         time.Time          `json:"created_at"`
+	DayCount          int                `json:"day_count"`
+	Id                openapi_types.UUID `json:"id"`
+	Name              string             `json:"name"`
+	SharedWithPartner bool               `json:"shared_with_partner"`
+	UpdatedAt         time.Time          `json:"updated_at"`
 }
 
 // FieldError defines model for FieldError.
@@ -321,8 +385,40 @@ type ReplaceMealIngredientsRequest struct {
 	Items []MealIngredientInput `json:"items"`
 }
 
+// ReplaceTemplateSlotsRequest defines model for ReplaceTemplateSlotsRequest.
+type ReplaceTemplateSlotsRequest struct {
+	Items []TemplateSlotInput `json:"items"`
+}
+
+// Slot defines model for Slot.
+type Slot string
+
+// TemplateSlot defines model for TemplateSlot.
+type TemplateSlot struct {
+	DayIndex int                `json:"day_index"`
+	Id       openapi_types.UUID `json:"id"`
+	MealId   openapi_types.UUID `json:"meal_id"`
+	MealName string             `json:"meal_name"`
+	Portion  float64            `json:"portion"`
+	Slot     Slot               `json:"slot"`
+}
+
+// TemplateSlotInput defines model for TemplateSlotInput.
+type TemplateSlotInput struct {
+	DayIndex int                `json:"day_index"`
+	MealId   openapi_types.UUID `json:"meal_id"`
+	Portion  *float64           `json:"portion,omitempty"`
+	Slot     Slot               `json:"slot"`
+}
+
 // Unit defines model for Unit.
 type Unit string
+
+// UpdateDietTemplateRequest defines model for UpdateDietTemplateRequest.
+type UpdateDietTemplateRequest struct {
+	Name              *string `json:"name,omitempty"`
+	SharedWithPartner *bool   `json:"shared_with_partner,omitempty"`
+}
 
 // UpdateIngredientRequest defines model for UpdateIngredientRequest.
 type UpdateIngredientRequest struct {
@@ -380,6 +476,12 @@ type TooManyRequests = Problem
 // Unauthorized RFC 9457 problem details with a stable machine-readable code.
 type Unauthorized = Problem
 
+// ListDietTemplatesParams defines parameters for ListDietTemplates.
+type ListDietTemplatesParams struct {
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListIngredientsParams defines parameters for ListIngredients.
 type ListIngredientsParams struct {
 	Q        *string             `form:"q,omitempty" json:"q,omitempty"`
@@ -405,6 +507,18 @@ type RefreshSessionJSONRequestBody = RefreshRequest
 
 // RegisterUserJSONRequestBody defines body for RegisterUser for application/json ContentType.
 type RegisterUserJSONRequestBody = RegisterRequest
+
+// CreateDietTemplateJSONRequestBody defines body for CreateDietTemplate for application/json ContentType.
+type CreateDietTemplateJSONRequestBody = CreateDietTemplateRequest
+
+// UpdateDietTemplateJSONRequestBody defines body for UpdateDietTemplate for application/json ContentType.
+type UpdateDietTemplateJSONRequestBody = UpdateDietTemplateRequest
+
+// ApplyDietTemplateJSONRequestBody defines body for ApplyDietTemplate for application/json ContentType.
+type ApplyDietTemplateJSONRequestBody = ApplyDietTemplateRequest
+
+// ReplaceTemplateSlotsJSONRequestBody defines body for ReplaceTemplateSlots for application/json ContentType.
+type ReplaceTemplateSlotsJSONRequestBody = ReplaceTemplateSlotsRequest
 
 // CreateIngredientJSONRequestBody defines body for CreateIngredient for application/json ContentType.
 type CreateIngredientJSONRequestBody = CreateIngredientRequest
@@ -438,6 +552,30 @@ type ServerInterface interface {
 	// RegisterUser Create an account
 	// (POST /auth/register)
 	RegisterUser(w http.ResponseWriter, r *http.Request)
+	// ListDietTemplates List the caller's diet templates
+	// (GET /diet-templates)
+	ListDietTemplates(w http.ResponseWriter, r *http.Request, params ListDietTemplatesParams)
+	// CreateDietTemplate Create a diet template
+	// (POST /diet-templates)
+	CreateDietTemplate(w http.ResponseWriter, r *http.Request)
+	// DeleteDietTemplate Delete a diet template
+	// (DELETE /diet-templates/{id})
+	DeleteDietTemplate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// GetDietTemplate Get a diet template
+	// (GET /diet-templates/{id})
+	GetDietTemplate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// UpdateDietTemplate Update a diet template
+	// (PATCH /diet-templates/{id})
+	UpdateDietTemplate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// ApplyDietTemplate Apply a template to the plan
+	// (POST /diet-templates/{id}/apply)
+	ApplyDietTemplate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// CopyDietTemplate Copy a diet template
+	// (POST /diet-templates/{id}/copy)
+	CopyDietTemplate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// ReplaceTemplateSlots Replace a diet template's slot list
+	// (PUT /diet-templates/{id}/slots)
+	ReplaceTemplateSlots(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// GetHealth Liveness probe
 	// (GET /healthz)
 	GetHealth(w http.ResponseWriter, r *http.Request)
@@ -513,6 +651,54 @@ func (_ Unimplemented) RefreshSession(w http.ResponseWriter, r *http.Request) {
 // RegisterUser Create an account
 // (POST /auth/register)
 func (_ Unimplemented) RegisterUser(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListDietTemplates List the caller's diet templates
+// (GET /diet-templates)
+func (_ Unimplemented) ListDietTemplates(w http.ResponseWriter, r *http.Request, params ListDietTemplatesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateDietTemplate Create a diet template
+// (POST /diet-templates)
+func (_ Unimplemented) CreateDietTemplate(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteDietTemplate Delete a diet template
+// (DELETE /diet-templates/{id})
+func (_ Unimplemented) DeleteDietTemplate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetDietTemplate Get a diet template
+// (GET /diet-templates/{id})
+func (_ Unimplemented) GetDietTemplate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateDietTemplate Update a diet template
+// (PATCH /diet-templates/{id})
+func (_ Unimplemented) UpdateDietTemplate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ApplyDietTemplate Apply a template to the plan
+// (POST /diet-templates/{id}/apply)
+func (_ Unimplemented) ApplyDietTemplate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CopyDietTemplate Copy a diet template
+// (POST /diet-templates/{id}/copy)
+func (_ Unimplemented) CopyDietTemplate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ReplaceTemplateSlots Replace a diet template's slot list
+// (PUT /diet-templates/{id}/slots)
+func (_ Unimplemented) ReplaceTemplateSlots(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -668,6 +854,222 @@ func (siw *ServerInterfaceWrapper) RegisterUser(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RegisterUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDietTemplates operation middleware
+func (siw *ServerInterfaceWrapper) ListDietTemplates(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDietTemplatesParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDietTemplates(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateDietTemplate operation middleware
+func (siw *ServerInterfaceWrapper) CreateDietTemplate(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDietTemplate(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteDietTemplate operation middleware
+func (siw *ServerInterfaceWrapper) DeleteDietTemplate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteDietTemplate(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDietTemplate operation middleware
+func (siw *ServerInterfaceWrapper) GetDietTemplate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDietTemplate(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateDietTemplate operation middleware
+func (siw *ServerInterfaceWrapper) UpdateDietTemplate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateDietTemplate(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApplyDietTemplate operation middleware
+func (siw *ServerInterfaceWrapper) ApplyDietTemplate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApplyDietTemplate(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CopyDietTemplate operation middleware
+func (siw *ServerInterfaceWrapper) CopyDietTemplate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CopyDietTemplate(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceTemplateSlots operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceTemplateSlots(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceTemplateSlots(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1201,6 +1603,30 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/ingredients/{id}", wrapper.UpdateIngredient)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/diet-templates", wrapper.ListDietTemplates)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/diet-templates", wrapper.CreateDietTemplate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/diet-templates/{id}", wrapper.DeleteDietTemplate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/diet-templates/{id}", wrapper.GetDietTemplate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/diet-templates/{id}", wrapper.UpdateDietTemplate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/diet-templates/{id}/slots", wrapper.ReplaceTemplateSlots)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/diet-templates/{id}/apply", wrapper.ApplyDietTemplate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/diet-templates/{id}/copy", wrapper.CopyDietTemplate)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/meals", wrapper.ListMeals)
 	})
 	r.Group(func(r chi.Router) {
@@ -1257,75 +1683,89 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

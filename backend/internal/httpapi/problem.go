@@ -21,6 +21,10 @@ const (
 	CodeInvalidIngredient   = "invalid_ingredient"
 	CodeUnitNotConvertible  = "unit_not_convertible"
 	CodeMealInUse           = "meal_in_use"
+	CodeDayIndexOutOfRange  = "day_index_out_of_range"
+	CodeInvalidMeal         = "invalid_meal"
+	CodeDuplicateSlot       = "duplicate_slot"
+	CodePlanConflict        = "plan_conflict"
 )
 
 // Stable codes for FieldError.Code.
