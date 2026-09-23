@@ -223,6 +223,18 @@ func TestPlanGetRangeComputesDailyTotalsAndPropagatesUnknownNutrients(t *testing
 	}
 }
 
+// allNutrientKeysForTest is the fixed 18-key set NutritionPerDay must report
+// for every day, empty or not (see backend/CLAUDE.md's note on null
+// propagation one level up). Listed locally because allNutrientKeys itself
+// is unexported and this is an external (service_test) test package.
+var allNutrientKeysForTest = []string{
+	service.NutrientCalories, service.NutrientProtein, service.NutrientCarbohydrates, service.NutrientSugar,
+	service.NutrientFibre, service.NutrientFat, service.NutrientSaturatedFat, service.NutrientSodium,
+	service.NutrientPotassium, service.NutrientCalcium, service.NutrientIron, service.NutrientMagnesium,
+	service.NutrientZinc, service.NutrientVitaminA, service.NutrientVitaminC, service.NutrientVitaminD,
+	service.NutrientVitaminB12, service.NutrientFolate,
+}
+
 func TestPlanGetRangeIncludesEmptyDaysAndRejectsATooLongRange(t *testing.T) {
 	plan, _, _, st := newPlanFixture(t)
 	owner := newTestUser(t, st, "planowner6@example.com")
@@ -240,8 +252,18 @@ func TestPlanGetRangeIncludesEmptyDaysAndRejectsATooLongRange(t *testing.T) {
 		if len(d.Entries) != 0 {
 			t.Errorf("day %v entries = %+v, want none", d.Date, d.Entries)
 		}
-		if got := d.NutritionPerDay[service.NutrientCalories]; got != 0 {
-			t.Errorf("day %v calories = %v, want 0", d.Date, got)
+		// Every one of the 18 keys must be present and 0, not merely absent
+		// (a Go map read of a missing key also returns 0, so checking a
+		// single key by plain index cannot tell "reports 0" from "reports
+		// nothing at all" apart).
+		if len(d.NutritionPerDay) != len(allNutrientKeysForTest) {
+			t.Errorf("day %v NutritionPerDay has %d keys, want %d", d.Date, len(d.NutritionPerDay), len(allNutrientKeysForTest))
+		}
+		for _, k := range allNutrientKeysForTest {
+			v, ok := d.NutritionPerDay[k]
+			if !ok || v != 0 {
+				t.Errorf("day %v NutritionPerDay[%q] = (%v, present=%v), want (0, present=true)", d.Date, k, v, ok)
+			}
 		}
 	}
 
