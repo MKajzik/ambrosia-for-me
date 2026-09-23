@@ -76,7 +76,7 @@
 **Interfaces:**
 - Produces: the `diet_templates`, `template_slots` and `plan_entries` tables. Named foreign keys (Postgres's default naming for an unnamed inline `REFERENCES`, matching `00005_meals.sql`'s style): `diet_templates_owner_id_fkey`, `template_slots_template_id_fkey` (`ON DELETE CASCADE`), `template_slots_meal_id_fkey` (no `ON DELETE` — Task 4 relies on this exact name), `plan_entries_owner_id_fkey` (`ON DELETE CASCADE`), `plan_entries_meal_id_fkey` (no `ON DELETE` — Task 4 relies on this exact name), `plan_entries_from_template_id_fkey` (`ON DELETE SET NULL`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `backend/internal/db/schema_test.go` (same file and `migratedConn` helper as `TestMealsSchemaEnforcesItsConstraints`):
 
@@ -192,12 +192,12 @@ func TestDietsAndPlanSchemaEnforcesItsConstraints(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd backend && go test ./internal/db/... -run TestDietsAndPlanSchemaEnforcesItsConstraints -v`
 Expected: FAIL — `relation "diet_templates" does not exist` (needs Docker; skips locally without it, fails under `CI=1`).
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 Create `backend/migrations/00006_diets_and_plan.sql`:
 
@@ -260,12 +260,12 @@ DROP TABLE diet_templates;
 
 `meal_id` deliberately has no `ON DELETE` clause on both `template_slots` and `plan_entries` (defaults to `NO ACTION`/`RESTRICT`): deleting a meal that a template or the calendar references must fail, not silently orphan the row — exactly the `meal_ingredients.ingredient_id` precedent from `00005_meals.sql`. `plan_entries.from_template_id` is the one nullable, provenance-only reference in this migration, so it alone gets `ON DELETE SET NULL`: deleting a template must not delete or block deleting the plan entries that came from it, only forget where they came from. Both partial unique indexes (`WHERE slot != 'snack'`) allow multiple `snack` rows per (template_id, day_index) / (owner_id, date) while keeping the other three slots singular — see Global Constraints for why `plan_entries` needed the same treatment as `template_slots` even though the spec only states the rule for the latter.
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cd backend && go test ./internal/db/... -run TestDietsAndPlanSchemaEnforcesItsConstraints -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/migrations/00006_diets_and_plan.sql backend/internal/db/schema_test.go
@@ -297,7 +297,7 @@ git commit -m "feat(backend): add the diet_templates, template_slots and plan_en
 
   All of the above is scratch-verified: a real `sqlc generate` run against these exact query texts (with a copy of the repo's `sqlc.yaml`) produced exactly these signatures with no errors.
 
-- [ ] **Step 1: Write the diet template queries**
+- [x] **Step 1: Write the diet template queries**
 
 Create `backend/internal/store/queries/diet_templates.sql`:
 
@@ -358,7 +358,7 @@ Notes on choices already made (do not redesign these):
 - `InsertTemplateSlot` is `:one` with `RETURNING *`, not `:exec`, for the same reason `InsertMealIngredient` is: `ReplaceSlots` (Task 5) needs each inserted row's real database-generated `id`.
 - No query blocks a `template_slots` row from referencing a meal invisible to the template's owner, or from having a `day_index` past the template's `day_count` — both are service-layer checks (Task 5), the same way `meal_ingredients` visibility is a service-layer check in the meals plan.
 
-- [ ] **Step 2: Add `GetMealsForUser` to the meals queries**
+- [x] **Step 2: Add `GetMealsForUser` to the meals queries**
 
 In `backend/internal/store/queries/meals.sql`, after `GetMealIngredients`, add:
 
@@ -372,7 +372,7 @@ SELECT * FROM meals
 WHERE id = ANY(sqlc.arg('ids')::uuid[]) AND owner_id = sqlc.arg('user_id');
 ```
 
-- [ ] **Step 3: Regenerate and verify it compiles**
+- [x] **Step 3: Regenerate and verify it compiles**
 
 Run: `cd backend && go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate`
 Expected: exits 0, creates `internal/store/sqlc/diet_templates.sql.go`, updates `meals.sql.go` and adds `DietTemplate`/`TemplateSlot` to `models.go`.
@@ -380,7 +380,7 @@ Expected: exits 0, creates `internal/store/sqlc/diet_templates.sql.go`, updates 
 Run: `cd backend && go build ./...`
 Expected: builds cleanly (nothing references the new queries yet, so this only proves the generated code itself compiles).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add backend/internal/store/queries/diet_templates.sql backend/internal/store/queries/meals.sql backend/internal/store/sqlc/
@@ -408,7 +408,7 @@ git commit -m "feat(backend): add sqlc queries for diet templates and slots"
 
   All of the above is scratch-verified: a real `sqlc generate` run against these exact query texts produced exactly these signatures with no errors, including `UpsertPlanEntry`'s `ON CONFLICT ... WHERE ...` clause against the Task 1 partial unique index — sqlc accepts a raw SQL upsert as-is and infers params/return the same way it does any other query.
 
-- [ ] **Step 1: Write the plan entry queries**
+- [x] **Step 1: Write the plan entry queries**
 
 Create `backend/internal/store/queries/plan_entries.sql`:
 
@@ -467,7 +467,7 @@ WHERE owner_id = sqlc.arg('user_id') AND date = sqlc.arg('date') AND slot = 'sna
 DELETE FROM plan_entries WHERE owner_id = sqlc.arg('user_id');
 ```
 
-- [ ] **Step 2: Regenerate and verify it compiles**
+- [x] **Step 2: Regenerate and verify it compiles**
 
 Run: `cd backend && go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate`
 Expected: exits 0, creates `internal/store/sqlc/plan_entries.sql.go` and adds `PlanEntry` to `models.go`.
@@ -475,7 +475,7 @@ Expected: exits 0, creates `internal/store/sqlc/plan_entries.sql.go` and adds `P
 Run: `cd backend && go build ./...`
 Expected: builds cleanly.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/internal/store/queries/plan_entries.sql backend/internal/store/sqlc/
@@ -502,7 +502,7 @@ Two closely related gaps, both about `meal_id`'s new `NO ACTION` foreign keys, c
 - Consumes: `store.IsForeignKeyViolation` (existing); `DeletePlanEntriesForUser`/`DeleteDietTemplatesForUser` (Tasks 2, 3).
 - Produces: `service.ErrMealInUse` (consumed by `httpapi.writeServiceError`), `httpapi.CodeMealInUse = "meal_in_use"`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `backend/internal/service/meals_test.go`, add (needs `st.CreateDietTemplate`/`st.InsertTemplateSlot` and `st.InsertPlanEntry` from Tasks 2 to 3, promoted directly onto `*store.Store`):
 
@@ -611,12 +611,12 @@ func TestDeleteUserWithAPlanEntryAndTemplateUsingTheirOwnMeal(t *testing.T) {
 
 Check `backend/internal/service/auth_test.go` for its existing fixture helper name (likely `newAuthFixture(t) (*service.Auth, *store.Store)`, mirroring `newIngredientsFixture`) and use it verbatim; add `"time"` and `"github.com/InzKazik/mealplanner/backend/internal/store/sqlc"` to imports if not already present.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd backend && go test ./internal/service/... -run 'TestMealsDeleteIsBlockedWhileInUseBy|TestDeleteUserWithAPlanEntryAndTemplate' -v`
 Expected: FAIL to compile — `service.ErrMealInUse` does not exist yet (the `sqlc.*` calls already exist from Tasks 2 to 3).
 
-- [ ] **Step 3: Add `ErrMealInUse` and teach `Delete` about it**
+- [x] **Step 3: Add `ErrMealInUse` and teach `Delete` about it**
 
 In `backend/internal/service/meals.go`, add to the `var` block alongside the other `Meals` errors:
 
@@ -647,7 +647,7 @@ func (s *Meals) Delete(ctx context.Context, ownerID, id uuid.UUID) error {
 }
 ```
 
-- [ ] **Step 4: Extend `Auth.DeleteUser`'s ordering**
+- [x] **Step 4: Extend `Auth.DeleteUser`'s ordering**
 
 In `backend/internal/service/auth.go`, change `DeleteUser`:
 
@@ -677,7 +677,7 @@ func (a *Auth) DeleteUser(ctx context.Context, id uuid.UUID) error {
 
 The order matters: `plan_entries` goes first (its `from_template_id` would otherwise just be set to `NULL` by the existing `ON DELETE SET NULL` when the template is deleted next, which is harmless either way, but deleting entries first keeps the intent explicit); `diet_templates` goes before `meals` (a template's slots reference meals with `NO ACTION`, and deleting the template cascades its slots away first); `meals` goes before `users` (already true from the meals plan's fix — `meals` cascades from `users`, but `ingredients` also cascades from `users` and would hit the still-referenced-by-`meal_ingredients` check if meals weren't already gone).
 
-- [ ] **Step 5: Add the problem code and the `writeServiceError` case**
+- [x] **Step 5: Add the problem code and the `writeServiceError` case**
 
 In `backend/internal/httpapi/problem.go`, add to the `Code*` constants:
 
@@ -692,7 +692,7 @@ In `backend/internal/httpapi/account.go`, in `writeServiceError`, add a case nex
 		WriteProblem(w, http.StatusConflict, CodeMealInUse, "")
 ```
 
-- [ ] **Step 6: Add `409` to the contract**
+- [x] **Step 6: Add `409` to the contract**
 
 In `openapi.yaml`, in `DELETE /meals/{id}`'s `responses`, add before `429`:
 
@@ -704,7 +704,7 @@ In `openapi.yaml`, in `DELETE /meals/{id}`'s `responses`, add before `429`:
 Run: `make lint-api` — expect the same pre-existing warnings only, no new ones.
 Run: `make generate` — regenerates `backend/internal/api/api.gen.go` (response-only change, no new Go type).
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 Run: `cd backend && go test ./internal/service/... -run 'TestMeals|TestDeleteUser' -v`
 Expected: PASS, including all four new tests.
@@ -712,7 +712,7 @@ Expected: PASS, including all four new tests.
 Run: `cd backend && go build ./...`
 Expected: builds cleanly.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/internal/service/meals.go backend/internal/service/meals_test.go \
@@ -754,7 +754,7 @@ git commit -m "feat(backend): block deleting a meal a template or plan entry sti
   - `func (*DietTemplates) Copy(ctx, callerID, id uuid.UUID) (DietTemplate, error)`
   - `func (*DietTemplates) Apply(ctx, ownerID, id uuid.UUID, in ApplyTemplateInput) (int, error)` — returns the number of plan entries written.
 
-- [ ] **Step 1: Add the `uniqueUUIDs` helper and refactor `meals.go`**
+- [x] **Step 1: Add the `uniqueUUIDs` helper and refactor `meals.go`**
 
 Create `backend/internal/service/util.go`:
 
@@ -788,12 +788,12 @@ In `backend/internal/service/meals.go`, delete the `uniqueIngredientIDs` functio
 		ids := uniqueUUIDs(miRows, func(r sqlc.MealIngredient) uuid.UUID { return r.IngredientID })
 ```
 
-- [ ] **Step 2: Run the meals tests to verify the refactor didn't break anything**
+- [x] **Step 2: Run the meals tests to verify the refactor didn't break anything**
 
 Run: `cd backend && go test ./internal/service/... -run TestMeals -v`
 Expected: PASS, unchanged (this step is a pure refactor with no behavior change).
 
-- [ ] **Step 3: Write the failing tests**
+- [x] **Step 3: Write the failing tests**
 
 Create `backend/internal/service/diet_templates_test.go`:
 
@@ -1016,12 +1016,12 @@ func TestDietTemplatesApplyWithoutOverwriteConflictsOnAnExistingNonSnackEntry(t 
 
 `newDietTemplatesFixture`'s signature intentionally returns four values (`*service.DietTemplates`, `*service.Meals`, `*service.Ingredients`, `*store.Store`) so every test in this file needs exactly one fixture call.
 
-- [ ] **Step 4: Run the tests to verify they fail**
+- [x] **Step 4: Run the tests to verify they fail**
 
 Run: `cd backend && go test ./internal/service/... -run TestDietTemplates -v`
 Expected: FAIL to compile — `service.DietTemplates` etc. do not exist yet.
 
-- [ ] **Step 5: Implement the service**
+- [x] **Step 5: Implement the service**
 
 Create `backend/internal/service/diet_templates.go`:
 
@@ -1465,7 +1465,7 @@ func (s *DietTemplates) toTemplate(ctx context.Context, q *sqlc.Queries, row sql
 }
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `cd backend && go test ./internal/service/... -run 'TestDietTemplates|TestMeals' -v`
 Expected: PASS, including all six new tests.
@@ -1473,7 +1473,7 @@ Expected: PASS, including all six new tests.
 Run: `cd backend && go build ./...`
 Expected: builds cleanly.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/internal/service/util.go backend/internal/service/meals.go \
@@ -1503,7 +1503,7 @@ git commit -m "feat(backend): add the diet templates service"
   - `func (*Plan) SetEntry(ctx, ownerID uuid.UUID, date time.Time, slot string, in SetPlanEntryInput) (PlanEntry, error)`
   - `func (*Plan) DeleteEntry(ctx, ownerID uuid.UUID, date time.Time, slot string) error`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/internal/service/plan_test.go`:
 
@@ -1722,12 +1722,12 @@ func TestPlanGetRangeIncludesEmptyDaysAndRejectsATooLongRange(t *testing.T) {
 
 Add `"github.com/InzKazik/mealplanner/backend/internal/store"` to the file's imports (for `*store.Store` in `newPlanFixture`'s signature).
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd backend && go test ./internal/service/... -run TestPlan -v`
 Expected: FAIL to compile — `service.Plan` etc. do not exist yet.
 
-- [ ] **Step 3: Implement the service**
+- [x] **Step 3: Implement the service**
 
 Create `backend/internal/service/plan.go`:
 
@@ -1952,7 +1952,7 @@ func (s *Plan) DeleteEntry(ctx context.Context, ownerID uuid.UUID, date time.Tim
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd backend && go test ./internal/service/... -run TestPlan -v`
 Expected: PASS, including all six new tests.
@@ -1960,7 +1960,7 @@ Expected: PASS, including all six new tests.
 Run: `cd backend && go build ./...`
 Expected: builds cleanly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/internal/service/plan.go backend/internal/service/plan_test.go
@@ -1987,7 +1987,7 @@ Contract and handlers are one task (see Global Constraints): adding `DietTemplat
 
   `TemplateSlotInput.Portion` and (Task 8) `SetPlanEntryRequest.Portion` are `*float64` (optional, `default: 1`), not plain `float64` — the OpenAPI schema deliberately does not mark `portion` `required`, matching the spec's "portion (numeric, default 1)". The handlers substitute `1.0` when the pointer is nil.
 
-- [ ] **Step 1: Add the tag**
+- [x] **Step 1: Add the tag**
 
 In `openapi.yaml`, after the `Meals` tag, add:
 
@@ -1996,7 +1996,7 @@ In `openapi.yaml`, after the `Meals` tag, add:
     description: Reusable meal-schedule templates that can be applied to the plan.
 ```
 
-- [ ] **Step 2: Add the shared `Slot` schema**
+- [x] **Step 2: Add the shared `Slot` schema**
 
 In `openapi.yaml`'s `components.schemas`, after `Unit`, add:
 
@@ -2008,7 +2008,7 @@ In `openapi.yaml`'s `components.schemas`, after `Unit`, add:
 
 `Slot` is shared by `template_slots` (this task) and `plan_entries` (Task 8).
 
-- [ ] **Step 3: Add the diet-template schemas**
+- [x] **Step 3: Add the diet-template schemas**
 
 In `openapi.yaml`'s `components.schemas`, after `MealList`, add:
 
@@ -2154,7 +2154,7 @@ In `openapi.yaml`'s `components.schemas`, after `MealList`, add:
           nullable: true
 ```
 
-- [ ] **Step 4: Add the five paths**
+- [x] **Step 4: Add the five paths**
 
 In `openapi.yaml`, immediately before `/meals:`, add:
 
@@ -2395,7 +2395,7 @@ In `openapi.yaml`, immediately before `/meals:`, add:
 Run: `make lint-api` — expect the same pre-existing warnings only, no new ones.
 Run: `make generate` — regenerates `backend/internal/api/api.gen.go`.
 
-- [ ] **Step 5: Add the new problem codes**
+- [x] **Step 5: Add the new problem codes**
 
 In `backend/internal/httpapi/problem.go`, add to the `Code*` constants:
 
@@ -2406,7 +2406,7 @@ In `backend/internal/httpapi/problem.go`, add to the `Code*` constants:
 	CodePlanConflict       = "plan_conflict"
 ```
 
-- [ ] **Step 6: Add the `writeServiceError` cases**
+- [x] **Step 6: Add the `writeServiceError` cases**
 
 In `backend/internal/httpapi/account.go`, in `writeServiceError`, add (next to the existing `ErrMealInUse` case):
 
@@ -2423,7 +2423,7 @@ In `backend/internal/httpapi/account.go`, in `writeServiceError`, add (next to t
 		WriteProblem(w, http.StatusConflict, CodePlanConflict, "")
 ```
 
-- [ ] **Step 7: Write the handlers**
+- [x] **Step 7: Write the handlers**
 
 Create `backend/internal/httpapi/diet_templates.go`:
 
@@ -2669,13 +2669,13 @@ Add `"github.com/oapi-codegen/nullable"` to the imports (for `toDietTemplateList
 
 **A note on `req.StartDate`'s type**, since it was not scratch-verified the way the meals plan verified its riskier type inferences: `openapi.yaml`'s `start_date` field is `{type: string, format: date}`. oapi-codegen's documented default for `format: date` (no `output-options.date-type` override in `backend/internal/api/oapi.yaml`) is `openapi_types.Date` (from `github.com/oapi-codegen/runtime/types`, already imported by `httpapi/meals.go` under that alias for UUID path params), a struct wrapping `Time time.Time` with `"2006-01-02"` JSON (un)marshalling — hence `req.StartDate.Time` above. If `make generate` in Step 4 produces a different type for `start_date` (for example a plain `string`, or `time.Time` directly), adjust `ApplyDietTemplate`'s one line accordingly; nothing else in this task depends on the exact type.
 
-- [ ] **Step 8: Wire the new service into `server` and the router**
+- [x] **Step 8: Wire the new service into `server` and the router**
 
 In `backend/internal/httpapi/server.go`, add a `dietTemplates DietTemplatesService` field to the `server` struct.
 
 In `backend/internal/httpapi/router.go`, add `DietTemplates DietTemplatesService` to `Deps`, add it to the nil-check panic guard (`d.DietTemplates == nil`) and its message, and add `dietTemplates: d.DietTemplates` to the `srv := &server{...}` literal.
 
-- [ ] **Step 9: Build**
+- [x] **Step 9: Build**
 
 Run: `cd backend && go build ./...`
 Expected: builds cleanly.
@@ -2683,7 +2683,7 @@ Expected: builds cleanly.
 Run: `cd backend && go vet ./...`
 Expected: clean.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add openapi.yaml backend/internal/api/api.gen.go backend/internal/httpapi/diet_templates.go \
@@ -2710,7 +2710,7 @@ Also one combined task, same reasoning as Task 7.
 - Consumes: `service.Plan` and its types from Task 6; `api.Slot` from Task 7; the same helpers `diet_templates.go` uses.
 - Produces: `httpapi.PlanService` interface; `api.PlanEntry`, `api.DailyTotal`, `api.Targets`, `api.PlanRange`, `api.SetPlanEntryRequest`, and the three `api.ServerInterface` methods `GetPlan`, `SetPlanEntry`, `DeletePlanEntry`.
 
-- [ ] **Step 1: Add the tag**
+- [x] **Step 1: Add the tag**
 
 In `openapi.yaml`, after the `DietTemplates` tag, add:
 
@@ -2719,7 +2719,7 @@ In `openapi.yaml`, after the `DietTemplates` tag, add:
     description: The calendar of scheduled meals and their computed nutrition totals.
 ```
 
-- [ ] **Step 2: Add the plan schemas**
+- [x] **Step 2: Add the plan schemas**
 
 In `openapi.yaml`'s `components.schemas`, after `DietTemplateList`, add:
 
@@ -2820,7 +2820,7 @@ In `openapi.yaml`'s `components.schemas`, after `DietTemplateList`, add:
           default: 1
 ```
 
-- [ ] **Step 3: Add the two paths**
+- [x] **Step 3: Add the two paths**
 
 In `openapi.yaml`, immediately before `/healthz:`, add:
 
@@ -2919,7 +2919,7 @@ In `openapi.yaml`, immediately before `/healthz:`, add:
 Run: `make lint-api` — expect the same pre-existing warnings only, no new ones.
 Run: `make generate` — regenerates `backend/internal/api/api.gen.go`.
 
-- [ ] **Step 4: Add the new problem codes**
+- [x] **Step 4: Add the new problem codes**
 
 In `backend/internal/httpapi/problem.go`, add to the `Code*` constants:
 
@@ -2927,7 +2927,7 @@ In `backend/internal/httpapi/problem.go`, add to the `Code*` constants:
 	CodePlanRangeTooLong = "plan_range_too_long"
 ```
 
-- [ ] **Step 5: Add the `writeServiceError` cases**
+- [x] **Step 5: Add the `writeServiceError` cases**
 
 In `backend/internal/httpapi/account.go`, in `writeServiceError`, add:
 
@@ -2940,7 +2940,7 @@ In `backend/internal/httpapi/account.go`, in `writeServiceError`, add:
 		WriteProblem(w, http.StatusBadRequest, CodePlanRangeTooLong, "")
 ```
 
-- [ ] **Step 6: Write the handlers**
+- [x] **Step 6: Write the handlers**
 
 Create `backend/internal/httpapi/plan.go`:
 
@@ -3055,13 +3055,13 @@ Add `openapi_types "github.com/oapi-codegen/runtime/types"` to the imports (the 
 
 **The same type-inference caveat from Task 7 applies here, for every `date`-typed field and path parameter** (`params.From`/`params.To` in `GetPlanParams`, the `date` path parameter in `SetPlanEntry`/`DeletePlanEntry`, `PlanEntry.Date`/`DailyTotal.Date`/`PlanRange.From`/`PlanRange.To`): this plan assumes oapi-codegen's default `openapi_types.Date` for `format: date`, giving path parameters the signature `(w, r, date openapi_types.Date, slot api.Slot)` shown above. If Step 3's `make generate` produces different types, adjust this step's signatures and field accesses to match — nothing else in Task 8 depends on the exact type.
 
-- [ ] **Step 7: Wire the new service into `server` and the router**
+- [x] **Step 7: Wire the new service into `server` and the router**
 
 In `backend/internal/httpapi/server.go`, add a `plan PlanService` field to the `server` struct.
 
 In `backend/internal/httpapi/router.go`, add `Plan PlanService` to `Deps`, add it to the nil-check panic guard (`d.Plan == nil`) and its message, and add `plan: d.Plan` to the `srv := &server{...}` literal.
 
-- [ ] **Step 8: Build**
+- [x] **Step 8: Build**
 
 Run: `cd backend && go build ./...`
 Expected: builds cleanly.
@@ -3069,7 +3069,7 @@ Expected: builds cleanly.
 Run: `cd backend && go vet ./...`
 Expected: clean.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add openapi.yaml backend/internal/api/api.gen.go backend/internal/httpapi/plan.go \
@@ -3091,7 +3091,7 @@ git commit -m "feat(api): add the plan endpoints and their handlers"
 **Interfaces:**
 - Consumes: everything from Tasks 5 to 8, plus the existing `newTestRouter`, `contract`, `decodeAs[T]`, `withBody`, `withBearer` helpers already in the `httpapi_test` package.
 
-- [ ] **Step 1: Wire the services in `cmd/api/main.go`**
+- [x] **Step 1: Wire the services in `cmd/api/main.go`**
 
 Next to `meals := service.NewMeals(st)`, add:
 
@@ -3102,7 +3102,7 @@ Next to `meals := service.NewMeals(st)`, add:
 
 Add `DietTemplates: dietTemplates,` and `Plan: plan,` to the `httpapi.Deps{...}` literal, alongside `Meals: meals,`.
 
-- [ ] **Step 2: Add stubs to the shared test router**
+- [x] **Step 2: Add stubs to the shared test router**
 
 In `backend/internal/httpapi/contract_test.go`, add two no-op stubs next to `stubMeals` and wire them into `newTestRouter`'s default `Deps`:
 
@@ -3118,7 +3118,7 @@ type stubPlan struct{ httpapi.PlanService }
 
 In `newTestRouter`, add `DietTemplates: stubDietTemplates{}, Plan: stubPlan{},` to the `httpapi.Deps{...}` literal (alongside `Meals: stubMeals{}`). Also add `d.DietTemplates == nil`/`"no diet templates"` and `d.Plan == nil`/`"no plan"` cases to `TestNewRouterPanicsWithoutRequiredDependencies`'s `tests` map and its `full` literal, mirroring the existing `"no meals"` case exactly.
 
-- [ ] **Step 3: Write the diet-templates end-to-end test**
+- [x] **Step 3: Write the diet-templates end-to-end test**
 
 Create `backend/internal/httpapi/diet_templates_flow_test.go`, modeled on `meals_flow_test.go`'s `newMealsRouter`/`TestMealsLifecycle`:
 
@@ -3247,7 +3247,7 @@ func TestDietTemplatesLifecycle(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Write the plan end-to-end test**
+- [x] **Step 4: Write the plan end-to-end test**
 
 Create `backend/internal/httpapi/plan_flow_test.go`, reusing `newDietTemplatesRouter` (it already wires `Plan`):
 
@@ -3325,7 +3325,7 @@ func TestPlanLifecycle(t *testing.T) {
 }
 ```
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `cd backend && go test ./... -v`
 Expected: PASS, all packages, including both new e2e tests and `TestNewRouterPanicsWithoutRequiredDependencies`'s two new cases.
@@ -3333,7 +3333,7 @@ Expected: PASS, all packages, including both new e2e tests and `TestNewRouterPan
 Run: `cd backend && go build ./cmd/api`
 Expected: builds cleanly.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/cmd/api/main.go backend/internal/httpapi/contract_test.go \
@@ -3350,7 +3350,7 @@ git commit -m "feat(backend): wire the diet templates and plan services into cmd
 
 **Interfaces:** none (documentation only).
 
-- [ ] **Step 1: Update `backend/CLAUDE.md`**
+- [x] **Step 1: Update `backend/CLAUDE.md`**
 
 In "Behaviour worth knowing", add three entries after the "Editing an ingredient can retroactively break a meal that references it" line:
 
@@ -3372,7 +3372,7 @@ In "Not built yet", replace the line about the domain beyond meals with:
 - The domain beyond diets and plan: shopping lists, partners (later plans). **Diet templates have no partner visibility yet**, for the same reason meals don't: the `partnerships` table does not exist until the partner plan (backend build order item 6, after shopping lists). `plan_entries` has no sharing concept in the spec at all — it is always owner-only.
 ```
 
-- [ ] **Step 2: Run everything CI runs**
+- [x] **Step 2: Run everything CI runs**
 
 Run: `make check`
 Expected: PASS (lints `openapi.yaml`, vets and tests the backend, runs golangci-lint, fails if generated code is stale).
@@ -3380,7 +3380,7 @@ Expected: PASS (lints `openapi.yaml`, vets and tests the backend, runs golangci-
 Run: `make check-generated`
 Expected: clean (no diff).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/CLAUDE.md
