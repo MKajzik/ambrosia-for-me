@@ -43,6 +43,28 @@ RETURNING *;
 -- name: DeleteIngredient :execrows
 DELETE FROM ingredients WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id');
 
+-- name: IngredientHasUnconvertibleMealUsage :one
+-- True when a meal_ingredients row still depends on this ingredient's
+-- grams_per_piece (a row with unit = 'piece') or density_g_per_ml (unit =
+-- 'ml') for unit conversion, checked only for the field(s) an update would
+-- clear. Ingredients.Update uses this to reject the edit at write time
+-- (ErrIngredientInUseByUnconvertibleUnit) instead of leaving the meal
+-- permanently unreadable. Joined to ingredients and filtered by owner_id so
+-- this never reveals anything about an ingredient the caller does not own:
+-- Ingredients.Update calls it before the ownership-checked UPDATE below, so
+-- without this filter a caller could probe another user's ingredient (or a
+-- global one) for meal usage and get a 409 instead of the expected 404.
+SELECT EXISTS (
+    SELECT 1 FROM meal_ingredients mi
+    JOIN ingredients i ON i.id = mi.ingredient_id
+    WHERE mi.ingredient_id = sqlc.arg('ingredient_id')
+      AND i.owner_id = sqlc.arg('user_id')
+      AND (
+        (sqlc.arg('check_piece')::boolean AND mi.unit = 'piece')
+        OR (sqlc.arg('check_ml')::boolean AND mi.unit = 'ml')
+      )
+) AS in_use;
+
 -- name: ReplaceIngredientNutrients :exec
 DELETE FROM ingredient_nutrients WHERE ingredient_id = $1;
 

@@ -46,6 +46,16 @@ var ErrIngredientNotFound = errors.New("ingredient not found")
 // still references it.
 var ErrIngredientInUse = errors.New("ingredient is in use")
 
+// ErrIngredientInUseByUnconvertibleUnit means the update cannot proceed
+// because it would clear grams_per_piece or density_g_per_ml while a meal
+// still references this ingredient with the "piece" or "ml" unit
+// respectively. Rejecting the edit here, at write time, is what keeps a meal
+// from becoming permanently unreadable (spec §3.3): the alternative — letting
+// the edit through and only failing later when the meal is read — leaves the
+// client with no way to fix the meal, because it can no longer GET it to see
+// what to fix.
+var ErrIngredientInUseByUnconvertibleUnit = errors.New("ingredient is in use with a unit that needs this field")
+
 // Ingredient is an ingredient as the rest of the application sees it.
 type Ingredient struct {
 	ID            uuid.UUID
@@ -140,6 +150,23 @@ func (s *Ingredients) Create(ctx context.Context, ownerID uuid.UUID, in CreateIn
 func (s *Ingredients) Update(ctx context.Context, ownerID, id uuid.UUID, in UpdateIngredientInput) (Ingredient, error) {
 	var ing Ingredient
 	err := s.st.InTx(ctx, func(q *sqlc.Queries) error {
+		// Reject at write time, before the UPDATE, if this would clear a
+		// conversion factor a meal still depends on. See
+		// ErrIngredientInUseByUnconvertibleUnit.
+		clearingGramsPerPiece := in.GramsPerPiece.Specified && in.GramsPerPiece.Value == nil
+		clearingDensity := in.DensityGPerMl.Specified && in.DensityGPerMl.Value == nil
+		if clearingGramsPerPiece || clearingDensity {
+			inUse, err := q.IngredientHasUnconvertibleMealUsage(ctx, sqlc.IngredientHasUnconvertibleMealUsageParams{
+				IngredientID: id, UserID: &ownerID, CheckPiece: clearingGramsPerPiece, CheckMl: clearingDensity,
+			})
+			if err != nil {
+				return fmt.Errorf("check unconvertible meal usage: %w", err)
+			}
+			if inUse {
+				return ErrIngredientInUseByUnconvertibleUnit
+			}
+		}
+
 		row, err := q.UpdateIngredient(ctx, sqlc.UpdateIngredientParams{
 			ID: id, UserID: &ownerID, Name: in.Name, Category: in.Category,
 			SetGramsPerPiece: in.GramsPerPiece.Specified, GramsPerPiece: in.GramsPerPiece.Value,

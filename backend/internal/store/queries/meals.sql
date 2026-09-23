@@ -10,6 +10,16 @@ RETURNING *;
 SELECT * FROM meals
 WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id');
 
+-- name: TouchMealForUser :one
+-- Bumps updated_at (via the meals_set_updated_at trigger) and, just as
+-- importantly, takes the row's write lock: ReplaceIngredients uses this
+-- instead of a plain SELECT so two concurrent replaces on the same meal
+-- serialize instead of racing the DELETE+INSERT below it. See
+-- ReplaceIngredients in internal/service/meals.go.
+UPDATE meals SET updated_at = now()
+WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id')
+RETURNING *;
+
 -- name: ListMealsForUser :many
 SELECT * FROM meals
 WHERE owner_id = sqlc.arg('user_id')

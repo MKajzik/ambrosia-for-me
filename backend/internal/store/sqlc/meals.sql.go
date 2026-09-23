@@ -280,6 +280,38 @@ func (q *Queries) ReplaceMealIngredients(ctx context.Context, mealID uuid.UUID) 
 	return err
 }
 
+const touchMealForUser = `-- name: TouchMealForUser :one
+UPDATE meals SET updated_at = now()
+WHERE id = $1 AND owner_id = $2
+RETURNING id, owner_id, name, notes, servings, shared_with_partner, created_at, updated_at
+`
+
+type TouchMealForUserParams struct {
+	ID     uuid.UUID
+	UserID uuid.UUID
+}
+
+// Bumps updated_at (via the meals_set_updated_at trigger) and, just as
+// importantly, takes the row's write lock: ReplaceIngredients uses this
+// instead of a plain SELECT so two concurrent replaces on the same meal
+// serialize instead of racing the DELETE+INSERT below it. See
+// ReplaceIngredients in internal/service/meals.go.
+func (q *Queries) TouchMealForUser(ctx context.Context, arg TouchMealForUserParams) (Meal, error) {
+	row := q.db.QueryRow(ctx, touchMealForUser, arg.ID, arg.UserID)
+	var i Meal
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.Name,
+		&i.Notes,
+		&i.Servings,
+		&i.SharedWithPartner,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateMeal = `-- name: UpdateMeal :one
 UPDATE meals SET
     name                = COALESCE($1, name),

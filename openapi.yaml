@@ -104,7 +104,7 @@ paths:
       tags: [Ingredients]
       operationId: updateIngredient
       summary: Update a custom ingredient
-      description: Fields that are absent are left unchanged. Only a custom ingredient owned by the caller can be updated.
+      description: Fields that are absent are left unchanged. Only a custom ingredient owned by the caller can be updated. Clearing `grams_per_piece` or `density_g_per_ml` while a meal still uses this ingredient with the `piece` or `ml` unit is rejected (`409 unit_not_convertible`).
       requestBody:
         required: true
         content:
@@ -124,6 +124,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '500':

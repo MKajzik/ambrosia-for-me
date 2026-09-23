@@ -259,6 +259,99 @@ func TestIngredientsDeleteIsBlockedWhileInUseByAMeal(t *testing.T) {
 	}
 }
 
+// TestIngredientsUpdateRejectsClearingAConversionFactorWhileInUseByAMeal is
+// finding #2's regression test: clearing grams_per_piece while a meal
+// references this ingredient with unit "piece" must be rejected at write
+// time (ErrIngredientInUseByUnconvertibleUnit), not silently succeed and
+// leave the meal to fail later. See TestMealsStayReadableWhenAnIngredientEditWouldBreakUnitConversion
+// in meals_test.go for the "ml"/density_g_per_ml half, and for the
+// assertion that the meal stays fully readable after the rejection.
+func TestIngredientsUpdateRejectsClearingAConversionFactorWhileInUseByAMeal(t *testing.T) {
+	svc, st := newIngredientsFixture(t)
+	owner := newTestUser(t, st, "owner@example.com")
+	gramsPerEgg := 50.0
+	ing, err := svc.Create(context.Background(), owner, service.CreateIngredientInput{
+		Name: "Egg", Category: "dairy_eggs", GramsPerPiece: &gramsPerEgg,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	meal, err := st.CreateMeal(context.Background(), sqlc.CreateMealParams{OwnerID: owner, Name: "Omelette", Servings: 1})
+	if err != nil {
+		t.Fatalf("create meal: %v", err)
+	}
+	if _, err := st.InsertMealIngredient(context.Background(), sqlc.InsertMealIngredientParams{
+		MealID: meal.ID, IngredientID: ing.ID, Quantity: 2, Unit: "piece", Position: 0,
+	}); err != nil {
+		t.Fatalf("insert meal ingredient: %v", err)
+	}
+
+	if _, err := svc.Update(context.Background(), owner, ing.ID, service.UpdateIngredientInput{
+		GramsPerPiece: service.Set[float64](nil),
+	}); !errors.Is(err, service.ErrIngredientInUseByUnconvertibleUnit) {
+		t.Errorf("clear grams_per_piece while in use: err = %v, want ErrIngredientInUseByUnconvertibleUnit", err)
+	}
+
+	// The rejected update must not have touched the row: grams_per_piece is
+	// still set, and an unrelated field can still be updated.
+	newName := "Large Egg"
+	updated, err := svc.Update(context.Background(), owner, ing.ID, service.UpdateIngredientInput{Name: &newName})
+	if err != nil {
+		t.Fatalf("Update(name only): %v", err)
+	}
+	if updated.GramsPerPiece == nil || *updated.GramsPerPiece != gramsPerEgg {
+		t.Errorf("GramsPerPiece = %v, want unchanged at %v", updated.GramsPerPiece, gramsPerEgg)
+	}
+
+	// Once the meal no longer references the "piece" line, clearing succeeds.
+	if err := st.ReplaceMealIngredients(context.Background(), meal.ID); err != nil {
+		t.Fatalf("clear meal ingredients: %v", err)
+	}
+	if _, err := svc.Update(context.Background(), owner, ing.ID, service.UpdateIngredientInput{
+		GramsPerPiece: service.Set[float64](nil),
+	}); err != nil {
+		t.Errorf("clear grams_per_piece once no longer referenced: %v", err)
+	}
+}
+
+// TestIngredientsUpdateUnconvertibleCheckDoesNotLeakAnotherUsersMealUsage
+// guards the ownership scoping in IngredientHasUnconvertibleMealUsage: the
+// check joins to ingredients and filters by owner_id specifically so that
+// probing a non-owned (or global) ingredient's id cannot distinguish "in use
+// by someone else's meal" (409) from "not found" (404) — that distinction
+// would leak information about another user's meal.
+func TestIngredientsUpdateUnconvertibleCheckDoesNotLeakAnotherUsersMealUsage(t *testing.T) {
+	svc, st := newIngredientsFixture(t)
+	owner := newTestUser(t, st, "owner@example.com")
+	other := newTestUser(t, st, "other@example.com")
+
+	gramsPerEgg := 50.0
+	ing, err := svc.Create(context.Background(), owner, service.CreateIngredientInput{
+		Name: "Egg", Category: "dairy_eggs", GramsPerPiece: &gramsPerEgg,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	meal, err := st.CreateMeal(context.Background(), sqlc.CreateMealParams{OwnerID: owner, Name: "Omelette", Servings: 1})
+	if err != nil {
+		t.Fatalf("create meal: %v", err)
+	}
+	if _, err := st.InsertMealIngredient(context.Background(), sqlc.InsertMealIngredientParams{
+		MealID: meal.ID, IngredientID: ing.ID, Quantity: 2, Unit: "piece", Position: 0,
+	}); err != nil {
+		t.Fatalf("insert meal ingredient: %v", err)
+	}
+
+	// A non-owner clearing grams_per_piece on the owner's in-use ingredient
+	// gets the ordinary "not visible to you" 404, never the 409 that would
+	// confirm it exists and is in use by a meal.
+	if _, err := svc.Update(context.Background(), other, ing.ID, service.UpdateIngredientInput{
+		GramsPerPiece: service.Set[float64](nil),
+	}); !errors.Is(err, service.ErrIngredientNotFound) {
+		t.Errorf("non-owner clear: err = %v, want ErrIngredientNotFound", err)
+	}
+}
+
 func TestIngredientsListPaginatesAndFiltersByOwnership(t *testing.T) {
 	svc, st := newIngredientsFixture(t)
 	owner := newTestUser(t, st, "owner@example.com")

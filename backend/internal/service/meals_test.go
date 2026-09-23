@@ -3,6 +3,8 @@ package service_test
 import (
 	"context"
 	"errors"
+	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,10 +31,21 @@ func mustCreateIngredient(t *testing.T, ing *service.Ingredients, owner uuid.UUI
 	return i
 }
 
+// almostEqual compares two nutrition values with a small tolerance. Values
+// like 2.7, 0.92 and 0.027 are not exact in binary floating point (they are
+// exact decimal fractions, not exact binary ones), so the golden tests below
+// compare with a tolerance instead of claiming exact equality — the earlier
+// comment here claimed float64 division was exact "since every input is a
+// terminating decimal," which is false for exactly these values; the tests
+// only passed because the rounding happened to land on the nose for the
+// specific numbers and multiplication order used.
+func almostEqual(got, want float64) bool {
+	return math.Abs(got-want) < 1e-9
+}
+
 // TestMealsNutritionIsComputedToTheGram is the nutrition golden test the spec
 // (§6) calls for: hand-verified totals for a small real recipe, checked to
-// four decimal places (float64 division is exact here since every input is a
-// terminating decimal).
+// within a small tolerance (see almostEqual).
 func TestMealsNutritionIsComputedToTheGram(t *testing.T) {
 	meals, ing, st := newMealsFixture(t)
 	owner := newTestUser(t, st, "chef@example.com")
@@ -60,10 +73,10 @@ func TestMealsNutritionIsComputedToTheGram(t *testing.T) {
 
 	// Totals: calories = 3*165 + 2*130 = 755, protein = 3*31 + 2*2.7 = 98.4.
 	// Per serving (servings=2): calories = 377.5, protein = 49.2.
-	if got := meal.NutritionPerServing[service.NutrientCalories]; got != 377.5 {
+	if got := meal.NutritionPerServing[service.NutrientCalories]; !almostEqual(got, 377.5) {
 		t.Errorf("calories per serving = %v, want 377.5", got)
 	}
-	if got := meal.NutritionPerServing[service.NutrientProtein]; got != 49.2 {
+	if got := meal.NutritionPerServing[service.NutrientProtein]; !almostEqual(got, 49.2) {
 		t.Errorf("protein per serving = %v, want 49.2", got)
 	}
 }
@@ -96,7 +109,7 @@ func TestMealsNutritionConvertsPieceAndMlUnits(t *testing.T) {
 	}
 
 	want := 155.0 + 9.2/100*884 // 236.328
-	if got := meal.NutritionPerServing[service.NutrientCalories]; got != want {
+	if got := meal.NutritionPerServing[service.NutrientCalories]; !almostEqual(got, want) {
 		t.Errorf("calories per serving = %v, want %v", got, want)
 	}
 }
@@ -142,7 +155,15 @@ func TestMealsReplaceIngredientsRejectsAnUnconvertibleUnitAndLeavesTheMealUnchan
 	}
 }
 
-func TestMealsGetBecomesUnitNotConvertibleIfAnIngredientIsEditedAfterTheFact(t *testing.T) {
+// TestMealsStayReadableWhenAnIngredientEditWouldBreakUnitConversion pins
+// finding #2's fix: clearing an ingredient's density_g_per_ml (or
+// grams_per_piece) while a meal still depends on it for an "ml" (or
+// "piece") line is now rejected at write time, on the ingredient edit
+// itself — not discovered later when the meal becomes unreadable. Before
+// this fix, the edit above succeeded and every subsequent GET/PATCH/copy of
+// the meal returned 409 unit_not_convertible with no way to fix it (the
+// client could no longer GET the meal to see what to edit).
+func TestMealsStayReadableWhenAnIngredientEditWouldBreakUnitConversion(t *testing.T) {
 	meals, ing, st := newMealsFixture(t)
 	owner := newTestUser(t, st, "chef4@example.com")
 
@@ -161,16 +182,44 @@ func TestMealsGetBecomesUnitNotConvertibleIfAnIngredientIsEditedAfterTheFact(t *
 		t.Fatalf("ReplaceIngredients: %v", err)
 	}
 
-	// ingredients has no idea meals exist, so clearing density_g_per_ml here
-	// succeeds even though a meal now depends on it for an "ml" line.
+	// The edit itself is rejected now, before anything is written.
 	if _, err := ing.Update(context.Background(), owner, oil.ID, service.UpdateIngredientInput{
 		DensityGPerMl: service.Set[float64](nil),
-	}); err != nil {
-		t.Fatalf("clear density: %v", err)
+	}); !errors.Is(err, service.ErrIngredientInUseByUnconvertibleUnit) {
+		t.Errorf("clear density while in use by a meal: err = %v, want ErrIngredientInUseByUnconvertibleUnit", err)
 	}
 
-	if _, err := meals.Get(context.Background(), owner, meal.ID); !errors.Is(err, service.ErrUnitNotConvertible) {
-		t.Errorf("Get after the ingredient lost its density: err = %v, want ErrUnitNotConvertible", err)
+	// The ingredient's density_g_per_ml must be untouched by the rejected
+	// edit, and the meal must remain fully readable with its original
+	// nutrition.
+	unchanged, err := ing.List(context.Background(), owner, service.ListIngredientsInput{Limit: 10})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var found bool
+	for _, i := range unchanged.Items {
+		if i.ID == oil.ID {
+			found = true
+			if i.DensityGPerMl == nil || *i.DensityGPerMl != density {
+				t.Errorf("oil.DensityGPerMl = %v, want unchanged at %v", i.DensityGPerMl, density)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("oil not found in List after the rejected update")
+	}
+
+	got, err := meals.Get(context.Background(), owner, meal.ID)
+	if err != nil {
+		t.Fatalf("Get after the rejected ingredient edit: %v", err)
+	}
+	if len(got.Ingredients) != 1 || got.Ingredients[0].IngredientID != oil.ID {
+		t.Errorf("Ingredients = %+v, want unchanged (just the oil line)", got.Ingredients)
+	}
+	// 10ml * 0.92 g/ml -> 9.2g, at 884 kcal/100g, /1 serving.
+	want := 9.2 / 100 * 884
+	if got := got.NutritionPerServing[service.NutrientCalories]; !almostEqual(got, want) {
+		t.Errorf("calories per serving = %v, want %v", got, want)
 	}
 }
 
@@ -203,7 +252,7 @@ func TestMealsNutritionIsNullForAKeyMissingFromAnyIngredient(t *testing.T) {
 	if _, ok := meal.NutritionPerServing[service.NutrientCalories]; ok {
 		t.Errorf("calories = %v, want absent (one ingredient's calories is unknown)", meal.NutritionPerServing[service.NutrientCalories])
 	}
-	if got := meal.NutritionPerServing[service.NutrientProtein]; got != 90 {
+	if got := meal.NutritionPerServing[service.NutrientProtein]; !almostEqual(got, 90) {
 		t.Errorf("protein = %v, want 90 (both known)", got)
 	}
 }
@@ -253,6 +302,99 @@ func TestMealsAreOwnerOnlyForNow(t *testing.T) {
 	if _, err := meals.Copy(context.Background(), other, meal.ID); !errors.Is(err, service.ErrMealNotFound) {
 		t.Errorf("Copy by a non-owner: err = %v, want ErrMealNotFound", err)
 	}
+	if _, err := meals.ReplaceIngredients(context.Background(), other, meal.ID, nil); !errors.Is(err, service.ErrMealNotFound) {
+		t.Errorf("ReplaceIngredients by a non-owner: err = %v, want ErrMealNotFound", err)
+	}
+}
+
+// TestMealsUpdateRecomputesNutritionWhenServingsChange is finding #3's first
+// PATCH success-path case: Update had no test coverage beyond the two
+// failure-path cases above. A servings change must recompute
+// NutritionPerServing (the ingredient totals are unchanged; only the
+// division changes).
+func TestMealsUpdateRecomputesNutritionWhenServingsChange(t *testing.T) {
+	meals, ing, st := newMealsFixture(t)
+	owner := newTestUser(t, st, "patch1@example.com")
+
+	rice := mustCreateIngredient(t, ing, owner, service.CreateIngredientInput{
+		Name: "Rice", Category: "grains_bread",
+		Nutrients: map[string]float64{service.NutrientCalories: 130},
+	})
+	meal, err := meals.Create(context.Background(), owner, service.CreateMealInput{Name: "Bowl", Servings: 2})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	meal, err = meals.ReplaceIngredients(context.Background(), owner, meal.ID, []service.MealIngredientInput{
+		{IngredientID: rice.ID, Quantity: 200, Unit: "g"},
+	})
+	if err != nil {
+		t.Fatalf("ReplaceIngredients: %v", err)
+	}
+	// 200g rice at 130 kcal/100g = 260 kcal total, /2 servings = 130/serving.
+	if got := meal.NutritionPerServing[service.NutrientCalories]; got != 130 {
+		t.Fatalf("calories per serving before update = %v, want 130", got)
+	}
+
+	newServings := 1.0
+	updated, err := meals.Update(context.Background(), owner, meal.ID, service.UpdateMealInput{Servings: &newServings})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Servings != 1 {
+		t.Errorf("Servings = %v, want 1", updated.Servings)
+	}
+	// Same 260 kcal total, now /1 serving = 260/serving.
+	if got := updated.NutritionPerServing[service.NutrientCalories]; got != 260 {
+		t.Errorf("calories per serving after update = %v, want 260", got)
+	}
+}
+
+// TestMealsUpdateNotesHandlesAllThreeTriStates is finding #3's remaining two
+// PATCH success-path cases, both exercising the Optional[string] tri-state
+// toOptionalString maps a request onto: an explicit null clears existing
+// notes, and an omitted notes field (the zero-value Optional[string]{},
+// Specified: false) leaves the existing value alone — the third state the
+// tri-state exists to distinguish from null.
+func TestMealsUpdateNotesHandlesAllThreeTriStates(t *testing.T) {
+	meals, _, st := newMealsFixture(t)
+	owner := newTestUser(t, st, "patch2@example.com")
+
+	meal, err := meals.Create(context.Background(), owner, service.CreateMealInput{
+		Name: "Notes Meal", Notes: strPtr("original notes"), Servings: 1,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Omitted (Optional[string]{}, the zero value): notes unchanged, even
+	// though another field is updated in the same call.
+	newName := "Renamed"
+	updated, err := meals.Update(context.Background(), owner, meal.ID, service.UpdateMealInput{Name: &newName})
+	if err != nil {
+		t.Fatalf("Update(name only): %v", err)
+	}
+	if updated.Notes == nil || *updated.Notes != "original notes" {
+		t.Errorf("Notes after an update that omits notes = %v, want unchanged (original notes)", updated.Notes)
+	}
+
+	// Set[string](nil): explicit null clears notes.
+	cleared, err := meals.Update(context.Background(), owner, meal.ID, service.UpdateMealInput{Notes: service.Set[string](nil)})
+	if err != nil {
+		t.Fatalf("Update(clear notes): %v", err)
+	}
+	if cleared.Notes != nil {
+		t.Errorf("Notes after Set(nil) = %v, want nil", cleared.Notes)
+	}
+
+	// Set(&v): a genuine new value.
+	newNotes := "updated notes"
+	set, err := meals.Update(context.Background(), owner, meal.ID, service.UpdateMealInput{Notes: service.Set(&newNotes)})
+	if err != nil {
+		t.Fatalf("Update(set notes): %v", err)
+	}
+	if set.Notes == nil || *set.Notes != newNotes {
+		t.Errorf("Notes after Set(&newNotes) = %v, want %q", set.Notes, newNotes)
+	}
 }
 
 // TestMealsReplaceIngredientsRejectsAnotherUsersCustomIngredient pins the
@@ -290,6 +432,94 @@ func TestMealsReplaceIngredientsRejectsAnotherUsersCustomIngredient(t *testing.T
 	}
 }
 
+// TestMealsReplaceIngredientsBumpsUpdatedAt pins the second half of finding
+// #1: ReplaceIngredients now goes through TouchMealForUser (an UPDATE), not
+// a plain SELECT, so it must advance meals.updated_at like every other
+// write, unlike before this fix when the ingredient list could change
+// without updated_at moving.
+func TestMealsReplaceIngredientsBumpsUpdatedAt(t *testing.T) {
+	meals, ing, st := newMealsFixture(t)
+	owner := newTestUser(t, st, "touch@example.com")
+
+	rice := mustCreateIngredient(t, ing, owner, service.CreateIngredientInput{
+		Name: "Rice", Category: "grains_bread",
+		Nutrients: map[string]float64{service.NutrientCalories: 130},
+	})
+	meal, err := meals.Create(context.Background(), owner, service.CreateMealInput{Name: "Touch", Servings: 1})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	before := meal.UpdatedAt
+
+	after, err := meals.ReplaceIngredients(context.Background(), owner, meal.ID, []service.MealIngredientInput{
+		{IngredientID: rice.ID, Quantity: 100, Unit: "g"},
+	})
+	if err != nil {
+		t.Fatalf("ReplaceIngredients: %v", err)
+	}
+	if !after.UpdatedAt.After(before) {
+		t.Errorf("UpdatedAt after ReplaceIngredients = %v, want after the pre-replace value %v", after.UpdatedAt, before)
+	}
+}
+
+// TestMealsReplaceIngredientsConcurrentCallsOnTheSameMealDoNotRace is finding
+// #1's regression test: before the fix, ReplaceIngredients read the meal
+// with a plain SELECT and took no row lock, so two concurrent replaces on
+// the same meal could interleave their DELETE+INSERT under READ COMMITTED
+// and the loser's INSERT would hit the meal_ingredients (meal_id, position)
+// unique constraint — a raw 23505 nothing translates, surfacing as an
+// unexpected error instead of a clean result. Firing several concurrent
+// calls and asserting none returns an unexpected error catches that
+// regression; TouchMealForUser's row lock now serializes them instead.
+func TestMealsReplaceIngredientsConcurrentCallsOnTheSameMealDoNotRace(t *testing.T) {
+	meals, ing, st := newMealsFixture(t)
+	owner := newTestUser(t, st, "race@example.com")
+
+	rice := mustCreateIngredient(t, ing, owner, service.CreateIngredientInput{
+		Name: "Rice", Category: "grains_bread",
+		Nutrients: map[string]float64{service.NutrientCalories: 130},
+	})
+	meal, err := meals.Create(context.Background(), owner, service.CreateMealInput{Name: "Race", Servings: 1})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	items := []service.MealIngredientInput{{IngredientID: rice.ID, Quantity: 100, Unit: "g"}}
+
+	const numGoroutines = 8
+	var (
+		wg      sync.WaitGroup
+		barrier = make(chan struct{})
+		results = make([]error, numGoroutines)
+	)
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			<-barrier // release all goroutines at once
+			_, err := meals.ReplaceIngredients(context.Background(), owner, meal.ID, items)
+			results[idx] = err
+		}(i)
+	}
+	close(barrier)
+	wg.Wait()
+
+	for i, err := range results {
+		if err != nil {
+			t.Errorf("goroutine %d: ReplaceIngredients returned an unexpected error: %v", i, err)
+		}
+	}
+
+	// The meal must still have exactly the one rice line, not duplicates or
+	// a corrupted position sequence from an interleaved write.
+	got, err := meals.Get(context.Background(), owner, meal.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(got.Ingredients) != 1 || got.Ingredients[0].IngredientID != rice.ID {
+		t.Errorf("Ingredients after concurrent replaces = %+v, want exactly one rice line", got.Ingredients)
+	}
+}
+
 func TestMealsCopyDuplicatesIngredientsAndStartsPrivate(t *testing.T) {
 	meals, ing, st := newMealsFixture(t)
 	owner := newTestUser(t, st, "chef8@example.com")
@@ -320,6 +550,9 @@ func TestMealsCopyDuplicatesIngredientsAndStartsPrivate(t *testing.T) {
 	}
 	if copy_.Name != original.Name || copy_.Servings != original.Servings {
 		t.Errorf("copy = %+v, want same name/servings as original", copy_)
+	}
+	if copy_.Notes == nil || *copy_.Notes != "family recipe" {
+		t.Errorf("copy.Notes = %v, want same notes as original (family recipe)", copy_.Notes)
 	}
 	if copy_.SharedWithPartner {
 		t.Error("copy has shared_with_partner = true, want false regardless of the original")
