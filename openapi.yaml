@@ -23,6 +23,8 @@ tags:
     description: Reusable meal-schedule templates that can be applied to the plan.
   - name: Plan
     description: The calendar of scheduled meals and their computed nutrition totals.
+  - name: ShoppingLists
+    description: Shopping lists generated from the plan or built by hand, with live updates over Server-Sent Events.
 paths:
   /ingredients:
     get:
@@ -676,6 +678,311 @@ paths:
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '500':
+          $ref: '#/components/responses/Problem'
+  /shopping-lists:
+    get:
+      tags: [ShoppingLists]
+      operationId: listShoppingLists
+      summary: List the caller's shopping lists
+      description: Cursor-paginated, newest first. Does not include items; fetch a single list for those.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: The caller's shopping lists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShoppingListPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    post:
+      tags: [ShoppingLists]
+      operationId: createShoppingList
+      summary: Create an empty shopping list
+      description: Creates a list with no items and no source date range. Add items with `POST /shopping-lists/{id}/items`, or use `POST /shopping-lists/generate` to build one from the plan.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShoppingListRequest'
+      responses:
+        '201':
+          description: The list was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShoppingList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /shopping-lists/generate:
+    post:
+      tags: [ShoppingLists]
+      operationId: generateShoppingList
+      summary: Generate a shopping list from the plan
+      description: Sums the ingredients of every plan entry in [from, to] inclusive (capped at 92 days), merging lines of the same ingredient, and groups them by category. Without `list_id` this creates a new list (201). With `list_id` it regenerates that list (200), replacing every `generated` item, keeping every `manual` item untouched, and updating its source range.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateShoppingListRequest'
+      responses:
+        '200':
+          description: The existing list was regenerated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShoppingList'
+        '201':
+          description: A new list was generated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShoppingList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /shopping-lists/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [ShoppingLists]
+      operationId: getShoppingList
+      summary: Get a shopping list
+      description: Includes every item, ordered by position.
+      responses:
+        '200':
+          description: The list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShoppingList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    patch:
+      tags: [ShoppingLists]
+      operationId: updateShoppingList
+      summary: Update a shopping list
+      description: Fields that are absent are left unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateShoppingListRequest'
+      responses:
+        '200':
+          description: The updated list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShoppingList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [ShoppingLists]
+      operationId: deleteShoppingList
+      summary: Delete a shopping list
+      description: Deletes the list and all of its items. Open event streams for the list receive a final `list_deleted` event and are closed.
+      responses:
+        '204':
+          description: The list was deleted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /shopping-lists/{id}/items:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [ShoppingLists]
+      operationId: createShoppingItem
+      summary: Add an item to a shopping list
+      description: Adds a `manual` item at the end of the list. With `ingredient_id`, the ingredient must be visible to the caller, and `category` defaults to the ingredient's category; without it, `category` defaults to `other`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShoppingItemRequest'
+      responses:
+        '201':
+          description: The item was added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShoppingItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /shopping-lists/{id}/items/{item_id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: item_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [ShoppingLists]
+      operationId: updateShoppingItem
+      summary: Edit or check off a shopping item
+      description: Fields that are absent are left unchanged. Changing `name`, `quantity`, `unit` or `category` requires `version`, which must equal the item's current version, or the request fails with `409 version_conflict` carrying the current item in `current`. A request that changes only `checked` is last-write-wins and does not need `version`; setting `checked` to the value it already has is a no-op that returns the item unchanged. Every change increments `version`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateShoppingItemRequest'
+      responses:
+        '200':
+          description: The item, with its new version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShoppingItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The request's `version` is stale. `current` is the item as it is now.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ShoppingItemConflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [ShoppingLists]
+      operationId: deleteShoppingItem
+      summary: Remove an item from a shopping list
+      description: Removes the item regardless of its version (removes merge, per the sync rules).
+      responses:
+        '204':
+          description: The item was removed.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /shopping-lists/{id}/events:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [ShoppingLists]
+      operationId: streamShoppingListEvents
+      summary: Stream live changes to a shopping list
+      description: |
+        A Server-Sent Events stream. Each event's `event:` field is its type and its `data:` field is one JSON object `{"type", "list_id", "item_id"?, "version"?}`. `item_changed` and `item_deleted` carry `item_id` and the item's `version` (for `item_deleted`, the version the item had when it was removed); `list_changed` (renamed or regenerated) and `list_deleted` carry only `type` and `list_id`. After `list_deleted` the server closes the stream. Comment lines (`: keep-alive`) are sent every 25 seconds. The server may also close the stream at any time (shutdown, or a client too slow to keep up); clients reconnect and refetch the list, and refetch whenever they see a version gap. Events for the same item can arrive out of order; a client should ignore an event whose `version` is less than or equal to the version it already has for that item. Authenticate with the `Authorization` header like every other route: access tokens are never accepted in the query string.
+      responses:
+        '200':
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+        '503':
           $ref: '#/components/responses/Problem'
   /healthz:
     get:
@@ -1572,6 +1879,226 @@ components:
           minimum: 0
           maximum: 100
           default: 1
+    ShoppingItemOrigin:
+      type: string
+      enum: [generated, manual]
+    ShoppingItem:
+      type: object
+      required: [id, list_id, ingredient_id, name, quantity, unit, category, checked, checked_by, position, version, origin, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        list_id:
+          type: string
+          format: uuid
+        ingredient_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: The ingredient this item came from. Null for a free-text item, and for any item whose ingredient has since been deleted; the item keeps its own name, quantity, unit and category either way.
+        name:
+          type: string
+        quantity:
+          type: number
+          format: double
+          nullable: true
+        unit:
+          type: string
+          enum: [g, ml, piece]
+          nullable: true
+        category:
+          $ref: '#/components/schemas/IngredientCategory'
+        checked:
+          type: boolean
+        checked_by:
+          type: string
+          format: uuid
+          nullable: true
+        position:
+          type: integer
+        version:
+          type: integer
+        origin:
+          $ref: '#/components/schemas/ShoppingItemOrigin'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ShoppingList:
+      type: object
+      required: [id, name, shared_with_partner, source_from, source_to, items, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        shared_with_partner:
+          type: boolean
+        source_from:
+          type: string
+          format: date
+          nullable: true
+        source_to:
+          type: string
+          format: date
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShoppingItem'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ShoppingListSummary:
+      type: object
+      required: [id, name, shared_with_partner, source_from, source_to, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        shared_with_partner:
+          type: boolean
+        source_from:
+          type: string
+          format: date
+          nullable: true
+        source_to:
+          type: string
+          format: date
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ShoppingListPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShoppingListSummary'
+        next_cursor:
+          type: string
+          nullable: true
+    CreateShoppingListRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        shared_with_partner:
+          type: boolean
+    UpdateShoppingListRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        shared_with_partner:
+          type: boolean
+    GenerateShoppingListRequest:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Name for a new list. Ignored when `list_id` is set. Defaults to "Shopping {from} to {to}".
+        list_id:
+          type: string
+          format: uuid
+          description: Regenerate this existing list instead of creating a new one.
+    CreateShoppingItemRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        ingredient_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        quantity:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 100000
+        unit:
+          $ref: '#/components/schemas/Unit'
+        category:
+          $ref: '#/components/schemas/IngredientCategory'
+    UpdateShoppingItemRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        quantity:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 100000
+          nullable: true
+        unit:
+          type: string
+          enum: [g, ml, piece]
+          nullable: true
+        category:
+          $ref: '#/components/schemas/IngredientCategory'
+        checked:
+          type: boolean
+    ShoppingItemConflict:
+      type: object
+      description: A `version_conflict` problem (RFC 9457) with the item's current state as the `current` extension member.
+      required: [type, title, status, code, current]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        code:
+          type: string
+        current:
+          $ref: '#/components/schemas/ShoppingItem'
   responses:
     Problem:
       description: An error occurred.

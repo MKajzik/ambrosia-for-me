@@ -139,6 +139,41 @@ func (q *Queries) GetMealIngredients(ctx context.Context, mealID uuid.UUID) ([]M
 	return items, nil
 }
 
+const getMealIngredientsForMeals = `-- name: GetMealIngredientsForMeals :many
+SELECT id, meal_id, ingredient_id, quantity, unit, position FROM meal_ingredients
+WHERE meal_id = ANY($1::uuid[])
+ORDER BY meal_id, position
+`
+
+// The batch counterpart to GetMealIngredients, for ShoppingLists.Generate:
+// every ingredient line of every meal scheduled in a date range, in one query.
+func (q *Queries) GetMealIngredientsForMeals(ctx context.Context, mealIds []uuid.UUID) ([]MealIngredient, error) {
+	rows, err := q.db.Query(ctx, getMealIngredientsForMeals, mealIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MealIngredient
+	for rows.Next() {
+		var i MealIngredient
+		if err := rows.Scan(
+			&i.ID,
+			&i.MealID,
+			&i.IngredientID,
+			&i.Quantity,
+			&i.Unit,
+			&i.Position,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMealsForUser = `-- name: GetMealsForUser :many
 SELECT id, owner_id, name, notes, servings, shared_with_partner, created_at, updated_at FROM meals
 WHERE id = ANY($1::uuid[]) AND owner_id = $2
