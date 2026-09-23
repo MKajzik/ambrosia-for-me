@@ -160,6 +160,48 @@ func (q *Queries) GetIngredientsForUser(ctx context.Context, arg GetIngredientsF
 	return items, nil
 }
 
+const ingredientHasUnconvertibleMealUsage = `-- name: IngredientHasUnconvertibleMealUsage :one
+SELECT EXISTS (
+    SELECT 1 FROM meal_ingredients mi
+    JOIN ingredients i ON i.id = mi.ingredient_id
+    WHERE mi.ingredient_id = $1
+      AND i.owner_id = $2
+      AND (
+        ($3::boolean AND mi.unit = 'piece')
+        OR ($4::boolean AND mi.unit = 'ml')
+      )
+) AS in_use
+`
+
+type IngredientHasUnconvertibleMealUsageParams struct {
+	IngredientID uuid.UUID
+	UserID       *uuid.UUID
+	CheckPiece   bool
+	CheckMl      bool
+}
+
+// True when a meal_ingredients row still depends on this ingredient's
+// grams_per_piece (a row with unit = 'piece') or density_g_per_ml (unit =
+// 'ml') for unit conversion, checked only for the field(s) an update would
+// clear. Ingredients.Update uses this to reject the edit at write time
+// (ErrIngredientInUseByUnconvertibleUnit) instead of leaving the meal
+// permanently unreadable. Joined to ingredients and filtered by owner_id so
+// this never reveals anything about an ingredient the caller does not own:
+// Ingredients.Update calls it before the ownership-checked UPDATE below, so
+// without this filter a caller could probe another user's ingredient (or a
+// global one) for meal usage and get a 409 instead of the expected 404.
+func (q *Queries) IngredientHasUnconvertibleMealUsage(ctx context.Context, arg IngredientHasUnconvertibleMealUsageParams) (bool, error) {
+	row := q.db.QueryRow(ctx, ingredientHasUnconvertibleMealUsage,
+		arg.IngredientID,
+		arg.UserID,
+		arg.CheckPiece,
+		arg.CheckMl,
+	)
+	var in_use bool
+	err := row.Scan(&in_use)
+	return in_use, err
+}
+
 const listIngredients = `-- name: ListIngredients :many
 SELECT id, name, category, owner_id, usda_fdc_id, grams_per_piece, density_g_per_ml, created_at, updated_at FROM ingredients
 WHERE (owner_id IS NULL OR owner_id = $1)
