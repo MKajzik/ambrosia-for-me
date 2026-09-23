@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -408,6 +409,88 @@ func TestShoppingListsRegenerateReplacesGeneratedItemsAndKeepsManualOnes(t *test
 	}
 	if ev := nextEvent(t, sub); ev.Type != service.ListEventListChanged || ev.ListID != list.ID {
 		t.Errorf("event = %+v, want list_changed for the list", ev)
+	}
+}
+
+// TestShoppingListsGenerateConcurrentCallsOnTheSameListDoNotRace is finding
+// #1's regression test: Generate's regenerate-existing-list path
+// (DeleteGeneratedShoppingItems followed by a fresh insert) is protected
+// only by SetShoppingListSourceForUser's row lock on the list, taken before
+// the delete+insert. Unlike meal_ingredients (meal_id, position) and
+// template_slots, shopping_items has no unique constraint on position, so a
+// lost race here would not surface as an error the way
+// TestMealsReplaceIngredientsConcurrentCallsOnTheSameMealDoNotRace's and
+// TestDietTemplatesReplaceSlotsConcurrentCallsOnTheSameTemplateDoNotRace's
+// siblings do — it would silently leave two full sets of generated items on
+// the list. Firing several concurrent Generate calls at the same ListID and
+// asserting exactly one generated line for the shared ingredient (not N)
+// proves the lock actually serializes the regenerations rather than letting
+// them interleave.
+func TestShoppingListsGenerateConcurrentCallsOnTheSameListDoNotRace(t *testing.T) {
+	f := newShoppingListsFixture(t)
+	ctx := context.Background()
+	owner := newTestUser(t, f.st, "race-shopping@example.com")
+
+	rice := mustCreateIngredient(t, f.ing, owner, service.CreateIngredientInput{Name: "Rice", Category: "grains_bread"})
+	meal, err := f.meals.Create(ctx, owner, service.CreateMealInput{Name: "Rice", Servings: 1})
+	if err != nil {
+		t.Fatalf("create meal: %v", err)
+	}
+	if _, err := f.meals.ReplaceIngredients(ctx, owner, meal.ID, []service.MealIngredientInput{{IngredientID: rice.ID, Quantity: 100, Unit: "g"}}); err != nil {
+		t.Fatalf("ReplaceIngredients: %v", err)
+	}
+	day := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	mustSetEntry(t, f.plan, owner, day, "lunch", meal.ID, 1)
+
+	// Create the list once up front (Generate without ListID) so every
+	// goroutine below exercises the regenerate-existing-list path, not the
+	// create path.
+	list, _, err := f.lists.Generate(ctx, owner, service.GenerateShoppingListInput{From: day, To: day})
+	if err != nil {
+		t.Fatalf("Generate (initial): %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].Name != "Rice" {
+		t.Fatalf("initial list = %+v, want exactly one generated rice line", list.Items)
+	}
+
+	const numGoroutines = 8
+	var (
+		wg      sync.WaitGroup
+		barrier = make(chan struct{})
+		results = make([]error, numGoroutines)
+	)
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			<-barrier // release all goroutines at once
+			_, _, err := f.lists.Generate(ctx, owner, service.GenerateShoppingListInput{From: day, To: day, ListID: &list.ID})
+			results[idx] = err
+		}(i)
+	}
+	close(barrier)
+	wg.Wait()
+
+	for i, err := range results {
+		if err != nil {
+			t.Errorf("goroutine %d: Generate returned an unexpected error: %v", i, err)
+		}
+	}
+
+	// The list must still have exactly the one generated rice line, not a
+	// duplicated set from an interleaved delete+insert.
+	got, err := f.lists.Get(ctx, owner, list.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	var generated []service.ShoppingItem
+	for _, item := range got.Items {
+		if item.Origin == "generated" {
+			generated = append(generated, item)
+		}
+	}
+	if len(generated) != 1 || generated[0].Name != "Rice" || generated[0].Quantity == nil || *generated[0].Quantity != 100 {
+		t.Errorf("generated items after concurrent regenerations = %+v, want exactly one 100 g rice line, not duplicates", generated)
 	}
 }
 
