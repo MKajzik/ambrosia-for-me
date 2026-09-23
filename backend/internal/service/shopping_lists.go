@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -115,6 +116,16 @@ type CreateShoppingListInput struct {
 type UpdateShoppingListInput struct {
 	Name              *string
 	SharedWithPartner *bool
+}
+
+// GenerateShoppingListInput selects the plan range to shop for. With ListID
+// nil a new list is created (named Name, or a default); with ListID set,
+// that list's generated items are replaced and Name is ignored.
+type GenerateShoppingListInput struct {
+	From   time.Time
+	To     time.Time
+	Name   *string
+	ListID *uuid.UUID
 }
 
 // CreateShoppingItemInput adds a manual item. Category defaults to the
@@ -259,6 +270,93 @@ func (s *ShoppingLists) Delete(ctx context.Context, ownerID, id uuid.UUID) error
 	}
 	s.events.Publish(ListEvent{Type: ListEventListDeleted, ListID: id})
 	return nil
+}
+
+// Generate builds generated items from the caller's plan entries in [From,
+// To] inclusive (at most maxPlanRangeDays days, like GET /plan). Without
+// ListID it creates a new list and reports created = true. With ListID it
+// replaces that list's generated items, keeps its manual items untouched,
+// records the new source range, and tells the list's event streams.
+func (s *ShoppingLists) Generate(ctx context.Context, ownerID uuid.UUID, in GenerateShoppingListInput) (list ShoppingList, created bool, err error) {
+	if in.To.Before(in.From) {
+		return ShoppingList{}, false, ErrPlanRangeInvalid
+	}
+	if diffDays := int(in.To.Sub(in.From).Hours() / 24); diffDays >= maxPlanRangeDays {
+		return ShoppingList{}, false, ErrPlanRangeTooLong
+	}
+	created = in.ListID == nil
+
+	err = s.st.InTx(ctx, func(q *sqlc.Queries) error {
+		var row sqlc.ShoppingList
+		if created {
+			name := fmt.Sprintf("Shopping %s to %s", in.From.Format(time.DateOnly), in.To.Format(time.DateOnly))
+			if in.Name != nil {
+				name = *in.Name
+			}
+			var err error
+			row, err = q.CreateShoppingList(ctx, sqlc.CreateShoppingListParams{
+				OwnerID: ownerID, Name: name, SourceFrom: toPgDate(in.From), SourceTo: toPgDate(in.To),
+			})
+			if store.IsForeignKeyViolation(err, "shopping_lists_owner_id_fkey") {
+				return ErrNotFound
+			}
+			if err != nil {
+				return fmt.Errorf("create shopping list: %w", err)
+			}
+		} else {
+			// SetShoppingListSourceForUser is an UPDATE, so besides recording
+			// the new range it takes the list row's write lock before the
+			// DELETE+INSERT below: two concurrent regenerations of one list
+			// serialize instead of both inserting a full generated set (the
+			// second one's DELETE cannot see rows the first one inserts).
+			// Same fix as TouchMealForUser / TouchDietTemplateForUser.
+			var err error
+			row, err = q.SetShoppingListSourceForUser(ctx, sqlc.SetShoppingListSourceForUserParams{
+				ID: *in.ListID, UserID: ownerID, SourceFrom: toPgDate(in.From), SourceTo: toPgDate(in.To),
+			})
+			if store.IsNotFound(err) {
+				return ErrShoppingListNotFound
+			}
+			if err != nil {
+				return fmt.Errorf("set shopping list source: %w", err)
+			}
+			if err := q.DeleteGeneratedShoppingItems(ctx, row.ID); err != nil {
+				return fmt.Errorf("clear generated items: %w", err)
+			}
+		}
+
+		lines, err := generateLines(ctx, q, ownerID, in.From, in.To)
+		if err != nil {
+			return err
+		}
+		// Generated items go after whatever manual items the list keeps.
+		base, err := q.NextShoppingItemPosition(ctx, row.ID)
+		if err != nil {
+			return fmt.Errorf("next item position: %w", err)
+		}
+		for i, l := range lines {
+			ingredientID, quantity, unit := l.IngredientID, l.Quantity, l.Unit
+			if _, err := q.InsertShoppingItem(ctx, sqlc.InsertShoppingItemParams{
+				ListID: row.ID, IngredientID: &ingredientID, Name: l.Name, Quantity: &quantity, Unit: &unit,
+				Category: l.Category, Position: base + toInt32(i), Origin: "generated",
+			}); err != nil {
+				return fmt.Errorf("insert generated item: %w", err)
+			}
+		}
+		items, err := q.GetShoppingItems(ctx, row.ID)
+		if err != nil {
+			return fmt.Errorf("get shopping items: %w", err)
+		}
+		list = toShoppingList(row, items)
+		return nil
+	})
+	if err != nil {
+		return ShoppingList{}, false, err
+	}
+	if !created {
+		s.events.Publish(ListEvent{Type: ListEventListChanged, ListID: list.ID})
+	}
+	return list, created, nil
 }
 
 // AddItem appends a manual item to a list owned by ownerID.
@@ -412,6 +510,150 @@ func (s *ShoppingLists) Subscribe(ctx context.Context, ownerID, listID uuid.UUID
 
 func (s *ShoppingLists) publishItem(typ string, listID, itemID uuid.UUID, version int) {
 	s.events.Publish(ListEvent{Type: typ, ListID: listID, ItemID: &itemID, Version: &version})
+}
+
+// generatedLine is one item Generate is about to write.
+type generatedLine struct {
+	IngredientID uuid.UUID
+	Name         string
+	Category     string
+	Quantity     float64
+	Unit         string
+}
+
+// generateLines sums every ingredient line of every meal scheduled in [from,
+// to] (each scaled by the entry's portion over the meal's servings, the same
+// per-serving rule Plan uses for nutrition), merges them per ingredient with
+// mergeUnits, and orders the result by category, then name, then unit.
+func generateLines(ctx context.Context, q *sqlc.Queries, ownerID uuid.UUID, from, to time.Time) ([]generatedLine, error) {
+	entries, err := q.GetPlanEntriesForUserInRange(ctx, sqlc.GetPlanEntriesForUserInRangeParams{
+		UserID: ownerID, FromDate: toPgDate(from), ToDate: toPgDate(to),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get plan entries: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	mealIDs := uniqueUUIDs(entries, func(e sqlc.PlanEntry) uuid.UUID { return e.MealID })
+	mealRows, err := q.GetMealsForUser(ctx, sqlc.GetMealsForUserParams{Ids: mealIDs, UserID: ownerID})
+	if err != nil {
+		return nil, fmt.Errorf("get meals: %w", err)
+	}
+	servings := make(map[uuid.UUID]float64, len(mealRows))
+	for _, m := range mealRows {
+		servings[m.ID] = m.Servings
+	}
+	lineRows, err := q.GetMealIngredientsForMeals(ctx, mealIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get meal ingredients: %w", err)
+	}
+	linesByMeal := make(map[uuid.UUID][]sqlc.MealIngredient, len(mealIDs))
+	for _, l := range lineRows {
+		linesByMeal[l.MealID] = append(linesByMeal[l.MealID], l)
+	}
+	ingredientIDs := uniqueUUIDs(lineRows, func(l sqlc.MealIngredient) uuid.UUID { return l.IngredientID })
+	if len(ingredientIDs) == 0 {
+		return nil, nil
+	}
+	ingredientRows, err := q.GetIngredientsForUser(ctx, sqlc.GetIngredientsForUserParams{Ids: ingredientIDs, UserID: &ownerID})
+	if err != nil {
+		return nil, fmt.Errorf("get ingredients: %w", err)
+	}
+	ingredients := make(map[uuid.UUID]sqlc.Ingredient, len(ingredientRows))
+	for _, ing := range ingredientRows {
+		ingredients[ing.ID] = ing
+	}
+
+	// sums[ingredient][unit] is the total quantity needed in that unit.
+	sums := make(map[uuid.UUID]map[string]float64, len(ingredientIDs))
+	for _, e := range entries {
+		mealServings, ok := servings[e.MealID]
+		if !ok {
+			// plan_entries.meal_id is a NO ACTION foreign key and plan
+			// entries are owner-only, so every entry's meal exists and is the
+			// caller's own; this is a defensive check, not a reachable path.
+			return nil, fmt.Errorf("meal %s of a plan entry is not visible to its owner", e.MealID)
+		}
+		for _, l := range linesByMeal[e.MealID] {
+			if sums[l.IngredientID] == nil {
+				sums[l.IngredientID] = make(map[string]float64, 1)
+			}
+			sums[l.IngredientID][l.Unit] += l.Quantity * e.Portion / mealServings
+		}
+	}
+
+	var lines []generatedLine
+	for ingredientID, byUnit := range sums {
+		ing, ok := ingredients[ingredientID]
+		if !ok {
+			// Unreachable for the same reason as ErrMealIngredientNotFound
+			// in meals.go: an ingredient a meal line references cannot be
+			// deleted, and a custom ingredient never changes owner.
+			return nil, ErrMealIngredientNotFound
+		}
+		merged, err := mergeUnits(ing, byUnit)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, merged...)
+	}
+	sort.Slice(lines, func(i, j int) bool {
+		a, b := lines[i], lines[j]
+		if a.Category != b.Category {
+			return a.Category < b.Category
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.Unit < b.Unit
+	})
+	return lines, nil
+}
+
+// mergeUnits turns one ingredient's per-unit totals into shopping lines.
+// When every line used the same unit, that unit is kept as is (six eggs stay
+// "6 piece", not "300 g"). When units are mixed, every total that can be
+// converted to grams (with gramsFor, the same conversion meal nutrition
+// uses) is merged into one "g" line, and every total that cannot (the
+// ingredient lacks grams_per_piece or density_g_per_ml) stays a line of its
+// own in its own unit rather than being merged incorrectly.
+func mergeUnits(ing sqlc.Ingredient, byUnit map[string]float64) ([]generatedLine, error) {
+	line := func(unit string, quantity float64) generatedLine {
+		return generatedLine{IngredientID: ing.ID, Name: ing.Name, Category: ing.Category, Quantity: quantity, Unit: unit}
+	}
+	if len(byUnit) == 1 {
+		for unit, quantity := range byUnit {
+			return []generatedLine{line(unit, quantity)}, nil
+		}
+	}
+	var (
+		out      []generatedLine
+		grams    float64
+		hasGrams bool
+	)
+	// A fixed unit order keeps the floating-point sum deterministic.
+	for _, unit := range []string{"g", "ml", "piece"} {
+		quantity, ok := byUnit[unit]
+		if !ok {
+			continue
+		}
+		g, err := gramsFor(quantity, unit, ing.GramsPerPiece, ing.DensityGPerMl)
+		if errors.Is(err, ErrUnitNotConvertible) {
+			out = append(out, line(unit, quantity))
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		grams += g
+		hasGrams = true
+	}
+	if hasGrams {
+		out = append(out, line("g", grams))
+	}
+	return out, nil
 }
 
 func toShoppingList(row sqlc.ShoppingList, itemRows []sqlc.ShoppingItem) ShoppingList {

@@ -6,8 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/InzKazik/mealplanner/backend/internal/service"
 	"github.com/InzKazik/mealplanner/backend/internal/store"
+	"github.com/InzKazik/mealplanner/backend/internal/store/sqlc"
 )
 
 type shoppingFixture struct {
@@ -237,5 +240,199 @@ func TestShoppingListsAreVisibleToTheirOwnerOnly(t *testing.T) {
 	page, err := f.lists.List(ctx, other, service.ListShoppingListsInput{Limit: 10})
 	if err != nil || len(page.Items) != 0 {
 		t.Errorf("List by another user = %+v (err %v), want empty", page.Items, err)
+	}
+}
+
+func mustSetEntry(t *testing.T, plan *service.Plan, owner uuid.UUID, date time.Time, slot string, mealID uuid.UUID, portion float64) {
+	t.Helper()
+	if _, err := plan.SetEntry(context.Background(), owner, date, slot, service.SetPlanEntryInput{MealID: mealID, Portion: portion}); err != nil {
+		t.Fatalf("SetEntry %s %s: %v", date.Format(time.DateOnly), slot, err)
+	}
+}
+
+func deref[T any](p *T) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+// TestShoppingListsGenerateSumsMergesAndGroupsByCategory is the shopping-list
+// merging test spec §6 calls for.
+func TestShoppingListsGenerateSumsMergesAndGroupsByCategory(t *testing.T) {
+	f := newShoppingListsFixture(t)
+	ctx := context.Background()
+	owner := newTestUser(t, f.st, "shopper1@example.com")
+
+	rice := mustCreateIngredient(t, f.ing, owner, service.CreateIngredientInput{Name: "Rice", Category: "grains_bread"})
+	egg := mustCreateIngredient(t, f.ing, owner, service.CreateIngredientInput{Name: "Egg", Category: "dairy_eggs", GramsPerPiece: ptr(50.0)})
+	oil := mustCreateIngredient(t, f.ing, owner, service.CreateIngredientInput{Name: "Olive Oil", Category: "condiments_oils", DensityGPerMl: ptr(0.92)})
+	flour := mustCreateIngredient(t, f.ing, owner, service.CreateIngredientInput{Name: "Flour", Category: "grains_bread"})
+
+	bowl, err := f.meals.Create(ctx, owner, service.CreateMealInput{Name: "Rice Bowl", Servings: 2})
+	if err != nil {
+		t.Fatalf("create meal: %v", err)
+	}
+	if _, err := f.meals.ReplaceIngredients(ctx, owner, bowl.ID, []service.MealIngredientInput{
+		{IngredientID: rice.ID, Quantity: 200, Unit: "g"},
+		{IngredientID: oil.ID, Quantity: 10, Unit: "ml"},
+		{IngredientID: egg.ID, Quantity: 2, Unit: "piece"},
+	}); err != nil {
+		t.Fatalf("ReplaceIngredients (bowl): %v", err)
+	}
+	pancakes, err := f.meals.Create(ctx, owner, service.CreateMealInput{Name: "Pancakes", Servings: 1})
+	if err != nil {
+		t.Fatalf("create meal: %v", err)
+	}
+	if _, err := f.meals.ReplaceIngredients(ctx, owner, pancakes.ID, []service.MealIngredientInput{
+		{IngredientID: flour.ID, Quantity: 100, Unit: "g"},
+		{IngredientID: oil.ID, Quantity: 5, Unit: "g"},
+	}); err != nil {
+		t.Fatalf("ReplaceIngredients (pancakes): %v", err)
+	}
+	// Flour has no grams_per_piece, so Meals.ReplaceIngredients would refuse
+	// a "piece" line. Insert one directly: it stands for the narrow, accepted
+	// race backend/CLAUDE.md documents (an ingredient edit interleaving a
+	// meal write), and generation must still never merge it into grams.
+	if _, err := f.st.InsertMealIngredient(ctx, sqlc.InsertMealIngredientParams{
+		MealID: pancakes.ID, IngredientID: flour.ID, Quantity: 1, Unit: "piece", Position: 2,
+	}); err != nil {
+		t.Fatalf("insert unconvertible line: %v", err)
+	}
+
+	day1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	day2 := day1.AddDate(0, 0, 1)
+	mustSetEntry(t, f.plan, owner, day1, "breakfast", bowl.ID, 1)
+	mustSetEntry(t, f.plan, owner, day2, "breakfast", bowl.ID, 1)
+	mustSetEntry(t, f.plan, owner, day2, "lunch", pancakes.ID, 2)
+	// Outside the range: must not be counted.
+	mustSetEntry(t, f.plan, owner, day2.AddDate(0, 0, 1), "dinner", pancakes.ID, 1)
+
+	list, created, err := f.lists.Generate(ctx, owner, service.GenerateShoppingListInput{From: day1, To: day2})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if !created {
+		t.Error("created = false, want true (no list_id)")
+	}
+	if list.SourceFrom == nil || !list.SourceFrom.Equal(day1) || list.SourceTo == nil || !list.SourceTo.Equal(day2) {
+		t.Errorf("source range = %v..%v, want %v..%v", list.SourceFrom, list.SourceTo, day1, day2)
+	}
+
+	// Bowl (2 servings) twice at portion 1: half the recipe each time, so
+	// the whole recipe once: rice 200 g, oil 10 ml, egg 2 piece.
+	// Pancakes (1 serving) once at portion 2: flour 200 g + 2 piece, oil 10 g.
+	// Egg: one unit only, kept as piece. Oil: ml and g mixed, both
+	// convertible, merged into grams: 10 ml * 0.92 + 10 g = 19.2 g. Flour: g
+	// and an unconvertible piece, two lines. Ordered by category, name, unit.
+	want := []struct {
+		name, category, unit string
+		quantity             float64
+	}{
+		{"Olive Oil", "condiments_oils", "g", 19.2},
+		{"Egg", "dairy_eggs", "piece", 2},
+		{"Flour", "grains_bread", "g", 200},
+		{"Flour", "grains_bread", "piece", 2},
+		{"Rice", "grains_bread", "g", 200},
+	}
+	if len(list.Items) != len(want) {
+		t.Fatalf("items = %+v, want %d lines", list.Items, len(want))
+	}
+	for i, w := range want {
+		got := list.Items[i]
+		if got.Name != w.name || got.Category != w.category || got.Unit == nil || *got.Unit != w.unit ||
+			got.Quantity == nil || !almostEqual(*got.Quantity, w.quantity) {
+			t.Errorf("item %d = %s %s %v %v, want %s %s %v %s", i, got.Name, got.Category, deref(got.Quantity), deref(got.Unit), w.name, w.category, w.quantity, w.unit)
+		}
+		if got.Origin != "generated" || got.IngredientID == nil || got.Position != i || got.Version != 1 || got.Checked {
+			t.Errorf("item %d = %+v, want a fresh generated item at position %d with its ingredient id", i, got, i)
+		}
+	}
+}
+
+func TestShoppingListsRegenerateReplacesGeneratedItemsAndKeepsManualOnes(t *testing.T) {
+	f := newShoppingListsFixture(t)
+	ctx := context.Background()
+	owner := newTestUser(t, f.st, "shopper2@example.com")
+
+	rice := mustCreateIngredient(t, f.ing, owner, service.CreateIngredientInput{Name: "Rice", Category: "grains_bread"})
+	meal, err := f.meals.Create(ctx, owner, service.CreateMealInput{Name: "Rice", Servings: 1})
+	if err != nil {
+		t.Fatalf("create meal: %v", err)
+	}
+	if _, err := f.meals.ReplaceIngredients(ctx, owner, meal.ID, []service.MealIngredientInput{{IngredientID: rice.ID, Quantity: 100, Unit: "g"}}); err != nil {
+		t.Fatalf("ReplaceIngredients: %v", err)
+	}
+	day := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	mustSetEntry(t, f.plan, owner, day, "lunch", meal.ID, 1)
+
+	list, _, err := f.lists.Generate(ctx, owner, service.GenerateShoppingListInput{From: day, To: day, Name: ptr("Week 23")})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if list.Name != "Week 23" || len(list.Items) != 1 {
+		t.Fatalf("list = %+v, want Week 23 with one generated item", list)
+	}
+	oldGenerated := list.Items[0]
+	manual, err := f.lists.AddItem(ctx, owner, list.ID, service.CreateShoppingItemInput{Name: "Paper towels"})
+	if err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+	if _, err := f.lists.UpdateItem(ctx, owner, list.ID, manual.ID, service.UpdateShoppingItemInput{Checked: ptr(true)}); err != nil {
+		t.Fatalf("check manual item: %v", err)
+	}
+
+	mustSetEntry(t, f.plan, owner, day, "lunch", meal.ID, 3)
+	sub, err := f.lists.Subscribe(ctx, owner, list.ID)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer sub.Close()
+
+	regenerated, created, err := f.lists.Generate(ctx, owner, service.GenerateShoppingListInput{From: day, To: day, ListID: &list.ID})
+	if err != nil {
+		t.Fatalf("regenerate: %v", err)
+	}
+	if created {
+		t.Error("created = true, want false (list_id given)")
+	}
+	if len(regenerated.Items) != 2 {
+		t.Fatalf("items after regenerate = %+v, want the manual item plus one generated item", regenerated.Items)
+	}
+	kept, fresh := regenerated.Items[0], regenerated.Items[1]
+	if kept.ID != manual.ID || !kept.Checked || kept.Origin != "manual" {
+		t.Errorf("first item = %+v, want the manual item, untouched and still checked", kept)
+	}
+	if fresh.ID == oldGenerated.ID || fresh.Origin != "generated" || *fresh.Quantity != 300 || fresh.Position <= kept.Position {
+		t.Errorf("second item = %+v, want a new generated rice line of 300 g after the manual item", fresh)
+	}
+	if ev := nextEvent(t, sub); ev.Type != service.ListEventListChanged || ev.ListID != list.ID {
+		t.Errorf("event = %+v, want list_changed for the list", ev)
+	}
+}
+
+func TestShoppingListsGenerateValidatesTheRangeAndTheListsOwner(t *testing.T) {
+	f := newShoppingListsFixture(t)
+	ctx := context.Background()
+	owner := newTestUser(t, f.st, "shopper7@example.com")
+	other := newTestUser(t, f.st, "other7@example.com")
+
+	list, err := f.lists.Create(ctx, owner, service.CreateShoppingListInput{Name: "Mine"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	day := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	if _, _, err := f.lists.Generate(ctx, other, service.GenerateShoppingListInput{From: day, To: day, ListID: &list.ID}); !errors.Is(err, service.ErrShoppingListNotFound) {
+		t.Errorf("regenerate another user's list: err = %v, want ErrShoppingListNotFound", err)
+	}
+	if _, _, err := f.lists.Generate(ctx, owner, service.GenerateShoppingListInput{From: day, To: day.AddDate(0, 0, -1)}); !errors.Is(err, service.ErrPlanRangeInvalid) {
+		t.Errorf("to before from: err = %v, want ErrPlanRangeInvalid", err)
+	}
+	if _, _, err := f.lists.Generate(ctx, owner, service.GenerateShoppingListInput{From: day, To: day.AddDate(0, 0, 92)}); !errors.Is(err, service.ErrPlanRangeTooLong) {
+		t.Errorf("93-day range: err = %v, want ErrPlanRangeTooLong", err)
+	}
+	empty, created, err := f.lists.Generate(ctx, owner, service.GenerateShoppingListInput{From: day, To: day.AddDate(0, 0, 91)})
+	if err != nil || !created || len(empty.Items) != 0 || empty.Name != "Shopping 2026-06-01 to 2026-08-31" {
+		t.Errorf("92-day range with no plan entries = %+v, %v, %v; want a new empty list with the default name", empty, created, err)
 	}
 }
