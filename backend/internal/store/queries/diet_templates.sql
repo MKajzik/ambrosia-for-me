@@ -10,6 +10,17 @@ RETURNING *;
 SELECT * FROM diet_templates
 WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id');
 
+-- name: TouchDietTemplateForUser :one
+-- Bumps updated_at (via the diet_templates_set_updated_at trigger) and, just
+-- as importantly, takes the row's write lock: ReplaceSlots uses this instead
+-- of a plain SELECT so two concurrent slot replaces on the same template
+-- serialize instead of racing the DELETE+INSERT below it. See ReplaceSlots
+-- in internal/service/diet_templates.go, and TouchMealForUser in
+-- meals.sql for the same fix in the meals domain.
+UPDATE diet_templates SET updated_at = now()
+WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id')
+RETURNING *;
+
 -- name: ListDietTemplatesForUser :many
 SELECT * FROM diet_templates
 WHERE owner_id = sqlc.arg('user_id')

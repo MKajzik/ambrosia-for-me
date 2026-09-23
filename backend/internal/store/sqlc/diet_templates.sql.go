@@ -227,6 +227,38 @@ func (q *Queries) ListDietTemplatesForUser(ctx context.Context, arg ListDietTemp
 	return items, nil
 }
 
+const touchDietTemplateForUser = `-- name: TouchDietTemplateForUser :one
+UPDATE diet_templates SET updated_at = now()
+WHERE id = $1 AND owner_id = $2
+RETURNING id, owner_id, name, day_count, shared_with_partner, created_at, updated_at
+`
+
+type TouchDietTemplateForUserParams struct {
+	ID     uuid.UUID
+	UserID uuid.UUID
+}
+
+// Bumps updated_at (via the diet_templates_set_updated_at trigger) and, just
+// as importantly, takes the row's write lock: ReplaceSlots uses this instead
+// of a plain SELECT so two concurrent slot replaces on the same template
+// serialize instead of racing the DELETE+INSERT below it. See ReplaceSlots
+// in internal/service/diet_templates.go, and TouchMealForUser in
+// meals.sql for the same fix in the meals domain.
+func (q *Queries) TouchDietTemplateForUser(ctx context.Context, arg TouchDietTemplateForUserParams) (DietTemplate, error) {
+	row := q.db.QueryRow(ctx, touchDietTemplateForUser, arg.ID, arg.UserID)
+	var i DietTemplate
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.Name,
+		&i.DayCount,
+		&i.SharedWithPartner,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateDietTemplate = `-- name: UpdateDietTemplate :one
 UPDATE diet_templates SET
     name                = COALESCE($1, name),

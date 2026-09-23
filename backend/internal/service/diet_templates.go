@@ -239,7 +239,15 @@ func (s *DietTemplates) List(ctx context.Context, ownerID uuid.UUID, in ListDiet
 func (s *DietTemplates) ReplaceSlots(ctx context.Context, ownerID, id uuid.UUID, slots []TemplateSlotInput) (DietTemplate, error) {
 	var tpl DietTemplate
 	err := s.st.InTx(ctx, func(q *sqlc.Queries) error {
-		row, err := q.GetDietTemplateForUser(ctx, sqlc.GetDietTemplateForUserParams{ID: id, UserID: ownerID})
+		// TouchDietTemplateForUser (an UPDATE, not a plain SELECT) takes the
+		// row's write lock and bumps updated_at in one step. The lock
+		// serializes two concurrent slot replaces on the same template:
+		// without it, both transactions' DELETEs below can interleave under
+		// READ COMMITTED and the second INSERT loop can hit
+		// template_slots_unique_slot_idx unexpectedly, or the template can
+		// end up with the union of both requests' slots. Same fix as
+		// Meals.ReplaceIngredients / TouchMealForUser.
+		row, err := q.TouchDietTemplateForUser(ctx, sqlc.TouchDietTemplateForUserParams{ID: id, UserID: ownerID})
 		if store.IsNotFound(err) {
 			return ErrDietTemplateNotFound
 		}

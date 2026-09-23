@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -130,6 +131,91 @@ func TestDietTemplatesReplaceSlotsLeavesExistingSlotsUntouchedOnFailure(t *testi
 	}
 	if len(got.Slots) != 1 || got.Slots[0].Slot != "breakfast" || got.Slots[0].MealID != meal.ID {
 		t.Errorf("slots after failed ReplaceSlots = %+v, want the original 1 breakfast slot untouched", got.Slots)
+	}
+}
+
+// TestDietTemplatesReplaceSlotsBumpsUpdatedAt pins the second half of
+// finding #1: ReplaceSlots now goes through TouchDietTemplateForUser (an
+// UPDATE), not a plain SELECT, so it must advance diet_templates.updated_at
+// like every other write, unlike before this fix when the slot list could
+// change without updated_at moving.
+func TestDietTemplatesReplaceSlotsBumpsUpdatedAt(t *testing.T) {
+	tpls, meals, _, st := newDietTemplatesFixture(t)
+	owner := newTestUser(t, st, "touch-template@example.com")
+	meal := mustCreateMeal(t, meals, owner, "Touch")
+
+	tpl, err := tpls.Create(context.Background(), owner, service.CreateDietTemplateInput{Name: "Touch", DayCount: 1})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	before := tpl.UpdatedAt
+
+	after, err := tpls.ReplaceSlots(context.Background(), owner, tpl.ID, []service.TemplateSlotInput{
+		{DayIndex: 0, Slot: "breakfast", MealID: meal.ID, Portion: 1},
+	})
+	if err != nil {
+		t.Fatalf("ReplaceSlots: %v", err)
+	}
+	if !after.UpdatedAt.After(before) {
+		t.Errorf("UpdatedAt after ReplaceSlots = %v, want after the pre-replace value %v", after.UpdatedAt, before)
+	}
+}
+
+// TestDietTemplatesReplaceSlotsConcurrentCallsOnTheSameTemplateDoNotRace is
+// finding #1's regression test: before the fix, ReplaceSlots read the
+// template with a plain SELECT and took no row lock, so two concurrent slot
+// replaces on the same template could interleave their DELETE+INSERT under
+// READ COMMITTED — the second transaction's DELETE would block on the
+// first's rows, then skip them once the first committed, and never see the
+// first transaction's newly-inserted rows, so it would add its own rows on
+// top (or hit an unexpected duplicate_slot error for a request that was
+// valid on its own). Firing several concurrent calls and asserting none
+// returns an unexpected error, and that the template ends with exactly the
+// last-applied slot list, catches that regression; TouchDietTemplateForUser's
+// row lock now serializes them instead.
+func TestDietTemplatesReplaceSlotsConcurrentCallsOnTheSameTemplateDoNotRace(t *testing.T) {
+	tpls, meals, _, st := newDietTemplatesFixture(t)
+	owner := newTestUser(t, st, "race-template@example.com")
+	meal := mustCreateMeal(t, meals, owner, "Race")
+
+	tpl, err := tpls.Create(context.Background(), owner, service.CreateDietTemplateInput{Name: "Race", DayCount: 1})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	slots := []service.TemplateSlotInput{{DayIndex: 0, Slot: "breakfast", MealID: meal.ID, Portion: 1}}
+
+	const numGoroutines = 8
+	var (
+		wg      sync.WaitGroup
+		barrier = make(chan struct{})
+		results = make([]error, numGoroutines)
+	)
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			<-barrier // release all goroutines at once
+			_, err := tpls.ReplaceSlots(context.Background(), owner, tpl.ID, slots)
+			results[idx] = err
+		}(i)
+	}
+	close(barrier)
+	wg.Wait()
+
+	for i, err := range results {
+		if err != nil {
+			t.Errorf("goroutine %d: ReplaceSlots returned an unexpected error: %v", i, err)
+		}
+	}
+
+	// The template must still have exactly the one breakfast slot, not
+	// duplicates or a corrupted list from an interleaved write.
+	got, err := tpls.Get(context.Background(), owner, tpl.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(got.Slots) != 1 || got.Slots[0].MealID != meal.ID || got.Slots[0].Slot != "breakfast" {
+		t.Errorf("Slots after concurrent replaces = %+v, want exactly one breakfast slot", got.Slots)
 	}
 }
 
