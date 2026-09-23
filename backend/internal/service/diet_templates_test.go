@@ -97,6 +97,13 @@ func TestDietTemplatesReplaceSlotsRejectsADuplicateNonSnackSlotButAllowsTwoSnack
 	}
 }
 
+// TestDietTemplatesReplaceSlotsLeavesExistingSlotsUntouchedOnFailure is
+// finding #5's fix: the failure case must be one the plan's
+// validate-before-write design raises *after* the DELETE and partial
+// inserts have already run (ErrDuplicateSlot, from the
+// template_slots_unique_slot_idx violation), not ErrDayIndexOutOfRange,
+// which is raised before the DELETE and so proves nothing about rollback —
+// the test would pass identically even without a transaction.
 func TestDietTemplatesReplaceSlotsLeavesExistingSlotsUntouchedOnFailure(t *testing.T) {
 	tpls, meals, _, st := newDietTemplatesFixture(t)
 	owner := newTestUser(t, st, "planner9@example.com")
@@ -119,10 +126,10 @@ func TestDietTemplatesReplaceSlotsLeavesExistingSlotsUntouchedOnFailure(t *testi
 
 	_, err = tpls.ReplaceSlots(context.Background(), owner, tpl.ID, []service.TemplateSlotInput{
 		{DayIndex: 0, Slot: "lunch", MealID: meal.ID, Portion: 1},
-		{DayIndex: 7, Slot: "dinner", MealID: meal.ID, Portion: 1}, // day_count is 7, valid indexes are 0..6
+		{DayIndex: 0, Slot: "lunch", MealID: meal.ID, Portion: 1}, // duplicate non-snack slot: fails on insert, after the DELETE already ran
 	})
-	if !errors.Is(err, service.ErrDayIndexOutOfRange) {
-		t.Fatalf("err = %v, want ErrDayIndexOutOfRange", err)
+	if !errors.Is(err, service.ErrDuplicateSlot) {
+		t.Fatalf("err = %v, want ErrDuplicateSlot", err)
 	}
 
 	got, err := tpls.Get(context.Background(), owner, tpl.ID)
