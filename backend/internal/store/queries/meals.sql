@@ -70,3 +70,10 @@ SELECT * FROM meal_ingredients WHERE meal_id = sqlc.arg('meal_id') ORDER BY posi
 -- DietTemplates.toTemplate to fetch each slot's meal name in one query.
 SELECT * FROM meals
 WHERE id = ANY(sqlc.arg('ids')::uuid[]) AND owner_id = sqlc.arg('user_id');
+
+-- name: GetMealIngredientsForMeals :many
+-- The batch counterpart to GetMealIngredients, for ShoppingLists.Generate:
+-- every ingredient line of every meal scheduled in a date range, in one query.
+SELECT * FROM meal_ingredients
+WHERE meal_id = ANY(sqlc.arg('meal_ids')::uuid[])
+ORDER BY meal_id, position;

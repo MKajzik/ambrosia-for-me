@@ -142,6 +142,34 @@ type RefreshToken struct {
 	UpdatedAt time.Time
 }
 
+type ShoppingItem struct {
+	ID           uuid.UUID
+	ListID       uuid.UUID
+	IngredientID *uuid.UUID
+	Name         string
+	Quantity     *float64
+	Unit         *string
+	Category     string
+	Checked      bool
+	CheckedBy    *uuid.UUID
+	Position     int32
+	Version      int32
+	Origin       string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type ShoppingList struct {
+	ID                uuid.UUID
+	OwnerID           uuid.UUID
+	Name              string
+	SharedWithPartner bool
+	SourceFrom        pgtype.Date
+	SourceTo          pgtype.Date
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
 type TemplateSlot struct {
 	ID         uuid.UUID
 	TemplateID uuid.UUID
