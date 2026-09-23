@@ -30,6 +30,10 @@ type Deps struct {
 	Ingredients IngredientsService
 	// Meals implements the meals endpoints.
 	Meals MealsService
+	// DietTemplates implements the diet-template endpoints.
+	DietTemplates DietTemplatesService
+	// Plan implements the plan endpoints.
+	Plan PlanService
 	// Tokens validates access tokens for secured operations.
 	Tokens TokenParser
 	// Limits are the rate limits; zero values use the defaults.
@@ -41,9 +45,9 @@ type Deps struct {
 
 // NewRouter returns the root handler with every /v1 route and all middleware.
 func NewRouter(d Deps) http.Handler {
-	if d.Logger == nil || d.Ready == nil || d.Auth == nil || d.Ingredients == nil || d.Meals == nil || d.Tokens == nil ||
+	if d.Logger == nil || d.Ready == nil || d.Auth == nil || d.Ingredients == nil || d.Meals == nil || d.DietTemplates == nil || d.Plan == nil || d.Tokens == nil ||
 		d.WebOrigin == "" || d.WebOrigin == "*" {
-		panic("httpapi: Deps.Logger, Ready, Auth, Ingredients, Meals and Tokens are required, and WebOrigin must be a single origin (not empty or *)")
+		panic("httpapi: Deps.Logger, Ready, Auth, Ingredients, Meals, DietTemplates, Plan and Tokens are required, and WebOrigin must be a single origin (not empty or *)")
 	}
 	limits := d.Limits.withDefaults()
 	spec, err := api.GetSpec()
@@ -80,7 +84,7 @@ func NewRouter(d Deps) http.Handler {
 		WriteProblem(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "")
 	})
 
-	srv := &server{logger: d.Logger, ready: d.Ready, auth: d.Auth, ingredients: d.Ingredients, meals: d.Meals}
+	srv := &server{logger: d.Logger, ready: d.Ready, auth: d.Auth, ingredients: d.Ingredients, meals: d.Meals, dietTemplates: d.DietTemplates, plan: d.Plan}
 	api.HandlerWithOptions(srv, api.ChiServerOptions{
 		BaseURL:    "/v1",
 		BaseRouter: r,

@@ -241,16 +241,31 @@ func (a *Auth) UpdateUser(ctx context.Context, id uuid.UUID, in UpdateInput) (Us
 // DeleteUser permanently deletes the account and, through cascading foreign
 // keys, everything that belongs to it.
 //
-// The caller's meals go first, in the same transaction. users cascades to both
-// ingredients and meals, but meal_ingredients.ingredient_id is deliberately NO
-// ACTION (it is what makes deleting an in-use ingredient a 409), and Postgres
-// runs the ingredients cascade before the meals one. Without this first delete,
-// an account that owns a custom ingredient its own meal references fails with a
-// foreign-key violation on meal_ingredients_ingredient_id_fkey. Deleting the
-// meals removes their meal_ingredients rows (ON DELETE CASCADE on meal_id), so
-// nothing references the ingredients by the time the users row goes.
+// The caller's plan entries, diet templates and meals go first, in that
+// order, in the same transaction. users cascades to ingredients, meals,
+// diet_templates and plan_entries, but meal_ingredients.ingredient_id,
+// template_slots.meal_id and plan_entries.meal_id are all deliberately NO
+// ACTION (it is what makes deleting an in-use ingredient or meal a 409), and
+// Postgres does not run those cascades in an order that respects those
+// references. Without these explicit pre-deletes, an account that owns a
+// custom ingredient its own meal references fails with a foreign-key
+// violation on meal_ingredients_ingredient_id_fkey, and an account whose
+// diet template or plan entry references its own meal fails with a
+// violation on template_slots_meal_id_fkey or plan_entries_meal_id_fkey.
+// Deleting plan entries first is not strictly required (their
+// from_template_id would otherwise just be set to NULL by the existing ON
+// DELETE SET NULL when the template is deleted next), but it keeps the
+// intent explicit. Diet templates must go before meals (a template's slots
+// reference meals with NO ACTION, and deleting the template cascades its
+// slots away first). Meals must go before users, as before.
 func (a *Auth) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	return a.st.InTx(ctx, func(q *sqlc.Queries) error {
+		if err := q.DeletePlanEntriesForUser(ctx, id); err != nil {
+			return fmt.Errorf("delete plan entries: %w", err)
+		}
+		if err := q.DeleteDietTemplatesForUser(ctx, id); err != nil {
+			return fmt.Errorf("delete diet templates: %w", err)
+		}
 		if err := q.DeleteMealsForUser(ctx, id); err != nil {
 			return fmt.Errorf("delete meals: %w", err)
 		}

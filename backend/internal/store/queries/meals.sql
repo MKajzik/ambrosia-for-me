@@ -62,3 +62,11 @@ RETURNING *;
 
 -- name: GetMealIngredients :many
 SELECT * FROM meal_ingredients WHERE meal_id = sqlc.arg('meal_id') ORDER BY position;
+
+-- name: GetMealsForUser :many
+-- The batch counterpart to GetMealForUser: given a set of meal ids, returns
+-- only the ones that exist and are owned by user_id. Used by DietTemplates
+-- and Plan (Tasks 5, 6) to validate a slot's or entry's meal_id, and by
+-- DietTemplates.toTemplate to fetch each slot's meal name in one query.
+SELECT * FROM meals
+WHERE id = ANY(sqlc.arg('ids')::uuid[]) AND owner_id = sqlc.arg('user_id');

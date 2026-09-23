@@ -14,11 +14,13 @@ const readyTimeout = 2 * time.Second
 
 // server implements api.ServerInterface. The account endpoints live in account.go.
 type server struct {
-	logger      *slog.Logger
-	ready       func(context.Context) error
-	auth        AuthService
-	ingredients IngredientsService
-	meals       MealsService
+	logger        *slog.Logger
+	ready         func(context.Context) error
+	auth          AuthService
+	ingredients   IngredientsService
+	meals         MealsService
+	dietTemplates DietTemplatesService
+	plan          PlanService
 }
 
 var _ api.ServerInterface = (*server)(nil)

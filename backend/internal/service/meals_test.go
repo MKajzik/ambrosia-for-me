@@ -6,11 +6,14 @@ import (
 	"math"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/InzKazik/mealplanner/backend/internal/service"
 	"github.com/InzKazik/mealplanner/backend/internal/store"
+	"github.com/InzKazik/mealplanner/backend/internal/store/sqlc"
 )
 
 func newMealsFixture(t *testing.T) (*service.Meals, *service.Ingredients, *store.Store) {
@@ -597,3 +600,69 @@ func TestMealsListPaginatesOwnMealsOnly(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// TestMealsDeleteIsBlockedWhileInUseByATemplateSlot pins the
+// template_slots_meal_id_fkey half of the in-use guard: a diet template's
+// slot referencing the meal (NO ACTION, like meal_ingredients_ingredient_id)
+// must block the delete rather than fail with an unmapped foreign-key error.
+func TestMealsDeleteIsBlockedWhileInUseByATemplateSlot(t *testing.T) {
+	meals, _, st := newMealsFixture(t)
+	owner := newTestUser(t, st, "chef10@example.com")
+
+	meal, err := meals.Create(context.Background(), owner, service.CreateMealInput{Name: "Oatmeal", Servings: 1})
+	if err != nil {
+		t.Fatalf("Create meal: %v", err)
+	}
+	tpl, err := st.CreateDietTemplate(context.Background(), sqlc.CreateDietTemplateParams{OwnerID: owner, Name: "Week", DayCount: 7})
+	if err != nil {
+		t.Fatalf("create template: %v", err)
+	}
+	if _, err := st.InsertTemplateSlot(context.Background(), sqlc.InsertTemplateSlotParams{
+		TemplateID: tpl.ID, DayIndex: 0, Slot: "breakfast", MealID: meal.ID, Portion: 1,
+	}); err != nil {
+		t.Fatalf("insert template slot: %v", err)
+	}
+
+	if err := meals.Delete(context.Background(), owner, meal.ID); !errors.Is(err, service.ErrMealInUse) {
+		t.Errorf("Delete while referenced by a template slot: err = %v, want ErrMealInUse", err)
+	}
+
+	if err := st.DeleteTemplateSlots(context.Background(), tpl.ID); err != nil {
+		t.Fatalf("clear template slots: %v", err)
+	}
+	if err := meals.Delete(context.Background(), owner, meal.ID); err != nil {
+		t.Errorf("Delete once no longer referenced: %v", err)
+	}
+}
+
+// TestMealsDeleteIsBlockedWhileInUseByAPlanEntry pins the
+// plan_entries_meal_id_fkey half of the same guard.
+func TestMealsDeleteIsBlockedWhileInUseByAPlanEntry(t *testing.T) {
+	meals, _, st := newMealsFixture(t)
+	owner := newTestUser(t, st, "chef11@example.com")
+
+	meal, err := meals.Create(context.Background(), owner, service.CreateMealInput{Name: "Salad", Servings: 1})
+	if err != nil {
+		t.Fatalf("Create meal: %v", err)
+	}
+	entry, err := st.InsertPlanEntry(context.Background(), sqlc.InsertPlanEntryParams{
+		OwnerID: owner, Date: pgtype.Date{Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+		Slot: "lunch", MealID: meal.ID, Portion: 1,
+	})
+	if err != nil {
+		t.Fatalf("insert plan entry: %v", err)
+	}
+
+	if err := meals.Delete(context.Background(), owner, meal.ID); !errors.Is(err, service.ErrMealInUse) {
+		t.Errorf("Delete while referenced by a plan entry: err = %v, want ErrMealInUse", err)
+	}
+
+	if _, err := st.DeletePlanEntryForUserOnDateSlot(context.Background(), sqlc.DeletePlanEntryForUserOnDateSlotParams{
+		UserID: owner, Date: entry.Date, Slot: entry.Slot,
+	}); err != nil {
+		t.Fatalf("clear plan entry: %v", err)
+	}
+	if err := meals.Delete(context.Background(), owner, meal.ID); err != nil {
+		t.Errorf("Delete once no longer referenced: %v", err)
+	}
+}
