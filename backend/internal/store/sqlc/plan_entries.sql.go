@@ -70,7 +70,7 @@ const getPlanEntriesForUserInRange = `-- name: GetPlanEntriesForUserInRange :man
 SELECT id, owner_id, date, slot, meal_id, portion, from_template_id, created_at, updated_at FROM plan_entries
 WHERE owner_id = $1
   AND date >= $2::date AND date <= $3::date
-ORDER BY date, slot
+ORDER BY date, array_position(ARRAY['breakfast', 'lunch', 'dinner', 'snack'], slot), created_at, id
 `
 
 type GetPlanEntriesForUserInRangeParams struct {
@@ -79,6 +79,10 @@ type GetPlanEntriesForUserInRangeParams struct {
 	ToDate   pgtype.Date
 }
 
+// Ordered by meal-time position (breakfast, lunch, dinner, snack), not
+// plain text ("slot" would sort dinner before lunch). created_at, then id,
+// is the tiebreak for same-date, same-slot rows (only possible for snack,
+// which allows several per day).
 func (q *Queries) GetPlanEntriesForUserInRange(ctx context.Context, arg GetPlanEntriesForUserInRangeParams) ([]PlanEntry, error) {
 	rows, err := q.db.Query(ctx, getPlanEntriesForUserInRange, arg.UserID, arg.FromDate, arg.ToDate)
 	if err != nil {

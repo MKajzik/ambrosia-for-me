@@ -20,10 +20,14 @@ DO UPDATE SET meal_id = EXCLUDED.meal_id, portion = EXCLUDED.portion, from_templ
 RETURNING *;
 
 -- name: GetPlanEntriesForUserInRange :many
+-- Ordered by meal-time position (breakfast, lunch, dinner, snack), not
+-- plain text ("slot" would sort dinner before lunch). created_at, then id,
+-- is the tiebreak for same-date, same-slot rows (only possible for snack,
+-- which allows several per day).
 SELECT * FROM plan_entries
 WHERE owner_id = sqlc.arg('user_id')
   AND date >= sqlc.arg('from_date')::date AND date <= sqlc.arg('to_date')::date
-ORDER BY date, slot;
+ORDER BY date, array_position(ARRAY['breakfast', 'lunch', 'dinner', 'snack'], slot), created_at, id;
 
 -- name: GetPlanEntriesForUserOnDates :many
 -- Used by DietTemplates.Apply's pre-write conflict check: given the exact

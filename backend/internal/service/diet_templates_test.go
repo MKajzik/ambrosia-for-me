@@ -227,10 +227,13 @@ func TestDietTemplatesReplaceSlotsConcurrentCallsOnTheSameTemplateDoNotRace(t *t
 }
 
 // TestDietTemplatesReplaceSlotsReturnsSlotsInReadOrder pins ReplaceSlots's
-// response order to GetTemplateSlots' ORDER BY day_index, slot — the order
-// Get, Update and Apply already use — so a client that PUTs its slots out of
-// order does not get one order back from the PUT and a different one on the
-// next GET.
+// response order to GetTemplateSlots' ORDER BY day_index, then meal-time
+// position — the order Get, Update and Apply already use — so a client
+// that PUTs its slots out of order does not get one order back from the PUT
+// and a different one on the next GET. Covers all four slot kinds
+// (including a day with two snacks) because meal-time position sorts
+// differently from plain alphabetical "slot" text (which would put dinner
+// before lunch) — a test using only breakfast/lunch would not catch that.
 func TestDietTemplatesReplaceSlotsReturnsSlotsInReadOrder(t *testing.T) {
 	tpls, meals, _, st := newDietTemplatesFixture(t)
 	owner := newTestUser(t, st, "planner10@example.com")
@@ -243,8 +246,11 @@ func TestDietTemplatesReplaceSlotsReturnsSlotsInReadOrder(t *testing.T) {
 
 	put, err := tpls.ReplaceSlots(context.Background(), owner, tpl.ID, []service.TemplateSlotInput{
 		{DayIndex: 2, Slot: "lunch", MealID: meal.ID, Portion: 1},
-		{DayIndex: 0, Slot: "lunch", MealID: meal.ID, Portion: 1},
+		{DayIndex: 0, Slot: "dinner", MealID: meal.ID, Portion: 1},
+		{DayIndex: 0, Slot: "snack", MealID: meal.ID, Portion: 1},
 		{DayIndex: 0, Slot: "breakfast", MealID: meal.ID, Portion: 1},
+		{DayIndex: 0, Slot: "snack", MealID: meal.ID, Portion: 1},
+		{DayIndex: 0, Slot: "lunch", MealID: meal.ID, Portion: 1},
 	})
 	if err != nil {
 		t.Fatalf("ReplaceSlots: %v", err)
@@ -254,7 +260,13 @@ func TestDietTemplatesReplaceSlotsReturnsSlotsInReadOrder(t *testing.T) {
 		day  int
 		slot string
 	}
-	want := []pos{{0, "breakfast"}, {0, "lunch"}, {2, "lunch"}}
+	// Meal-time order within day 0 (breakfast, lunch, dinner, then both
+	// snacks), not plain alphabetical order (which would put dinner before
+	// lunch), followed by day 2's lunch.
+	want := []pos{
+		{0, "breakfast"}, {0, "lunch"}, {0, "dinner"}, {0, "snack"}, {0, "snack"},
+		{2, "lunch"},
+	}
 	order := func(slots []service.TemplateSlot) []pos {
 		out := make([]pos, len(slots))
 		for i, sl := range slots {
@@ -262,8 +274,11 @@ func TestDietTemplatesReplaceSlotsReturnsSlotsInReadOrder(t *testing.T) {
 		}
 		return out
 	}
+	if len(put.Slots) != len(want) {
+		t.Fatalf("ReplaceSlots returned %d slots, want %d", len(put.Slots), len(want))
+	}
 	if got := order(put.Slots); !slices.Equal(got, want) {
-		t.Errorf("ReplaceSlots order = %+v, want %+v (day_index, then slot)", got, want)
+		t.Errorf("ReplaceSlots order = %+v, want %+v (day_index, then meal-time position)", got, want)
 	}
 
 	read, err := tpls.Get(context.Background(), owner, tpl.ID)

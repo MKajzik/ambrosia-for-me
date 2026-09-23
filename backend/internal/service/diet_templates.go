@@ -286,9 +286,9 @@ func (s *DietTemplates) ReplaceSlots(ctx context.Context, ownerID, id uuid.UUID,
 			}
 		}
 		// Re-read rather than answering from the insert order: GetTemplateSlots
-		// orders by day_index, slot, which is what Get, Update and Apply return,
-		// so a client that PUTs slots out of order sees the same order here as
-		// on its next GET.
+		// orders by day_index then meal-time position, which is what Get,
+		// Update and Apply return, so a client that PUTs slots out of order
+		// sees the same order here as on its next GET.
 		slotRows, err := q.GetTemplateSlots(ctx, id)
 		if err != nil {
 			return fmt.Errorf("get template slots: %w", err)

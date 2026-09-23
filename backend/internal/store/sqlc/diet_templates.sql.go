@@ -109,9 +109,16 @@ func (q *Queries) GetDietTemplateForUser(ctx context.Context, arg GetDietTemplat
 }
 
 const getTemplateSlots = `-- name: GetTemplateSlots :many
-SELECT id, template_id, day_index, slot, meal_id, portion FROM template_slots WHERE template_id = $1 ORDER BY day_index, slot
+SELECT id, template_id, day_index, slot, meal_id, portion FROM template_slots
+WHERE template_id = $1
+ORDER BY day_index, array_position(ARRAY['breakfast', 'lunch', 'dinner', 'snack'], slot), id
 `
 
+// Ordered by meal-time position (breakfast, lunch, dinner, snack), not
+// plain text ("slot" would sort dinner before lunch). template_slots has no
+// timestamps (see backend/CLAUDE.md's line-item-table exception), so id is
+// the tiebreak for same-day, same-slot rows (only possible for snack, which
+// allows several per day).
 func (q *Queries) GetTemplateSlots(ctx context.Context, templateID uuid.UUID) ([]TemplateSlot, error) {
 	rows, err := q.db.Query(ctx, getTemplateSlots, templateID)
 	if err != nil {

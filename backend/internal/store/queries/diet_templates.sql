@@ -57,4 +57,11 @@ VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- name: GetTemplateSlots :many
-SELECT * FROM template_slots WHERE template_id = sqlc.arg('template_id') ORDER BY day_index, slot;
+-- Ordered by meal-time position (breakfast, lunch, dinner, snack), not
+-- plain text ("slot" would sort dinner before lunch). template_slots has no
+-- timestamps (see backend/CLAUDE.md's line-item-table exception), so id is
+-- the tiebreak for same-day, same-slot rows (only possible for snack, which
+-- allows several per day).
+SELECT * FROM template_slots
+WHERE template_id = sqlc.arg('template_id')
+ORDER BY day_index, array_position(ARRAY['breakfast', 'lunch', 'dinner', 'snack'], slot), id;
