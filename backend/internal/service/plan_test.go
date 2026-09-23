@@ -187,7 +187,11 @@ func TestPlanGetRangeComputesDailyTotalsAndPropagatesUnknownNutrients(t *testing
 	if _, err := plan.SetEntry(context.Background(), owner, day1, "breakfast", service.SetPlanEntryInput{MealID: riceMeal.ID, Portion: 2}); err != nil {
 		t.Fatalf("SetEntry day1: %v", err)
 	}
-	// day1 total calories: 260 * 2 = 520.
+	if _, err := plan.SetEntry(context.Background(), owner, day1, "snack", service.SetPlanEntryInput{MealID: riceMeal.ID, Portion: 0.5}); err != nil {
+		t.Fatalf("SetEntry day1 snack: %v", err)
+	}
+	// day1 total calories: summed across both entries on the day, not just
+	// the first one: 260*2 (breakfast) + 260*0.5 (snack) = 520 + 130 = 650.
 
 	protein, err := ing.Create(context.Background(), owner, service.CreateIngredientInput{
 		Name: "Mystery Protein", Category: "other", Nutrients: map[string]float64{service.NutrientProtein: 80},
@@ -215,11 +219,20 @@ func TestPlanGetRangeComputesDailyTotalsAndPropagatesUnknownNutrients(t *testing
 	if len(rng.Days) != 2 {
 		t.Fatalf("Days = %+v, want 2 (day1 and day2)", rng.Days)
 	}
-	if got := rng.Days[0].NutritionPerDay[service.NutrientCalories]; got != 520 {
-		t.Errorf("day1 calories = %v, want 520", got)
+	if len(rng.Days[0].Entries) != 2 {
+		t.Fatalf("day1 entries = %+v, want 2 (breakfast and snack)", rng.Days[0].Entries)
+	}
+	if got := rng.Days[0].NutritionPerDay[service.NutrientCalories]; got != 650 {
+		t.Errorf("day1 calories = %v, want 650 (summed across both of day1's entries)", got)
 	}
 	if _, ok := rng.Days[1].NutritionPerDay[service.NutrientCalories]; ok {
 		t.Errorf("day2 calories = %v, want absent (unknownMeal has no calories data)", rng.Days[1].NutritionPerDay[service.NutrientCalories])
+	}
+	// day2's calories being absent must not mean every key was nulled out:
+	// protein is known for unknownMeal's one ingredient, so it must still
+	// come through with the correct summed value.
+	if got := rng.Days[1].NutritionPerDay[service.NutrientProtein]; got != 80 {
+		t.Errorf("day2 protein = %v, want 80 (unknownMeal's one known key, summed correctly)", got)
 	}
 }
 
