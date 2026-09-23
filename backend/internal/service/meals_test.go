@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -284,6 +285,94 @@ func TestMealsReplaceIngredientsRejectsAnotherUsersCustomIngredient(t *testing.T
 	}
 	if len(got.Ingredients) != 0 {
 		t.Errorf("Ingredients = %+v, want none", got.Ingredients)
+	}
+}
+
+// TestMealsReplaceIngredientsBumpsUpdatedAt pins the second half of finding
+// #1: ReplaceIngredients now goes through TouchMealForUser (an UPDATE), not
+// a plain SELECT, so it must advance meals.updated_at like every other
+// write, unlike before this fix when the ingredient list could change
+// without updated_at moving.
+func TestMealsReplaceIngredientsBumpsUpdatedAt(t *testing.T) {
+	meals, ing, st := newMealsFixture(t)
+	owner := newTestUser(t, st, "touch@example.com")
+
+	rice := mustCreateIngredient(t, ing, owner, service.CreateIngredientInput{
+		Name: "Rice", Category: "grains_bread",
+		Nutrients: map[string]float64{service.NutrientCalories: 130},
+	})
+	meal, err := meals.Create(context.Background(), owner, service.CreateMealInput{Name: "Touch", Servings: 1})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	before := meal.UpdatedAt
+
+	after, err := meals.ReplaceIngredients(context.Background(), owner, meal.ID, []service.MealIngredientInput{
+		{IngredientID: rice.ID, Quantity: 100, Unit: "g"},
+	})
+	if err != nil {
+		t.Fatalf("ReplaceIngredients: %v", err)
+	}
+	if !after.UpdatedAt.After(before) {
+		t.Errorf("UpdatedAt after ReplaceIngredients = %v, want after the pre-replace value %v", after.UpdatedAt, before)
+	}
+}
+
+// TestMealsReplaceIngredientsConcurrentCallsOnTheSameMealDoNotRace is finding
+// #1's regression test: before the fix, ReplaceIngredients read the meal
+// with a plain SELECT and took no row lock, so two concurrent replaces on
+// the same meal could interleave their DELETE+INSERT under READ COMMITTED
+// and the loser's INSERT would hit the meal_ingredients (meal_id, position)
+// unique constraint — a raw 23505 nothing translates, surfacing as an
+// unexpected error instead of a clean result. Firing several concurrent
+// calls and asserting none returns an unexpected error catches that
+// regression; TouchMealForUser's row lock now serializes them instead.
+func TestMealsReplaceIngredientsConcurrentCallsOnTheSameMealDoNotRace(t *testing.T) {
+	meals, ing, st := newMealsFixture(t)
+	owner := newTestUser(t, st, "race@example.com")
+
+	rice := mustCreateIngredient(t, ing, owner, service.CreateIngredientInput{
+		Name: "Rice", Category: "grains_bread",
+		Nutrients: map[string]float64{service.NutrientCalories: 130},
+	})
+	meal, err := meals.Create(context.Background(), owner, service.CreateMealInput{Name: "Race", Servings: 1})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	items := []service.MealIngredientInput{{IngredientID: rice.ID, Quantity: 100, Unit: "g"}}
+
+	const numGoroutines = 8
+	var (
+		wg      sync.WaitGroup
+		barrier = make(chan struct{})
+		results = make([]error, numGoroutines)
+	)
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			<-barrier // release all goroutines at once
+			_, err := meals.ReplaceIngredients(context.Background(), owner, meal.ID, items)
+			results[idx] = err
+		}(i)
+	}
+	close(barrier)
+	wg.Wait()
+
+	for i, err := range results {
+		if err != nil {
+			t.Errorf("goroutine %d: ReplaceIngredients returned an unexpected error: %v", i, err)
+		}
+	}
+
+	// The meal must still have exactly the one rice line, not duplicates or
+	// a corrupted position sequence from an interleaved write.
+	got, err := meals.Get(context.Background(), owner, meal.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(got.Ingredients) != 1 || got.Ingredients[0].IngredientID != rice.ID {
+		t.Errorf("Ingredients after concurrent replaces = %+v, want exactly one rice line", got.Ingredients)
 	}
 }
 

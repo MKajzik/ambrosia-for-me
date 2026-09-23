@@ -277,7 +277,13 @@ func (s *Meals) List(ctx context.Context, ownerID uuid.UUID, in ListMealsInput) 
 func (s *Meals) ReplaceIngredients(ctx context.Context, ownerID, id uuid.UUID, items []MealIngredientInput) (Meal, error) {
 	var meal Meal
 	err := s.st.InTx(ctx, func(q *sqlc.Queries) error {
-		row, err := q.GetMealForUser(ctx, sqlc.GetMealForUserParams{ID: id, UserID: ownerID})
+		// TouchMealForUser (an UPDATE, not a plain SELECT) takes the row's
+		// write lock and bumps updated_at in one step. The lock serializes
+		// two concurrent replaces on the same meal: without it, both
+		// transactions' DELETEs below can interleave under READ COMMITTED
+		// and the second INSERT loop hits the meal_ingredients (meal_id,
+		// position) unique constraint, a raw 23505 that nothing translates.
+		row, err := q.TouchMealForUser(ctx, sqlc.TouchMealForUserParams{ID: id, UserID: ownerID})
 		if store.IsNotFound(err) {
 			return ErrMealNotFound
 		}
