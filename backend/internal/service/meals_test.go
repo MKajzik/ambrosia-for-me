@@ -299,6 +299,9 @@ func TestMealsAreOwnerOnlyForNow(t *testing.T) {
 	if _, err := meals.Copy(context.Background(), other, meal.ID); !errors.Is(err, service.ErrMealNotFound) {
 		t.Errorf("Copy by a non-owner: err = %v, want ErrMealNotFound", err)
 	}
+	if _, err := meals.ReplaceIngredients(context.Background(), other, meal.ID, nil); !errors.Is(err, service.ErrMealNotFound) {
+		t.Errorf("ReplaceIngredients by a non-owner: err = %v, want ErrMealNotFound", err)
+	}
 }
 
 // TestMealsUpdateRecomputesNutritionWhenServingsChange is finding #3's first
@@ -544,6 +547,9 @@ func TestMealsCopyDuplicatesIngredientsAndStartsPrivate(t *testing.T) {
 	}
 	if copy_.Name != original.Name || copy_.Servings != original.Servings {
 		t.Errorf("copy = %+v, want same name/servings as original", copy_)
+	}
+	if copy_.Notes == nil || *copy_.Notes != "family recipe" {
+		t.Errorf("copy.Notes = %v, want same notes as original (family recipe)", copy_.Notes)
 	}
 	if copy_.SharedWithPartner {
 		t.Error("copy has shared_with_partner = true, want false regardless of the original")

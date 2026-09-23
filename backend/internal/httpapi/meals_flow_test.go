@@ -88,6 +88,10 @@ func TestMealsLifecycle(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("user 2 PATCH: status = %d, want 404", rec.Code)
 	}
+	rec = contract(t, router, http.MethodDelete, "/meals/"+meal.Id.String(), withBearer(token2))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("user 2 DELETE: status = %d, want 404", rec.Code)
+	}
 
 	// Copying gives user 1 a second, independent meal.
 	rec = contract(t, router, http.MethodPost, "/meals/"+meal.Id.String()+"/copy", withBearer(token1))
