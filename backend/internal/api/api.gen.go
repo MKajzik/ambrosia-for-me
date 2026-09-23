@@ -94,6 +94,45 @@ func (e IngredientCategory) Valid() bool {
 	}
 }
 
+// Defines values for ShoppingItemUnit.
+const (
+	ShoppingItemUnitG     ShoppingItemUnit = "g"
+	ShoppingItemUnitMl    ShoppingItemUnit = "ml"
+	ShoppingItemUnitPiece ShoppingItemUnit = "piece"
+)
+
+// Valid indicates whether the value is a known member of the ShoppingItemUnit enum.
+func (e ShoppingItemUnit) Valid() bool {
+	switch e {
+	case ShoppingItemUnitG:
+		return true
+	case ShoppingItemUnitMl:
+		return true
+	case ShoppingItemUnitPiece:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ShoppingItemOrigin.
+const (
+	ShoppingItemOriginGenerated ShoppingItemOrigin = "generated"
+	ShoppingItemOriginManual    ShoppingItemOrigin = "manual"
+)
+
+// Valid indicates whether the value is a known member of the ShoppingItemOrigin enum.
+func (e ShoppingItemOrigin) Valid() bool {
+	switch e {
+	case ShoppingItemOriginGenerated:
+		return true
+	case ShoppingItemOriginManual:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Slot.
 const (
 	SlotBreakfast Slot = "breakfast"
@@ -133,6 +172,27 @@ func (e Unit) Valid() bool {
 	case UnitMl:
 		return true
 	case UnitPiece:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateShoppingItemRequestUnit.
+const (
+	UpdateShoppingItemRequestUnitG     UpdateShoppingItemRequestUnit = "g"
+	UpdateShoppingItemRequestUnitMl    UpdateShoppingItemRequestUnit = "ml"
+	UpdateShoppingItemRequestUnitPiece UpdateShoppingItemRequestUnit = "piece"
+)
+
+// Valid indicates whether the value is a known member of the UpdateShoppingItemRequestUnit enum.
+func (e UpdateShoppingItemRequestUnit) Valid() bool {
+	switch e {
+	case UpdateShoppingItemRequestUnitG:
+		return true
+	case UpdateShoppingItemRequestUnitMl:
+		return true
+	case UpdateShoppingItemRequestUnitPiece:
 		return true
 	default:
 		return false
@@ -185,6 +245,21 @@ type CreateMealRequest struct {
 	SharedWithPartner *bool                     `json:"shared_with_partner,omitempty"`
 }
 
+// CreateShoppingItemRequest defines model for CreateShoppingItemRequest.
+type CreateShoppingItemRequest struct {
+	Category     *IngredientCategory `json:"category,omitempty"`
+	IngredientId *openapi_types.UUID `json:"ingredient_id,omitempty"`
+	Name         string              `json:"name"`
+	Quantity     *float64            `json:"quantity,omitempty"`
+	Unit         *Unit               `json:"unit,omitempty"`
+}
+
+// CreateShoppingListRequest defines model for CreateShoppingListRequest.
+type CreateShoppingListRequest struct {
+	Name              string `json:"name"`
+	SharedWithPartner *bool  `json:"shared_with_partner,omitempty"`
+}
+
 // DailyTotal defines model for DailyTotal.
 type DailyTotal struct {
 	Date    openapi_types.Date `json:"date"`
@@ -228,6 +303,18 @@ type FieldError struct {
 
 	// Field Path of the offending JSON field, e.g. `email`.
 	Field string `json:"field"`
+}
+
+// GenerateShoppingListRequest defines model for GenerateShoppingListRequest.
+type GenerateShoppingListRequest struct {
+	From openapi_types.Date `json:"from"`
+
+	// ListId Regenerate this existing list instead of creating a new one.
+	ListId *openapi_types.UUID `json:"list_id,omitempty"`
+
+	// Name Name for a new list. Ignored when `list_id` is set. Defaults to "Shopping {from} to {to}".
+	Name *string            `json:"name,omitempty"`
+	To   openapi_types.Date `json:"to"`
 }
 
 // Health defines model for Health.
@@ -426,6 +513,71 @@ type SetPlanEntryRequest struct {
 	Portion *float64           `json:"portion,omitempty"`
 }
 
+// ShoppingItem defines model for ShoppingItem.
+type ShoppingItem struct {
+	Category  IngredientCategory                    `json:"category"`
+	Checked   bool                                  `json:"checked"`
+	CheckedBy nullable.Nullable[openapi_types.UUID] `json:"checked_by"`
+	CreatedAt time.Time                             `json:"created_at"`
+	Id        openapi_types.UUID                    `json:"id"`
+
+	// IngredientId The ingredient this item came from. Null for a free-text item, and for any item whose ingredient has since been deleted; the item keeps its own name, quantity, unit and category either way.
+	IngredientId nullable.Nullable[openapi_types.UUID] `json:"ingredient_id"`
+	ListId       openapi_types.UUID                    `json:"list_id"`
+	Name         string                                `json:"name"`
+	Origin       ShoppingItemOrigin                    `json:"origin"`
+	Position     int                                   `json:"position"`
+	Quantity     nullable.Nullable[float64]            `json:"quantity"`
+	Unit         nullable.Nullable[ShoppingItemUnit]   `json:"unit"`
+	UpdatedAt    time.Time                             `json:"updated_at"`
+	Version      int                                   `json:"version"`
+}
+
+// ShoppingItemUnit defines model for ShoppingItem.Unit.
+type ShoppingItemUnit string
+
+// ShoppingItemConflict A `version_conflict` problem (RFC 9457) with the item's current state as the `current` extension member.
+type ShoppingItemConflict struct {
+	Code    string       `json:"code"`
+	Current ShoppingItem `json:"current"`
+	Detail  *string      `json:"detail,omitempty"`
+	Status  int          `json:"status"`
+	Title   string       `json:"title"`
+	Type    string       `json:"type"`
+}
+
+// ShoppingItemOrigin defines model for ShoppingItemOrigin.
+type ShoppingItemOrigin string
+
+// ShoppingList defines model for ShoppingList.
+type ShoppingList struct {
+	CreatedAt         time.Time                             `json:"created_at"`
+	Id                openapi_types.UUID                    `json:"id"`
+	Items             []ShoppingItem                        `json:"items"`
+	Name              string                                `json:"name"`
+	SharedWithPartner bool                                  `json:"shared_with_partner"`
+	SourceFrom        nullable.Nullable[openapi_types.Date] `json:"source_from"`
+	SourceTo          nullable.Nullable[openapi_types.Date] `json:"source_to"`
+	UpdatedAt         time.Time                             `json:"updated_at"`
+}
+
+// ShoppingListPage defines model for ShoppingListPage.
+type ShoppingListPage struct {
+	Items      []ShoppingListSummary     `json:"items"`
+	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+}
+
+// ShoppingListSummary defines model for ShoppingListSummary.
+type ShoppingListSummary struct {
+	CreatedAt         time.Time                             `json:"created_at"`
+	Id                openapi_types.UUID                    `json:"id"`
+	Name              string                                `json:"name"`
+	SharedWithPartner bool                                  `json:"shared_with_partner"`
+	SourceFrom        nullable.Nullable[openapi_types.Date] `json:"source_from"`
+	SourceTo          nullable.Nullable[openapi_types.Date] `json:"source_to"`
+	UpdatedAt         time.Time                             `json:"updated_at"`
+}
+
 // Slot defines model for Slot.
 type Slot string
 
@@ -492,6 +644,25 @@ type UpdateProfileRequest struct {
 	TargetProteinG nullable.Nullable[float64] `json:"target_protein_g,omitempty"`
 }
 
+// UpdateShoppingItemRequest defines model for UpdateShoppingItemRequest.
+type UpdateShoppingItemRequest struct {
+	Category *IngredientCategory                              `json:"category,omitempty"`
+	Checked  *bool                                            `json:"checked,omitempty"`
+	Name     *string                                          `json:"name,omitempty"`
+	Quantity nullable.Nullable[float64]                       `json:"quantity,omitempty"`
+	Unit     nullable.Nullable[UpdateShoppingItemRequestUnit] `json:"unit,omitempty"`
+	Version  *int                                             `json:"version,omitempty"`
+}
+
+// UpdateShoppingItemRequestUnit defines model for UpdateShoppingItemRequest.Unit.
+type UpdateShoppingItemRequestUnit string
+
+// UpdateShoppingListRequest defines model for UpdateShoppingListRequest.
+type UpdateShoppingListRequest struct {
+	Name              *string `json:"name,omitempty"`
+	SharedWithPartner *bool   `json:"shared_with_partner,omitempty"`
+}
+
 // User defines model for User.
 type User struct {
 	CreatedAt      time.Time                  `json:"created_at"`
@@ -546,6 +717,12 @@ type GetPlanParams struct {
 	To   openapi_types.Date `form:"to" json:"to"`
 }
 
+// ListShoppingListsParams defines parameters for ListShoppingLists.
+type ListShoppingListsParams struct {
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
 type LoginUserJSONRequestBody = LoginRequest
 
@@ -590,6 +767,21 @@ type ReplaceMealIngredientsJSONRequestBody = ReplaceMealIngredientsRequest
 
 // SetPlanEntryJSONRequestBody defines body for SetPlanEntry for application/json ContentType.
 type SetPlanEntryJSONRequestBody = SetPlanEntryRequest
+
+// CreateShoppingListJSONRequestBody defines body for CreateShoppingList for application/json ContentType.
+type CreateShoppingListJSONRequestBody = CreateShoppingListRequest
+
+// GenerateShoppingListJSONRequestBody defines body for GenerateShoppingList for application/json ContentType.
+type GenerateShoppingListJSONRequestBody = GenerateShoppingListRequest
+
+// UpdateShoppingListJSONRequestBody defines body for UpdateShoppingList for application/json ContentType.
+type UpdateShoppingListJSONRequestBody = UpdateShoppingListRequest
+
+// CreateShoppingItemJSONRequestBody defines body for CreateShoppingItem for application/json ContentType.
+type CreateShoppingItemJSONRequestBody = CreateShoppingItemRequest
+
+// UpdateShoppingItemJSONRequestBody defines body for UpdateShoppingItem for application/json ContentType.
+type UpdateShoppingItemJSONRequestBody = UpdateShoppingItemRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -686,6 +878,33 @@ type ServerInterface interface {
 	// GetReady Readiness probe
 	// (GET /readyz)
 	GetReady(w http.ResponseWriter, r *http.Request)
+	// ListShoppingLists List the caller's shopping lists
+	// (GET /shopping-lists)
+	ListShoppingLists(w http.ResponseWriter, r *http.Request, params ListShoppingListsParams)
+	// CreateShoppingList Create an empty shopping list
+	// (POST /shopping-lists)
+	CreateShoppingList(w http.ResponseWriter, r *http.Request)
+	// GenerateShoppingList Generate a shopping list from the plan
+	// (POST /shopping-lists/generate)
+	GenerateShoppingList(w http.ResponseWriter, r *http.Request)
+	// DeleteShoppingList Delete a shopping list
+	// (DELETE /shopping-lists/{id})
+	DeleteShoppingList(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// GetShoppingList Get a shopping list
+	// (GET /shopping-lists/{id})
+	GetShoppingList(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// UpdateShoppingList Update a shopping list
+	// (PATCH /shopping-lists/{id})
+	UpdateShoppingList(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// CreateShoppingItem Add an item to a shopping list
+	// (POST /shopping-lists/{id}/items)
+	CreateShoppingItem(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// DeleteShoppingItem Remove an item from a shopping list
+	// (DELETE /shopping-lists/{id}/items/{item_id})
+	DeleteShoppingItem(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, itemId openapi_types.UUID)
+	// UpdateShoppingItem Edit or check off a shopping item
+	// (PATCH /shopping-lists/{id}/items/{item_id})
+	UpdateShoppingItem(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, itemId openapi_types.UUID)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -875,6 +1094,60 @@ func (_ Unimplemented) SetPlanEntry(w http.ResponseWriter, r *http.Request, date
 // GetReady Readiness probe
 // (GET /readyz)
 func (_ Unimplemented) GetReady(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListShoppingLists List the caller's shopping lists
+// (GET /shopping-lists)
+func (_ Unimplemented) ListShoppingLists(w http.ResponseWriter, r *http.Request, params ListShoppingListsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateShoppingList Create an empty shopping list
+// (POST /shopping-lists)
+func (_ Unimplemented) CreateShoppingList(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GenerateShoppingList Generate a shopping list from the plan
+// (POST /shopping-lists/generate)
+func (_ Unimplemented) GenerateShoppingList(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteShoppingList Delete a shopping list
+// (DELETE /shopping-lists/{id})
+func (_ Unimplemented) DeleteShoppingList(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetShoppingList Get a shopping list
+// (GET /shopping-lists/{id})
+func (_ Unimplemented) GetShoppingList(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateShoppingList Update a shopping list
+// (PATCH /shopping-lists/{id})
+func (_ Unimplemented) UpdateShoppingList(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateShoppingItem Add an item to a shopping list
+// (POST /shopping-lists/{id}/items)
+func (_ Unimplemented) CreateShoppingItem(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteShoppingItem Remove an item from a shopping list
+// (DELETE /shopping-lists/{id}/items/{item_id})
+func (_ Unimplemented) DeleteShoppingItem(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, itemId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// UpdateShoppingItem Edit or check off a shopping item
+// (PATCH /shopping-lists/{id}/items/{item_id})
+func (_ Unimplemented) UpdateShoppingItem(w http.ResponseWriter, r *http.Request, id openapi_types.UUID, itemId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1673,6 +1946,254 @@ func (siw *ServerInterfaceWrapper) GetReady(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// ListShoppingLists operation middleware
+func (siw *ServerInterfaceWrapper) ListShoppingLists(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListShoppingListsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListShoppingLists(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateShoppingList operation middleware
+func (siw *ServerInterfaceWrapper) CreateShoppingList(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateShoppingList(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GenerateShoppingList operation middleware
+func (siw *ServerInterfaceWrapper) GenerateShoppingList(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GenerateShoppingList(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteShoppingList operation middleware
+func (siw *ServerInterfaceWrapper) DeleteShoppingList(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteShoppingList(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetShoppingList operation middleware
+func (siw *ServerInterfaceWrapper) GetShoppingList(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetShoppingList(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateShoppingList operation middleware
+func (siw *ServerInterfaceWrapper) UpdateShoppingList(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateShoppingList(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateShoppingItem operation middleware
+func (siw *ServerInterfaceWrapper) CreateShoppingItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateShoppingItem(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteShoppingItem operation middleware
+func (siw *ServerInterfaceWrapper) DeleteShoppingItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "item_id" -------------
+	var itemId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item_id", chi.URLParam(r, "item_id"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteShoppingItem(w, r, id, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateShoppingItem operation middleware
+func (siw *ServerInterfaceWrapper) UpdateShoppingItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "item_id" -------------
+	var itemId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item_id", chi.URLParam(r, "item_id"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateShoppingItem(w, r, id, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1853,6 +2374,33 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/plan/{date}/{slot}", wrapper.SetPlanEntry)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/shopping-lists", wrapper.ListShoppingLists)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/shopping-lists", wrapper.CreateShoppingList)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/shopping-lists/generate", wrapper.GenerateShoppingList)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/shopping-lists/{id}", wrapper.DeleteShoppingList)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/shopping-lists/{id}", wrapper.GetShoppingList)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/shopping-lists/{id}", wrapper.UpdateShoppingList)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/shopping-lists/{id}/items", wrapper.CreateShoppingItem)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/shopping-lists/{id}/items/{item_id}", wrapper.DeleteShoppingItem)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/shopping-lists/{id}/items/{item_id}", wrapper.UpdateShoppingItem)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/healthz", wrapper.GetHealth)
 	})
 	r.Group(func(r chi.Router) {
@@ -1888,100 +2436,126 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

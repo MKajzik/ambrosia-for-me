@@ -27,6 +27,8 @@ const (
 	CodePlanConflict        = "plan_conflict"
 	CodePlanRangeTooLong    = "plan_range_too_long"
 	CodePlanRangeInvalid    = "plan_range_invalid"
+	CodeVersionConflict     = "version_conflict"
+	CodeVersionRequired     = "version_required"
 )
 
 // Stable codes for FieldError.Code.

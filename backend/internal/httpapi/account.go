@@ -191,6 +191,14 @@ func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err e
 		WriteProblem(w, http.StatusBadRequest, CodePlanRangeTooLong, "")
 	case errors.Is(err, service.ErrPlanRangeInvalid):
 		WriteProblem(w, http.StatusBadRequest, CodePlanRangeInvalid, "to must not be before from")
+	case errors.Is(err, service.ErrShoppingListNotFound):
+		WriteProblem(w, http.StatusNotFound, CodeNotFound, "")
+	case errors.Is(err, service.ErrShoppingItemNotFound):
+		WriteProblem(w, http.StatusNotFound, CodeNotFound, "")
+	case errors.Is(err, service.ErrShoppingItemIngredientNotFound):
+		WriteProblem(w, http.StatusBadRequest, CodeInvalidIngredient, "")
+	case errors.Is(err, service.ErrShoppingItemVersionRequired):
+		WriteProblem(w, http.StatusBadRequest, CodeVersionRequired, "version is required to change name, quantity, unit or category")
 	case errors.Is(err, service.ErrNotFound):
 		// The signed-in user's own account no longer exists: a valid access
 		// token for a deleted user is simply no longer authorized. Reused by

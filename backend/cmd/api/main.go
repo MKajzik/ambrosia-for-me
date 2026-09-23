@@ -77,6 +77,8 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 	meals := service.NewMeals(st)
 	dietTemplates := service.NewDietTemplates(st)
 	plan := service.NewPlan(st, meals)
+	listEvents := service.NewListEventHub()
+	shoppingLists := service.NewShoppingLists(st, listEvents)
 
 	srv := &http.Server{
 		Handler: httpapi.NewRouter(httpapi.Deps{
@@ -88,6 +90,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 			Meals:          meals,
 			DietTemplates:  dietTemplates,
 			Plan:           plan,
+			ShoppingLists:  shoppingLists,
 			Tokens:         tokens,
 			TrustedProxies: cfg.TrustedProxies,
 		}),

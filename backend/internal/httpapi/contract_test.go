@@ -91,6 +91,10 @@ type stubDietTemplates struct{ httpapi.DietTemplatesService }
 // service fail loudly if they do.
 type stubPlan struct{ httpapi.PlanService }
 
+// stubShoppingLists panics on any call, so tests that must not reach the
+// shopping lists service fail loudly if they do.
+type stubShoppingLists struct{ httpapi.ShoppingListsService }
+
 func newTestRouter(t *testing.T, mods ...func(*httpapi.Deps)) http.Handler {
 	t.Helper()
 	d := httpapi.Deps{
@@ -102,6 +106,7 @@ func newTestRouter(t *testing.T, mods ...func(*httpapi.Deps)) http.Handler {
 		Meals:         stubMeals{},
 		DietTemplates: stubDietTemplates{},
 		Plan:          stubPlan{},
+		ShoppingLists: stubShoppingLists{},
 		Tokens:        stubTokens{},
 	}
 	for _, m := range mods {
@@ -253,6 +258,7 @@ func TestNewRouterPanicsWithoutRequiredDependencies(t *testing.T) {
 	full := httpapi.Deps{
 		Logger: slog.New(slog.DiscardHandler), Ready: alwaysReady,
 		WebOrigin: "http://localhost:3000", Auth: stubAuth{}, Ingredients: stubIngredients{}, Meals: stubMeals{}, Tokens: stubTokens{}, DietTemplates: stubDietTemplates{}, Plan: stubPlan{},
+		ShoppingLists: stubShoppingLists{},
 	}
 	tests := map[string]func(*httpapi.Deps){
 		"no logger":           func(d *httpapi.Deps) { d.Logger = nil },
@@ -262,6 +268,7 @@ func TestNewRouterPanicsWithoutRequiredDependencies(t *testing.T) {
 		"no meals":            func(d *httpapi.Deps) { d.Meals = nil },
 		"no diet templates":   func(d *httpapi.Deps) { d.DietTemplates = nil },
 		"no plan":             func(d *httpapi.Deps) { d.Plan = nil },
+		"no shopping lists":   func(d *httpapi.Deps) { d.ShoppingLists = nil },
 		"no tokens":           func(d *httpapi.Deps) { d.Tokens = nil },
 		"empty web origin":    func(d *httpapi.Deps) { d.WebOrigin = "" },
 		"wildcard web origin": func(d *httpapi.Deps) { d.WebOrigin = "*" },
