@@ -128,10 +128,16 @@ func (s *Plan) GetRange(ctx context.Context, ownerID uuid.UUID, from, to time.Ti
 	mealIDs := uniqueUUIDs(rows, func(r sqlc.PlanEntry) uuid.UUID { return r.MealID })
 	mealsByID := make(map[uuid.UUID]Meal, len(mealIDs))
 	for _, id := range mealIDs {
+		// s.meals.Get can return ErrMealNotFound here only from a race: a
+		// meal referenced by a plan_entries row in this range was deleted
+		// between the read above and this lookup (deleting an in-use meal
+		// is normally blocked by plan_entries_meal_id_fkey, but this read
+		// runs in a separate transaction with no lock spanning both).
+		// Unlike Plan.SetEntry, where an unknown meal is the caller's own
+		// mistake (400), a GET returning 400 because of someone else's
+		// concurrent write would be confusing, so this is left as a plain
+		// wrapped error (500) rather than translated to ErrPlanMealNotFound.
 		m, err := s.meals.Get(ctx, ownerID, id)
-		if errors.Is(err, ErrMealNotFound) {
-			return PlanRange{}, ErrPlanMealNotFound
-		}
 		if err != nil {
 			return PlanRange{}, fmt.Errorf("get meal %s: %w", id, err)
 		}
@@ -220,6 +226,16 @@ func (s *Plan) SetEntry(ctx context.Context, ownerID uuid.UUID, date time.Time, 
 		row, err = s.st.UpsertPlanEntry(ctx, sqlc.UpsertPlanEntryParams{
 			OwnerID: ownerID, Date: pgDate, Slot: slot, MealID: in.MealID, Portion: in.Portion,
 		})
+	}
+	// The meal existence check above (GetMealForUser) is not in the same
+	// transaction as this insert (SetEntry runs unwrapped), so a concurrent
+	// delete of the meal in between can still reach here (deleting an
+	// in-use meal is normally blocked by plan_entries_meal_id_fkey, but
+	// this row doesn't exist yet at check time). Translate that race into
+	// the same 404 a meal that never existed would get, instead of letting
+	// a raw foreign-key violation surface as a 500.
+	if store.IsForeignKeyViolation(err, "plan_entries_meal_id_fkey") {
+		return PlanEntry{}, ErrPlanMealNotFound
 	}
 	if err != nil {
 		return PlanEntry{}, fmt.Errorf("set plan entry: %w", err)

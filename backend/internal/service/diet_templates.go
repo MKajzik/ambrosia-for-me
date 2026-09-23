@@ -281,6 +281,16 @@ func (s *DietTemplates) ReplaceSlots(ctx context.Context, ownerID, id uuid.UUID,
 			if store.IsUniqueViolation(err, "template_slots_unique_slot_idx") {
 				return ErrDuplicateSlot
 			}
+			// The meal existence check above ran in this same transaction,
+			// so this is reachable only if the meal was deleted concurrently
+			// between that check and this insert (deleting an in-use meal
+			// is normally blocked by template_slots_meal_id_fkey, but this
+			// row doesn't exist yet at check time). Translate the race into
+			// the same 404 a meal that never existed would get, instead of
+			// letting a raw foreign-key violation surface as a 500.
+			if store.IsForeignKeyViolation(err, "template_slots_meal_id_fkey") {
+				return ErrTemplateMealNotFound
+			}
 			if err != nil {
 				return fmt.Errorf("insert template slot: %w", err)
 			}
