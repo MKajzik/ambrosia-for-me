@@ -19,12 +19,17 @@ const maxPlanRangeDays = 92
 var (
 	ErrPlanEntryNotFound = errors.New("plan entry not found")
 	ErrPlanMealNotFound  = errors.New("meal does not exist or is not visible to you")
-	// ErrPlanRangeTooLong means [from, to] spans more than maxPlanRangeDays.
-	// There is no growing list here to cursor-paginate (§4.2 reserves that
-	// for meals/ingredients/diet-templates), so this bounds the request
-	// size instead; OpenAPI's JSON Schema can't express a cross-field
-	// constraint between from and to, so it is enforced here.
+	// ErrPlanRangeTooLong means [from, to] spans more than maxPlanRangeDays
+	// calendar days in total (from and to both inclusive). There is no
+	// growing list here to cursor-paginate (§4.2 reserves that for
+	// meals/ingredients/diet-templates), so this bounds the request size
+	// instead; OpenAPI's JSON Schema can't express a cross-field constraint
+	// between from and to, so it is enforced here.
 	ErrPlanRangeTooLong = errors.New("date range is too long")
+	// ErrPlanRangeInvalid means to is before from: a malformed range, not
+	// one that is simply too long, so it gets its own error rather than
+	// reusing ErrPlanRangeTooLong's misleading message for this case.
+	ErrPlanRangeInvalid = errors.New("to must not be before from")
 )
 
 // PlanEntry is one scheduled meal on the calendar, with the referenced
@@ -92,7 +97,8 @@ type Plan struct {
 func NewPlan(st *store.Store, meals *Meals) *Plan { return &Plan{st: st, meals: meals} }
 
 // GetRange returns one DailyTotal per calendar date in [from, to]
-// inclusive, capped at maxPlanRangeDays.
+// inclusive, capped at maxPlanRangeDays calendar days in total (from and to
+// both inclusive) — so to may be at most from+(maxPlanRangeDays-1).
 //
 // Deviation from the brief: plan_entries.date is sqlc.PlanEntry.Date of
 // type pgtype.Date, not time.Time as the brief's draft assumed (see
@@ -101,7 +107,14 @@ func NewPlan(st *store.Store, meals *Meals) *Plan { return &Plan{st: st, meals: 
 // or read back from one is converted at that boundary below; the
 // service-level aggregation logic is unchanged from the brief.
 func (s *Plan) GetRange(ctx context.Context, ownerID uuid.UUID, from, to time.Time) (PlanRange, error) {
-	if to.Before(from) || int(to.Sub(from).Hours()/24) > maxPlanRangeDays {
+	if to.Before(from) {
+		return PlanRange{}, ErrPlanRangeInvalid
+	}
+	// diffDays+1 is the total number of calendar days in [from, to]
+	// inclusive; reject once that total would exceed maxPlanRangeDays (so
+	// to may be at most from+(maxPlanRangeDays-1), i.e. diffDays must stay
+	// below maxPlanRangeDays).
+	if diffDays := int(to.Sub(from).Hours() / 24); diffDays >= maxPlanRangeDays {
 		return PlanRange{}, ErrPlanRangeTooLong
 	}
 

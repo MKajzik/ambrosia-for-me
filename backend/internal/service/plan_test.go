@@ -286,6 +286,45 @@ func TestPlanGetRangeIncludesEmptyDaysAndRejectsATooLongRange(t *testing.T) {
 	}
 }
 
+// TestPlanGetRangeCapsAt92DaysTotalInclusive is finding #7's boundary test:
+// the cap is 92 calendar days in [from, to] inclusive (matching the
+// "Capped at 92 days" description on GET /plan in openapi.yaml), so a range
+// of from..from+91 (92 days total) must succeed and from..from+92 (93 days
+// total) must fail — the previous `> 92` check on the day *difference*
+// allowed one extra day (93 total) before rejecting.
+func TestPlanGetRangeCapsAt92DaysTotalInclusive(t *testing.T) {
+	plan, _, _, st := newPlanFixture(t)
+	owner := newTestUser(t, st, "planowner8@example.com")
+	from := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	rng, err := plan.GetRange(context.Background(), owner, from, from.AddDate(0, 0, 91))
+	if err != nil {
+		t.Fatalf("a 92-day range (from..from+91): unexpected err = %v", err)
+	}
+	if len(rng.Days) != 92 {
+		t.Errorf("Days = %d, want 92", len(rng.Days))
+	}
+
+	_, err = plan.GetRange(context.Background(), owner, from, from.AddDate(0, 0, 92))
+	if !errors.Is(err, service.ErrPlanRangeTooLong) {
+		t.Errorf("a 93-day range (from..from+92): err = %v, want ErrPlanRangeTooLong", err)
+	}
+}
+
+// TestPlanGetRangeRejectsAReversedRangeWithADistinctError is finding #7's
+// second fix: to < from is a malformed range, not one that is too long, so
+// it must not return the misleading ErrPlanRangeTooLong.
+func TestPlanGetRangeRejectsAReversedRangeWithADistinctError(t *testing.T) {
+	plan, _, _, st := newPlanFixture(t)
+	owner := newTestUser(t, st, "planowner9@example.com")
+	from := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+
+	_, err := plan.GetRange(context.Background(), owner, from, from.AddDate(0, 0, -1))
+	if !errors.Is(err, service.ErrPlanRangeInvalid) {
+		t.Errorf("to before from: err = %v, want ErrPlanRangeInvalid (not the too-long error)", err)
+	}
+}
+
 // TestPlanGetRangeForADeletedUserIsNotFound guards the deleted-account
 // window: access tokens are stateless for up to 15 minutes after DELETE /me,
 // so a still-valid token can reach GetRange after the user row is gone.

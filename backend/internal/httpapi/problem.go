@@ -26,6 +26,7 @@ const (
 	CodeDuplicateSlot       = "duplicate_slot"
 	CodePlanConflict        = "plan_conflict"
 	CodePlanRangeTooLong    = "plan_range_too_long"
+	CodePlanRangeInvalid    = "plan_range_invalid"
 )
 
 // Stable codes for FieldError.Code.
