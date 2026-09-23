@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"math"
 	"sync"
 	"testing"
 
@@ -140,7 +141,15 @@ func TestMealsReplaceIngredientsRejectsAnUnconvertibleUnitAndLeavesTheMealUnchan
 	}
 }
 
-func TestMealsGetBecomesUnitNotConvertibleIfAnIngredientIsEditedAfterTheFact(t *testing.T) {
+// TestMealsStayReadableWhenAnIngredientEditWouldBreakUnitConversion pins
+// finding #2's fix: clearing an ingredient's density_g_per_ml (or
+// grams_per_piece) while a meal still depends on it for an "ml" (or
+// "piece") line is now rejected at write time, on the ingredient edit
+// itself — not discovered later when the meal becomes unreadable. Before
+// this fix, the edit above succeeded and every subsequent GET/PATCH/copy of
+// the meal returned 409 unit_not_convertible with no way to fix it (the
+// client could no longer GET the meal to see what to edit).
+func TestMealsStayReadableWhenAnIngredientEditWouldBreakUnitConversion(t *testing.T) {
 	meals, ing, st := newMealsFixture(t)
 	owner := newTestUser(t, st, "chef4@example.com")
 
@@ -159,16 +168,46 @@ func TestMealsGetBecomesUnitNotConvertibleIfAnIngredientIsEditedAfterTheFact(t *
 		t.Fatalf("ReplaceIngredients: %v", err)
 	}
 
-	// ingredients has no idea meals exist, so clearing density_g_per_ml here
-	// succeeds even though a meal now depends on it for an "ml" line.
+	// The edit itself is rejected now, before anything is written.
 	if _, err := ing.Update(context.Background(), owner, oil.ID, service.UpdateIngredientInput{
 		DensityGPerMl: service.Set[float64](nil),
-	}); err != nil {
-		t.Fatalf("clear density: %v", err)
+	}); !errors.Is(err, service.ErrIngredientInUseByUnconvertibleUnit) {
+		t.Errorf("clear density while in use by a meal: err = %v, want ErrIngredientInUseByUnconvertibleUnit", err)
 	}
 
-	if _, err := meals.Get(context.Background(), owner, meal.ID); !errors.Is(err, service.ErrUnitNotConvertible) {
-		t.Errorf("Get after the ingredient lost its density: err = %v, want ErrUnitNotConvertible", err)
+	// The ingredient's density_g_per_ml must be untouched by the rejected
+	// edit, and the meal must remain fully readable with its original
+	// nutrition.
+	unchanged, err := ing.List(context.Background(), owner, service.ListIngredientsInput{Limit: 10})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var found bool
+	for _, i := range unchanged.Items {
+		if i.ID == oil.ID {
+			found = true
+			if i.DensityGPerMl == nil || *i.DensityGPerMl != density {
+				t.Errorf("oil.DensityGPerMl = %v, want unchanged at %v", i.DensityGPerMl, density)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("oil not found in List after the rejected update")
+	}
+
+	got, err := meals.Get(context.Background(), owner, meal.ID)
+	if err != nil {
+		t.Fatalf("Get after the rejected ingredient edit: %v", err)
+	}
+	if len(got.Ingredients) != 1 || got.Ingredients[0].IngredientID != oil.ID {
+		t.Errorf("Ingredients = %+v, want unchanged (just the oil line)", got.Ingredients)
+	}
+	// 10ml * 0.92 g/ml -> 9.2g, at 884 kcal/100g, /1 serving. Compared with a
+	// small tolerance: binary floats can't represent 9.2 or 0.92 exactly, so
+	// exact equality here would be false by construction, not a bug.
+	want := 9.2 / 100 * 884
+	if got := got.NutritionPerServing[service.NutrientCalories]; math.Abs(got-want) > 1e-9 {
+		t.Errorf("calories per serving = %v, want %v", got, want)
 	}
 }
 

@@ -143,6 +143,46 @@ func TestMealsReplaceIngredientsWithAnUnknownIngredientIsRejected(t *testing.T) 
 	}
 }
 
+// TestUpdateIngredientRejectsClearingDensityWhileInUseByAMeal sends finding
+// #2's write-time rejection through the real HTTP router, so its 409
+// unit_not_convertible status and problem+json shape are checked against
+// openapi.yaml (previously unverified: nothing sent that problem code
+// through contract()).
+func TestUpdateIngredientRejectsClearingDensityWhileInUseByAMeal(t *testing.T) {
+	router, token1, _ := newMealsRouter(t)
+
+	rec := contract(t, router, http.MethodPost, "/ingredients", withBearer(token1),
+		withBody(`{"name":"Olive Oil","category":"condiments_oils","density_g_per_ml":0.92,"nutrients":{"calories":884}}`))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create ingredient: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	oil := decodeAs[api.Ingredient](t, rec)
+
+	rec = contract(t, router, http.MethodPost, "/meals", withBearer(token1), withBody(`{"name":"Dressing","servings":1}`))
+	meal := decodeAs[api.Meal](t, rec)
+
+	rec = contract(t, router, http.MethodPut, "/meals/"+meal.Id.String()+"/ingredients", withBearer(token1),
+		withBody(`{"items":[{"ingredient_id":"`+oil.Id.String()+`","quantity":10,"unit":"ml"}]}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("replace ingredients: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	rec = contract(t, router, http.MethodPatch, "/ingredients/"+oil.Id.String(), withBearer(token1),
+		withBody(`{"density_g_per_ml":null}`))
+	if rec.Code != http.StatusConflict {
+		t.Errorf("clear density while in use: status = %d, want 409, body = %s", rec.Code, rec.Body.String())
+	}
+	if got := problemCode(t, rec); got != "unit_not_convertible" {
+		t.Errorf("problem code = %q, want unit_not_convertible", got)
+	}
+
+	// The meal must still be readable, with density untouched.
+	rec = contract(t, router, http.MethodGet, "/meals/"+meal.Id.String(), withBearer(token1))
+	if rec.Code != http.StatusOK {
+		t.Errorf("get meal after the rejected edit: status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestMealsListPaginatesThroughTheContract(t *testing.T) {
 	router, token1, _ := newMealsRouter(t)
 	for _, name := range []string{"Breakfast", "Dinner", "Lunch"} {

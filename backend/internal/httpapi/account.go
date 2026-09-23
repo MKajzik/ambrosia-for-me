@@ -160,6 +160,11 @@ func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err e
 		WriteProblem(w, http.StatusNotFound, CodeNotFound, "")
 	case errors.Is(err, service.ErrIngredientInUse):
 		WriteProblem(w, http.StatusConflict, CodeIngredientInUse, "")
+	case errors.Is(err, service.ErrIngredientInUseByUnconvertibleUnit):
+		// Same problem code as the read-time ErrUnitNotConvertible below:
+		// both mean "this ingredient lacks the data needed to convert a unit
+		// a meal uses it with." This is the write-time rejection.
+		WriteProblem(w, http.StatusConflict, CodeUnitNotConvertible, "")
 	case errors.Is(err, service.ErrMealNotFound):
 		WriteProblem(w, http.StatusNotFound, CodeNotFound, "")
 	case errors.Is(err, service.ErrMealIngredientNotFound):
