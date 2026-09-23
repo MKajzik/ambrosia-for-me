@@ -28,10 +28,21 @@ func mustCreateIngredient(t *testing.T, ing *service.Ingredients, owner uuid.UUI
 	return i
 }
 
+// almostEqual compares two nutrition values with a small tolerance. Values
+// like 2.7, 0.92 and 0.027 are not exact in binary floating point (they are
+// exact decimal fractions, not exact binary ones), so the golden tests below
+// compare with a tolerance instead of claiming exact equality — the earlier
+// comment here claimed float64 division was exact "since every input is a
+// terminating decimal," which is false for exactly these values; the tests
+// only passed because the rounding happened to land on the nose for the
+// specific numbers and multiplication order used.
+func almostEqual(got, want float64) bool {
+	return math.Abs(got-want) < 1e-9
+}
+
 // TestMealsNutritionIsComputedToTheGram is the nutrition golden test the spec
 // (§6) calls for: hand-verified totals for a small real recipe, checked to
-// four decimal places (float64 division is exact here since every input is a
-// terminating decimal).
+// within a small tolerance (see almostEqual).
 func TestMealsNutritionIsComputedToTheGram(t *testing.T) {
 	meals, ing, st := newMealsFixture(t)
 	owner := newTestUser(t, st, "chef@example.com")
@@ -59,10 +70,10 @@ func TestMealsNutritionIsComputedToTheGram(t *testing.T) {
 
 	// Totals: calories = 3*165 + 2*130 = 755, protein = 3*31 + 2*2.7 = 98.4.
 	// Per serving (servings=2): calories = 377.5, protein = 49.2.
-	if got := meal.NutritionPerServing[service.NutrientCalories]; got != 377.5 {
+	if got := meal.NutritionPerServing[service.NutrientCalories]; !almostEqual(got, 377.5) {
 		t.Errorf("calories per serving = %v, want 377.5", got)
 	}
-	if got := meal.NutritionPerServing[service.NutrientProtein]; got != 49.2 {
+	if got := meal.NutritionPerServing[service.NutrientProtein]; !almostEqual(got, 49.2) {
 		t.Errorf("protein per serving = %v, want 49.2", got)
 	}
 }
@@ -95,7 +106,7 @@ func TestMealsNutritionConvertsPieceAndMlUnits(t *testing.T) {
 	}
 
 	want := 155.0 + 9.2/100*884 // 236.328
-	if got := meal.NutritionPerServing[service.NutrientCalories]; got != want {
+	if got := meal.NutritionPerServing[service.NutrientCalories]; !almostEqual(got, want) {
 		t.Errorf("calories per serving = %v, want %v", got, want)
 	}
 }
@@ -202,11 +213,9 @@ func TestMealsStayReadableWhenAnIngredientEditWouldBreakUnitConversion(t *testin
 	if len(got.Ingredients) != 1 || got.Ingredients[0].IngredientID != oil.ID {
 		t.Errorf("Ingredients = %+v, want unchanged (just the oil line)", got.Ingredients)
 	}
-	// 10ml * 0.92 g/ml -> 9.2g, at 884 kcal/100g, /1 serving. Compared with a
-	// small tolerance: binary floats can't represent 9.2 or 0.92 exactly, so
-	// exact equality here would be false by construction, not a bug.
+	// 10ml * 0.92 g/ml -> 9.2g, at 884 kcal/100g, /1 serving.
 	want := 9.2 / 100 * 884
-	if got := got.NutritionPerServing[service.NutrientCalories]; math.Abs(got-want) > 1e-9 {
+	if got := got.NutritionPerServing[service.NutrientCalories]; !almostEqual(got, want) {
 		t.Errorf("calories per serving = %v, want %v", got, want)
 	}
 }
@@ -240,7 +249,7 @@ func TestMealsNutritionIsNullForAKeyMissingFromAnyIngredient(t *testing.T) {
 	if _, ok := meal.NutritionPerServing[service.NutrientCalories]; ok {
 		t.Errorf("calories = %v, want absent (one ingredient's calories is unknown)", meal.NutritionPerServing[service.NutrientCalories])
 	}
-	if got := meal.NutritionPerServing[service.NutrientProtein]; got != 90 {
+	if got := meal.NutritionPerServing[service.NutrientProtein]; !almostEqual(got, 90) {
 		t.Errorf("protein = %v, want 90 (both known)", got)
 	}
 }
