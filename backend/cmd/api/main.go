@@ -96,9 +96,18 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// WriteTimeout bounds every ordinary response. The shopping-list event
+		// stream clears it for its own response (see StreamShoppingListEvents).
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
+	// Shutdown stops accepting connections and waits for active ones to go
+	// idle, but never cancels a request's context, so an open event stream
+	// would never finish on its own. Closing the hub ends every stream
+	// (their handlers return), while ordinary in-flight requests still drain
+	// normally. Cancelling a BaseContext instead would also abort those
+	// ordinary requests mid-write, defeating the graceful drain.
+	srv.RegisterOnShutdown(listEvents.Close)
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()

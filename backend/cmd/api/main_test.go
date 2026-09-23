@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"io"
@@ -135,6 +136,74 @@ func TestServeWiresTheAccountEndpoints(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("GET /me without a token: status = %d, want 401", resp.StatusCode)
+	}
+}
+
+// TestServeEndsOpenEventStreamsOnShutdown proves shutdown does not wait out
+// shutdownTimeout (and fail) while a shopping-list event stream is open:
+// http.Server.Shutdown never cancels request contexts, so the stream only
+// ends because serve registers the event hub's Close with RegisterOnShutdown.
+func TestServeEndsOpenEventStreamsOnShutdown(t *testing.T) {
+	s := startServer(t, testutil.NewMigratedDatabase(t))
+
+	status, body := s.post(t, "/auth/register", `{"email":"a@example.com","password":"a-long-enough-password","display_name":"A"}`)
+	if status != http.StatusCreated {
+		t.Fatalf("register: status = %d, body %s", status, body)
+	}
+	var session struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(body, &session); err != nil || session.AccessToken == "" {
+		t.Fatalf("register: no access token in %s (%v)", body, err)
+	}
+	authed := func(method, path, body string) *http.Request {
+		req, err := http.NewRequest(method, s.baseURL+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("new request: %v", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+session.AccessToken)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		return req
+	}
+
+	resp, err := s.client.Do(authed(http.MethodPost, "/shopping-lists", `{"name":"Groceries"}`))
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	var list struct {
+		ID string `json:"id"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&list)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated || err != nil {
+		t.Fatalf("create list: status = %d, err %v", resp.StatusCode, err)
+	}
+
+	// The stream outlives s.client's 2s timeout by design, so use a client
+	// without one.
+	stream, err := (&http.Client{}).Do(authed(http.MethodGet, "/shopping-lists/"+list.ID+"/events", ""))
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+	defer func() { _ = stream.Body.Close() }()
+	if line, err := bufio.NewReader(stream.Body).ReadString('\n'); err != nil || line != ": connected\n" {
+		t.Fatalf("first line = %q (err %v), want \": connected\"", line, err)
+	}
+
+	s.stop()
+
+	select {
+	case err := <-s.done:
+		if err != nil {
+			t.Fatalf("serve returned %v with an open event stream, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not return within 5s of cancellation with an open event stream")
+	}
+	if _, err := io.ReadAll(stream.Body); err != nil {
+		t.Errorf("reading the rest of the stream: %v, want a clean end of stream", err)
 	}
 }
 
