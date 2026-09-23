@@ -258,8 +258,18 @@ func (a *Auth) UpdateUser(ctx context.Context, id uuid.UUID, in UpdateInput) (Us
 // intent explicit. Diet templates must go before meals (a template's slots
 // reference meals with NO ACTION, and deleting the template cascades its
 // slots away first). Meals must go before users, as before.
+//
+// Shopping lists go first of all, but only to keep the chain explicit, not
+// because the order is load-bearing: shopping_lists cascades to
+// shopping_items, and shopping_items' two references to other user-owned
+// rows (ingredient_id, checked_by) are ON DELETE SET NULL, not NO ACTION, so
+// no cascade order can make them fail. A future NO ACTION reference into
+// shopping_lists or shopping_items would change that.
 func (a *Auth) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	return a.st.InTx(ctx, func(q *sqlc.Queries) error {
+		if err := q.DeleteShoppingListsForUser(ctx, id); err != nil {
+			return fmt.Errorf("delete shopping lists: %w", err)
+		}
 		if err := q.DeletePlanEntriesForUser(ctx, id); err != nil {
 			return fmt.Errorf("delete plan entries: %w", err)
 		}

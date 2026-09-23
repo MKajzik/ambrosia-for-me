@@ -328,6 +328,48 @@ func TestDeleteUserWithAPlanEntryAndTemplateUsingTheirOwnMeal(t *testing.T) {
 	}
 }
 
+// TestDeleteUserWithAShoppingListThatUsesTheirOwnCustomIngredient pins the
+// reasoning in DeleteUser's doc comment: shopping_items references the
+// caller's own ingredient and user row with ON DELETE SET NULL, so no cascade
+// order can abort the delete. It fails if a future NO ACTION reference into
+// shopping_lists or shopping_items changes that.
+func TestDeleteUserWithAShoppingListThatUsesTheirOwnCustomIngredient(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	s := register(t, f, "deleteme@example.com")
+
+	tofu, err := service.NewIngredients(f.store).Create(ctx, s.User.ID, service.CreateIngredientInput{Name: "Tofu", Category: "legumes_nuts_seeds"})
+	if err != nil {
+		t.Fatalf("create ingredient: %v", err)
+	}
+	list, err := f.store.CreateShoppingList(ctx, sqlc.CreateShoppingListParams{OwnerID: s.User.ID, Name: "Groceries"})
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	quantity, unit := 400.0, "g"
+	item, err := f.store.InsertShoppingItem(ctx, sqlc.InsertShoppingItemParams{
+		ListID: list.ID, IngredientID: &tofu.ID, Name: "Tofu", Quantity: &quantity, Unit: &unit,
+		Category: "legumes_nuts_seeds", Position: 0, Origin: "manual",
+	})
+	if err != nil {
+		t.Fatalf("insert item: %v", err)
+	}
+	checked := true
+	if _, err := f.store.UpdateShoppingItem(ctx, sqlc.UpdateShoppingItemParams{ID: item.ID, Checked: &checked, CheckedBy: &s.User.ID}); err != nil {
+		t.Fatalf("check item: %v", err)
+	}
+
+	if err := f.svc.DeleteUser(ctx, s.User.ID); err != nil {
+		t.Errorf("DeleteUser with a shopping list that references the caller's own ingredient: %v", err)
+	}
+	if _, err := f.svc.GetUser(ctx, s.User.ID); !errors.Is(err, service.ErrNotFound) {
+		t.Errorf("GetUser after DeleteUser: err = %v, want ErrNotFound", err)
+	}
+	if _, err := f.store.GetShoppingListForUser(ctx, sqlc.GetShoppingListForUserParams{ID: list.ID, UserID: s.User.ID}); !store.IsNotFound(err) {
+		t.Errorf("list after DeleteUser: err = %v, want no rows", err)
+	}
+}
+
 func TestConcurrentRefreshOfOneTokenSucceedsExactlyOnce(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
