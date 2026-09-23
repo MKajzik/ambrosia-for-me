@@ -361,3 +361,85 @@ func TestDietsAndPlanSchemaEnforcesItsConstraints(t *testing.T) {
 		t.Errorf("from_template_id after deleting the template = %v, want NULL (ON DELETE SET NULL)", *fromTemplate)
 	}
 }
+
+func TestShoppingListsSchemaEnforcesItsConstraints(t *testing.T) {
+	ctx := context.Background()
+	conn := migratedConn(t)
+
+	var userID, ingredientID string
+	if err := conn.QueryRow(ctx,
+		`INSERT INTO users (email, password_hash, display_name) VALUES ('a@example.com', 'h', 'A') RETURNING id`,
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if err := conn.QueryRow(ctx,
+		`INSERT INTO ingredients (name, category, owner_id) VALUES ('Tofu', 'legumes_nuts_seeds', $1) RETURNING id`, userID,
+	).Scan(&ingredientID); err != nil {
+		t.Fatalf("insert ingredient: %v", err)
+	}
+
+	var listID string
+	if err := conn.QueryRow(ctx,
+		`INSERT INTO shopping_lists (owner_id, name, source_from, source_to) VALUES ($1, 'Week', '2026-06-01', '2026-06-07') RETURNING id`, userID,
+	).Scan(&listID); err != nil {
+		t.Fatalf("valid list: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO shopping_lists (owner_id, name) VALUES (gen_random_uuid(), 'Ghost')`); err == nil {
+		t.Error("an owner_id that does not reference a user was accepted, want a foreign key violation")
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO shopping_lists (owner_id, name, source_from) VALUES ($1, 'Half', '2026-06-01')`, userID); err == nil {
+		t.Error("source_from without source_to was accepted, want a constraint violation")
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO shopping_lists (owner_id, name, source_from, source_to) VALUES ($1, 'Backwards', '2026-06-07', '2026-06-01')`, userID); err == nil {
+		t.Error("source_to before source_from was accepted, want a constraint violation")
+	}
+
+	insertItem := func(values string, args ...any) error {
+		_, err := conn.Exec(ctx, "INSERT INTO shopping_items (list_id, ingredient_id, name, quantity, unit, category, position, origin) VALUES "+values, args...)
+		return err
+	}
+	if err := insertItem(`($1, $2, 'Tofu', 400, 'g', 'legumes_nuts_seeds', 0, 'generated')`, listID, ingredientID); err != nil {
+		t.Fatalf("valid generated item: %v", err)
+	}
+	if err := insertItem(`($1, NULL, 'Paper towels', NULL, NULL, 'other', 1, 'manual')`, listID); err != nil {
+		t.Fatalf("valid free-text item: %v", err)
+	}
+	for name, values := range map[string]string{
+		"zero quantity":     `($1, NULL, 'X', 0, 'g', 'other', 2, 'manual')`,
+		"invalid unit":      `($1, NULL, 'X', 1, 'cup', 'other', 2, 'manual')`,
+		"invalid category":  `($1, NULL, 'X', 1, 'g', 'aisle_9', 2, 'manual')`,
+		"negative position": `($1, NULL, 'X', 1, 'g', 'other', -1, 'manual')`,
+		"invalid origin":    `($1, NULL, 'X', 1, 'g', 'other', 2, 'imported')`,
+	} {
+		if err := insertItem(values, listID); err == nil {
+			t.Errorf("%s was accepted, want a constraint violation", name)
+		}
+	}
+
+	var version int
+	if err := conn.QueryRow(ctx, `SELECT version FROM shopping_items WHERE list_id = $1 AND position = 0`, listID).Scan(&version); err != nil || version != 1 {
+		t.Errorf("a new item's version = %d (err %v), want 1", version, err)
+	}
+
+	// Deleting an ingredient a shopping item references is allowed and only
+	// forgets the link (unlike meal_ingredients, which blocks it).
+	if _, err := conn.Exec(ctx, `DELETE FROM ingredients WHERE id = $1`, ingredientID); err != nil {
+		t.Fatalf("delete an ingredient a shopping item references: %v", err)
+	}
+	var linked *string
+	var name string
+	if err := conn.QueryRow(ctx, `SELECT ingredient_id, name FROM shopping_items WHERE list_id = $1 AND position = 0`, listID).Scan(&linked, &name); err != nil {
+		t.Fatalf("read item after ingredient delete: %v", err)
+	}
+	if linked != nil || name != "Tofu" {
+		t.Errorf("item after ingredient delete = (%v, %q), want (NULL, Tofu): ON DELETE SET NULL, item kept", linked, name)
+	}
+
+	if _, err := conn.Exec(ctx, `DELETE FROM shopping_lists WHERE id = $1`, listID); err != nil {
+		t.Fatalf("delete list: %v", err)
+	}
+	var n int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM shopping_items WHERE list_id = $1`, listID).Scan(&n); err != nil || n != 0 {
+		t.Errorf("shopping_items rows after deleting the list = %d (err %v), want 0", n, err)
+	}
+}
