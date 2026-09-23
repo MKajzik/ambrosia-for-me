@@ -5,6 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -28,9 +31,16 @@ type ShoppingListsService interface {
 	AddItem(ctx context.Context, ownerID, listID uuid.UUID, in service.CreateShoppingItemInput) (service.ShoppingItem, error)
 	UpdateItem(ctx context.Context, ownerID, listID, itemID uuid.UUID, in service.UpdateShoppingItemInput) (service.ShoppingItem, error)
 	DeleteItem(ctx context.Context, ownerID, listID, itemID uuid.UUID) error
+	Subscribe(ctx context.Context, ownerID, listID uuid.UUID) (*service.ListSubscription, error)
 }
 
-const defaultShoppingListLimit = 20
+const (
+	defaultShoppingListLimit = 20
+	// sseKeepAlive is how often an idle event stream gets a comment line, so
+	// proxies do not close it as idle and a vanished client is noticed by
+	// the failed write.
+	sseKeepAlive = 25 * time.Second
+)
 
 func (s *server) ListShoppingLists(w http.ResponseWriter, r *http.Request, params api.ListShoppingListsParams) {
 	userID, ok := requireUser(w, r)
@@ -230,6 +240,96 @@ func (s *server) DeleteShoppingItem(w http.ResponseWriter, r *http.Request, id, 
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// StreamShoppingListEvents is an ordinary generated ServerInterface method:
+// the handlers are non-strict (w, r), so a long-lived text/event-stream
+// response needs no special wiring, and the route goes through the same
+// OpenAPI validator (authentication) and per-user rate limit as every other
+// operation. It runs until the client disconnects, the list is deleted, the
+// subscriber falls too far behind, or the server shuts down (ListEventHub
+// closes every subscription from http.Server.RegisterOnShutdown).
+func (s *server) StreamShoppingListEvents(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	userID, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	sub, err := s.shoppingLists.Subscribe(r.Context(), userID, id)
+	if err != nil {
+		s.writeServiceError(w, r, err)
+		return
+	}
+	defer sub.Close()
+
+	rc := http.NewResponseController(w)
+	// http.Server.WriteTimeout (30s in cmd/api) is an absolute deadline for
+	// the whole response, which would cut every stream at 30 seconds. Clear
+	// it for this response only. chi's response wrapper implements Unwrap, so
+	// the controller reaches the real connection; a writer without deadline
+	// support (httptest.ResponseRecorder) reports ErrNotSupported, which is
+	// harmless there.
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		s.logger.WarnContext(r.Context(), "could not clear the write deadline for an event stream",
+			slog.String("request_id", RequestID(r.Context())), slog.Any("err", err))
+	}
+
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.WriteString(w, ": connected\n\n"); err != nil {
+		return
+	}
+	if err := rc.Flush(); err != nil {
+		return
+	}
+
+	keepAlive := time.NewTicker(sseKeepAlive)
+	defer keepAlive.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev, open := <-sub.Events():
+			if !open {
+				return
+			}
+			if err := writeListEvent(w, ev); err != nil {
+				return
+			}
+			if err := rc.Flush(); err != nil {
+				return
+			}
+		case <-keepAlive.C:
+			if _, err := io.WriteString(w, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			if err := rc.Flush(); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// listEventData is the JSON "data:" of one event. It is not an OpenAPI
+// component (an unreferenced component fails the lint's no-unused-components
+// rule, and a text/event-stream body cannot $ref it); its shape is
+// documented in the events operation's description instead.
+type listEventData struct {
+	Type    string     `json:"type"`
+	ListID  uuid.UUID  `json:"list_id"`
+	ItemID  *uuid.UUID `json:"item_id,omitempty"`
+	Version *int       `json:"version,omitempty"`
+}
+
+func writeListEvent(w io.Writer, ev service.ListEvent) error {
+	data, err := json.Marshal(listEventData{Type: ev.Type, ListID: ev.ListID, ItemID: ev.ItemID, Version: ev.Version})
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, data)
+	return err
 }
 
 // writeVersionConflict writes the 409 version_conflict problem with the

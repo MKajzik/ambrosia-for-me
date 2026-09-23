@@ -1,9 +1,14 @@
 package httpapi_test
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -194,5 +199,134 @@ func TestShoppingListsLifecycle(t *testing.T) {
 	rec = contract(t, router, http.MethodGet, listPath, withBearer(token1))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("get deleted list: status = %d, want 404", rec.Code)
+	}
+}
+
+// TestShoppingListEventsThroughTheContract checks the events route's
+// declared responses: 401 and 404 like any other secured route, and a 200
+// text/event-stream body that ends with list_deleted when the list goes.
+func TestShoppingListEventsThroughTheContract(t *testing.T) {
+	env := newShoppingListsRouter(t)
+	list, err := env.lists.Create(context.Background(), env.user1, service.CreateShoppingListInput{Name: "Groceries"})
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	eventsPath := "/shopping-lists/" + list.ID.String() + "/events"
+
+	rec := contract(t, env.router, http.MethodGet, eventsPath)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("no token: status = %d, want 401", rec.Code)
+	}
+	rec = contract(t, env.router, http.MethodGet, eventsPath, withBearer("user2-token"))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("another user's list: status = %d, want 404", rec.Code)
+	}
+
+	// contract() serves the request synchronously, so end the stream from
+	// the side: once the handler has subscribed, delete the list.
+	go func() {
+		deadline := time.Now().Add(5 * time.Second)
+		for env.events.Subscribers(list.ID) == 0 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if err := env.lists.Delete(context.Background(), env.user1, list.ID); err != nil {
+			t.Errorf("delete list: %v", err)
+		}
+	}()
+	rec = contract(t, env.router, http.MethodGet, eventsPath, withBearer("user1-token"))
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("stream: status = %d, content type %q, want 200 text/event-stream", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	want := ": connected\n\nevent: list_deleted\ndata: {\"type\":\"list_deleted\",\"list_id\":\"" + list.ID.String() + "\"}\n\n"
+	if rec.Body.String() != want {
+		t.Errorf("stream body = %q, want %q", rec.Body.String(), want)
+	}
+}
+
+// TestShoppingListEventsOutliveTheServerWriteTimeout runs the router on a
+// real server whose WriteTimeout is far shorter than the wait before the
+// event, the way cmd/api's 30s WriteTimeout would otherwise cut every stream.
+func TestShoppingListEventsOutliveTheServerWriteTimeout(t *testing.T) {
+	env := newShoppingListsRouter(t)
+	ctx := context.Background()
+	list, err := env.lists.Create(ctx, env.user1, service.CreateShoppingListInput{Name: "Groceries"})
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+
+	srv := httptest.NewUnstartedServer(env.router)
+	srv.Config.WriteTimeout = 200 * time.Millisecond
+	srv.Start()
+	defer srv.Close()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/v1/shopping-lists/"+list.ID.String()+"/events", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer user1-token")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	lines := make(chan string)
+	go func() {
+		defer close(lines)
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+	}()
+	next := func() string {
+		t.Helper()
+		for {
+			select {
+			case l, ok := <-lines:
+				if !ok {
+					t.Fatal("stream ended early")
+				}
+				if l != "" {
+					return l
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("no line within 3s")
+			}
+		}
+	}
+
+	if l := next(); l != ": connected" {
+		t.Fatalf("first line = %q, want \": connected\"", l)
+	}
+	time.Sleep(600 * time.Millisecond) // three times the server's WriteTimeout
+
+	item, err := env.lists.AddItem(ctx, env.user1, list.ID, service.CreateShoppingItemInput{Name: "Bread"})
+	if err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+	if l := next(); l != "event: item_changed" {
+		t.Fatalf("event line = %q, want \"event: item_changed\"", l)
+	}
+	var data struct {
+		Type    string    `json:"type"`
+		ListID  uuid.UUID `json:"list_id"`
+		ItemID  uuid.UUID `json:"item_id"`
+		Version int       `json:"version"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(next(), "data: ")), &data); err != nil {
+		t.Fatalf("decode data: %v", err)
+	}
+	if data.Type != "item_changed" || data.ListID != list.ID || data.ItemID != item.ID || data.Version != 1 {
+		t.Errorf("data = %+v, want item_changed for the new item at version 1", data)
+	}
+
+	if err := env.lists.Delete(ctx, env.user1, list.ID); err != nil {
+		t.Fatalf("delete list: %v", err)
+	}
+	if l := next(); l != "event: list_deleted" {
+		t.Errorf("event line = %q, want \"event: list_deleted\"", l)
 	}
 }

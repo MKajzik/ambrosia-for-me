@@ -951,6 +951,39 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/Problem'
+  /shopping-lists/{id}/events:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [ShoppingLists]
+      operationId: streamShoppingListEvents
+      summary: Stream live changes to a shopping list
+      description: |
+        A Server-Sent Events stream. Each event's `event:` field is its type and its `data:` field is one JSON object `{"type", "list_id", "item_id"?, "version"?}`. `item_changed` and `item_deleted` carry `item_id` and the item's `version` (for `item_deleted`, the version the item had when it was removed); `list_changed` (renamed or regenerated) and `list_deleted` carry only `type` and `list_id`. After `list_deleted` the server closes the stream. Comment lines (`: keep-alive`) are sent every 25 seconds. The server may also close the stream at any time (shutdown, or a client too slow to keep up); clients reconnect and refetch the list, and refetch whenever they see a version gap. Authenticate with the `Authorization` header like every other route: access tokens are never accepted in the query string.
+      responses:
+        '200':
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
   /healthz:
     get:
       tags: [Health]

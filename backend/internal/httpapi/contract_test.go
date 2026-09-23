@@ -95,6 +95,13 @@ type stubPlan struct{ httpapi.PlanService }
 // shopping lists service fail loudly if they do.
 type stubShoppingLists struct{ httpapi.ShoppingListsService }
 
+func init() {
+	// kin-openapi ships no body decoder for text/event-stream, so validating
+	// the events stream's response would fail as an unsupported content type.
+	// Its schema is a plain string: the text/plain decoder is exactly right.
+	openapi3filter.RegisterBodyDecoder("text/event-stream", openapi3filter.PlainBodyDecoder)
+}
+
 func newTestRouter(t *testing.T, mods ...func(*httpapi.Deps)) http.Handler {
 	t.Helper()
 	d := httpapi.Deps{
