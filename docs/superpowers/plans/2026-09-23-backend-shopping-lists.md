@@ -113,7 +113,7 @@ Only the split into tasks was done after that verification.
 **Interfaces:**
 - Produces: the `shopping_lists` table (`id, owner_id, name, shared_with_partner, source_from, source_to, created_at, updated_at`) and the `shopping_items` table (`id, list_id, ingredient_id, name, quantity, unit, category, checked, checked_by, position, version, origin, created_at, updated_at`). The default constraint names are listed under File Structure.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to the end of `backend/internal/db/schema_test.go` (it uses the file's existing `migratedConn` helper and needs no new imports):
 
@@ -201,12 +201,12 @@ func TestShoppingListsSchemaEnforcesItsConstraints(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd backend && go test ./internal/db/... -run TestShoppingListsSchemaEnforcesItsConstraints -v`
 Expected: FAIL, `relation "shopping_lists" does not exist`. This needs Docker. Without it the test skips locally but fails under `CI=1`.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 Create `backend/migrations/00007_shopping_lists.sql`:
 
@@ -271,12 +271,12 @@ Notes on choices already made (do not redesign these):
 - There is no `UNIQUE (list_id, position)`. Positions are assigned under the list row lock (see Global Constraints), and deleting items leaves gaps anyway. The order is `ORDER BY position, id`.
 - The `shopping_lists` index matches the newest-first cursor query (`owner_id`, then `created_at DESC, id DESC`).
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cd backend && go test ./internal/db/... -run TestShoppingListsSchemaEnforcesItsConstraints -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/migrations/00007_shopping_lists.sql backend/internal/db/schema_test.go
@@ -321,7 +321,7 @@ git commit -m "feat(backend): add the shopping_lists and shopping_items tables"
   - `NextShoppingItemPosition` returns `max + 1`.
   - Deleting a referenced ingredient `NULL`s `ingredient_id` and keeps the item.
 
-- [ ] **Step 1: Write the shopping-list queries**
+- [x] **Step 1: Write the shopping-list queries**
 
 Create `backend/internal/store/queries/shopping_lists.sql`:
 
@@ -446,7 +446,7 @@ Notes on choices already made (do not redesign these):
 - `UpdateShoppingItem` uses the same two patterns `UpdateMeal` uses. `name` and `category` are `NOT NULL`, so a plain `COALESCE(narg, column)` is enough. `quantity` and `unit` can legitimately be cleared to `NULL`, so they need the `set_*` boolean + `CASE` pattern.
 - `UpdateShoppingItem`'s `WHERE` has no owner check because the locking `SELECT` before it already did that, in the same transaction.
 
-- [ ] **Step 2: Add `GetMealIngredientsForMeals` to the meals queries**
+- [x] **Step 2: Add `GetMealIngredientsForMeals` to the meals queries**
 
 In `backend/internal/store/queries/meals.sql`, after `GetMealsForUser`, add:
 
@@ -459,7 +459,7 @@ WHERE meal_id = ANY(sqlc.arg('meal_ids')::uuid[])
 ORDER BY meal_id, position;
 ```
 
-- [ ] **Step 3: Regenerate and verify it compiles**
+- [x] **Step 3: Regenerate and verify it compiles**
 
 Run: `cd backend && go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate`
 Expected: exits 0, creates `internal/store/sqlc/shopping_lists.sql.go`, updates `meals.sql.go`, and adds `ShoppingList`/`ShoppingItem` to `models.go`.
@@ -467,7 +467,7 @@ Expected: exits 0, creates `internal/store/sqlc/shopping_lists.sql.go`, updates 
 Run: `cd backend && go build ./...`
 Expected: builds cleanly.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add backend/internal/store/queries/shopping_lists.sql backend/internal/store/queries/meals.sql backend/internal/store/sqlc/
@@ -486,7 +486,7 @@ git commit -m "feat(backend): add sqlc queries for shopping lists"
 - Consumes: `DeleteShoppingListsForUser`, `CreateShoppingList`, `InsertShoppingItem`, `UpdateShoppingItem`, `GetShoppingListForUser` (Task 2); the existing `newFixture`/`register` helpers in `auth_test.go`.
 - Produces: nothing new. `Auth.DeleteUser` keeps its signature.
 
-- [ ] **Step 1: Write the regression test**
+- [x] **Step 1: Write the regression test**
 
 Add to `backend/internal/service/auth_test.go`, after `TestDeleteUserWithAPlanEntryAndTemplateUsingTheirOwnMeal`. The file already imports `context`, `errors`, `service`, `store` and `sqlc`:
 
@@ -534,12 +534,12 @@ func TestDeleteUserWithAShoppingListThatUsesTheirOwnCustomIngredient(t *testing.
 }
 ```
 
-- [ ] **Step 2: Run the test and confirm it already passes**
+- [x] **Step 2: Run the test and confirm it already passes**
 
 Run: `cd backend && go test ./internal/service/... -run TestDeleteUserWithAShoppingListThatUsesTheirOwnCustomIngredient -v`
 Expected: **PASS, before any change to `auth.go`.** This is deliberate, and it is the empirical check of the Global Constraints claim: with `SET NULL` references, the existing chain already deletes such an account. If it FAILS, the Task 1 schema has drifted from this plan (some reference became `NO ACTION`), so stop and fix the schema rather than the test.
 
-- [ ] **Step 3: Add the explicit pre-delete**
+- [x] **Step 3: Add the explicit pre-delete**
 
 In `backend/internal/service/auth.go`, append this paragraph to the end of `DeleteUser`'s doc comment (after "Meals must go before users, as before."):
 
@@ -582,12 +582,12 @@ func (a *Auth) DeleteUser(ctx context.Context, id uuid.UUID) error {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they still pass**
+- [x] **Step 4: Run the tests to verify they still pass**
 
 Run: `cd backend && go test ./internal/service/... -run TestDeleteUser -v`
 Expected: PASS, all four `TestDeleteUser*` tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/internal/service/auth.go backend/internal/service/auth_test.go
@@ -616,7 +616,7 @@ git commit -m "feat(backend): delete a user's shopping lists explicitly on accou
   - `func (*ListSubscription) Events() <-chan ListEvent`
   - `func (*ListSubscription) Close()`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/internal/service/shopping_events_test.go`:
 
@@ -733,12 +733,12 @@ func TestListEventHubCloseEndsEveryStreamAndRefusesNewOnes(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd backend && go test ./internal/service/... -run TestListEventHub -v`
 Expected: FAIL to compile, because `service.NewListEventHub`, `service.ListEvent` and the rest do not exist yet.
 
-- [ ] **Step 3: Implement the hub**
+- [x] **Step 3: Implement the hub**
 
 Create `backend/internal/service/shopping_events.go`:
 
@@ -904,12 +904,12 @@ func (h *ListEventHub) removeLocked(sub *ListSubscription) {
 
 Deleting map entries while ranging over the same map (in `Publish` and `Close`) is well defined in Go: a deleted entry that has not been reached yet is simply not visited.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd backend && go test ./internal/service/... -run TestListEventHub -race -v`
 Expected: PASS, all four tests. They need no Docker. `-race` is worth running here because this is the one concurrent data structure in the plan.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/internal/service/shopping_events.go backend/internal/service/shopping_events_test.go
@@ -947,7 +947,7 @@ git commit -m "feat(backend): add the in-process shopping-list event hub"
   - `func (*ShoppingLists) Subscribe(ctx, ownerID, listID uuid.UUID) (*ListSubscription, error)`
   - Unexported, used by Task 6: `toShoppingList(row sqlc.ShoppingList, itemRows []sqlc.ShoppingItem) ShoppingList`, `toShoppingItem(sqlc.ShoppingItem) ShoppingItem`, `fromPgDatePtr(pgtype.Date) *time.Time`, `(*ShoppingLists).publishItem(typ string, listID, itemID uuid.UUID, version int)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/internal/service/shopping_lists_test.go`. It reuses `newIngredientsFixture`, `newTestUser` and `mustCreateIngredient` (`ingredients_test.go`, `meals_test.go`) and the generic `ptr` helper already defined in `auth_test.go`, all in the same `service_test` package:
 
@@ -1195,12 +1195,12 @@ func TestShoppingListsAreVisibleToTheirOwnerOnly(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd backend && go test ./internal/service/... -run TestShoppingLists -v`
 Expected: FAIL to compile, because `service.NewShoppingLists` and the rest do not exist yet.
 
-- [ ] **Step 3: Implement the service**
+- [x] **Step 3: Implement the service**
 
 Create `backend/internal/service/shopping_lists.go`:
 
@@ -1655,7 +1655,7 @@ func fromPgDatePtr(d pgtype.Date) *time.Time {
 
 Two conversions need a word. `int(cur.Version)` and `int(row.Position)` widen `int32` to `int`, which `gosec` G115 accepts. The narrowing direction, `int` → `int32`, only happens in Task 6, through the existing `toInt32` helper in `util.go`. `CheckedBy: &ownerID` is passed on every update, and the query itself decides whether to use it (only on an actual check, see `UpdateShoppingItem` in Task 2).
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd backend && go test ./internal/service/... -run 'TestShoppingLists|TestListEventHub' -v`
 Expected: PASS, including all four new `TestShoppingLists*` tests.
@@ -1663,7 +1663,7 @@ Expected: PASS, including all four new `TestShoppingLists*` tests.
 Run: `cd backend && go build ./...`
 Expected: builds cleanly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/internal/service/shopping_lists.go backend/internal/service/shopping_lists_test.go
@@ -1685,7 +1685,7 @@ git commit -m "feat(backend): add the shopping lists service with versioned item
   - `func (*ShoppingLists) Generate(ctx, ownerID uuid.UUID, in GenerateShoppingListInput) (list ShoppingList, created bool, err error)`
   - Unexported: `generatedLine`, `generateLines`, `mergeUnits`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `backend/internal/service/shopping_lists_test.go`, add `"github.com/google/uuid"` and `"github.com/InzKazik/mealplanner/backend/internal/store/sqlc"` to the imports, then append:
 
@@ -1887,12 +1887,12 @@ func TestShoppingListsGenerateValidatesTheRangeAndTheListsOwner(t *testing.T) {
 
 `almostEqual` is the existing tolerance helper in `meals_test.go`. It is needed because `10 * 0.92` is not exact in binary floating point, which is the same lesson the meals golden tests learned.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd backend && go test ./internal/service/... -run TestShoppingLists -v`
 Expected: FAIL to compile, because `f.lists.Generate` and `service.GenerateShoppingListInput` do not exist yet.
 
-- [ ] **Step 3: Implement generation**
+- [x] **Step 3: Implement generation**
 
 In `backend/internal/service/shopping_lists.go`, add `"sort"` to the imports. After `UpdateShoppingListInput`, add the input type:
 
@@ -2149,7 +2149,7 @@ func mergeUnits(ing sqlc.Ingredient, byUnit map[string]float64) ([]generatedLine
 
 `gramsFor` is linear in `quantity`, so converting each per-unit total once gives the same result as converting every line and then summing.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd backend && go test ./internal/service/... -run 'TestShoppingLists|TestMeals|TestPlan' -v`
 Expected: PASS, including the three new generation tests. The meals and plan tests are unchanged, and running them proves nothing they share (`gramsFor`, `uniqueUUIDs`, the plan queries) regressed.
@@ -2157,7 +2157,7 @@ Expected: PASS, including the three new generation tests. The meals and plan tes
 Run: `cd backend && go build ./...`
 Expected: builds cleanly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/internal/service/shopping_lists.go backend/internal/service/shopping_lists_test.go
@@ -2197,7 +2197,7 @@ The contract and the handlers are one task (see Global Constraints). `cmd/api` i
 
   The `item_id` path parameter becomes the Go parameter `itemId`. The item and request `unit` fields are inline nullable enums, because a `$ref` cannot carry `nullable: true` in 3.0.3. They therefore generate their own `ShoppingItemUnit` and `UpdateShoppingItemRequestUnit` types, while `CreateShoppingItemRequest.unit`, which is not nullable, reuses the existing `Unit`. `openapi_types.UUID` is an alias of `uuid.UUID`, so handlers declare `id uuid.UUID` exactly like `diet_templates.go` does.
 
-- [ ] **Step 1: Add the tag**
+- [x] **Step 1: Add the tag**
 
 In `openapi.yaml`, after the `Plan` tag, add:
 
@@ -2206,7 +2206,7 @@ In `openapi.yaml`, after the `Plan` tag, add:
     description: Shopping lists generated from the plan or built by hand, with live updates over Server-Sent Events.
 ```
 
-- [ ] **Step 2: Add the schemas**
+- [x] **Step 2: Add the schemas**
 
 In `openapi.yaml`'s `components.schemas`, after `SetPlanEntryRequest`, add:
 
@@ -2433,7 +2433,7 @@ In `openapi.yaml`'s `components.schemas`, after `SetPlanEntryRequest`, add:
           $ref: '#/components/schemas/ShoppingItem'
 ```
 
-- [ ] **Step 3: Add the list and item paths**
+- [x] **Step 3: Add the list and item paths**
 
 In `openapi.yaml`, immediately before `/healthz:`, add. The event stream path comes in Task 8.
 
@@ -2717,7 +2717,7 @@ One YAML trap was hit during scratch verification: a plain (unquoted) descriptio
 Run: `make lint-api`. Expected: valid, `2 problems are explicitly ignored`, and no warnings.
 Run: `make generate`. This regenerates `backend/internal/api/api.gen.go`.
 
-- [ ] **Step 4: Add the problem codes and `writeServiceError` cases**
+- [x] **Step 4: Add the problem codes and `writeServiceError` cases**
 
 In `backend/internal/httpapi/problem.go`, add to the `Code*` constants:
 
@@ -2741,7 +2741,7 @@ In `backend/internal/httpapi/account.go`, in `writeServiceError`, add after the 
 
 `ShoppingItemVersionConflictError` gets no case here, because its body is not a plain problem. `UpdateShoppingItem` matches it with `errors.As` before falling back to `writeServiceError` (Step 5).
 
-- [ ] **Step 5: Write the handlers**
+- [x] **Step 5: Write the handlers**
 
 Create `backend/internal/httpapi/shopping_lists.go`:
 
@@ -3056,7 +3056,7 @@ func decodeShoppingListCursor(s string) (service.ShoppingListCursor, bool) {
 
 `time.Time` round-trips through JSON as RFC 3339 with nanoseconds. Postgres `timestamptz` has microsecond precision, so the decoded cursor equals the row's `created_at` exactly, and the `(created_at, id) <` comparison neither skips nor repeats a row.
 
-- [ ] **Step 6: Wire the service into `server`, the router and `cmd/api`**
+- [x] **Step 6: Wire the service into `server`, the router and `cmd/api`**
 
 In `backend/internal/httpapi/server.go`, add `shoppingLists ShoppingListsService` as the last field of the `server` struct.
 
@@ -3095,7 +3095,7 @@ In `backend/cmd/api/main.go`, after `plan := service.NewPlan(st, meals)`, add:
 
 and add `ShoppingLists:  shoppingLists,` to the `httpapi.Deps{...}` literal after `Plan: plan,`. Task 9 adds the shutdown hook on `listEvents`.
 
-- [ ] **Step 7: Add the stub and extend the router test**
+- [x] **Step 7: Add the stub and extend the router test**
 
 In `backend/internal/httpapi/contract_test.go`, add after `stubPlan`:
 
@@ -3111,7 +3111,7 @@ Add `ShoppingLists: stubShoppingLists{},` to `newTestRouter`'s `httpapi.Deps{...
 		"no shopping lists":   func(d *httpapi.Deps) { d.ShoppingLists = nil },
 ```
 
-- [ ] **Step 8: Write the end-to-end test**
+- [x] **Step 8: Write the end-to-end test**
 
 Create `backend/internal/httpapi/shopping_lists_flow_test.go`. The router helper returns the service and the hub as well as the router, because Task 8's stream tests act on a list while a stream is open:
 
@@ -3316,7 +3316,7 @@ func TestShoppingListsLifecycle(t *testing.T) {
 }
 ```
 
-- [ ] **Step 9: Run the tests**
+- [x] **Step 9: Run the tests**
 
 Run: `cd backend && go build ./... && go vet ./...`
 Expected: clean.
@@ -3324,7 +3324,7 @@ Expected: clean.
 Run: `cd backend && go test ./internal/httpapi/... ./cmd/... -v -run 'TestShoppingListsLifecycle|TestNewRouterPanicsWithoutRequiredDependencies|TestServe'`
 Expected: PASS, including the new `"no shopping lists"` router case and the existing `cmd/api` tests, which now build the real hub and service.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add openapi.yaml backend/internal/api/api.gen.go backend/internal/httpapi/shopping_lists.go \
@@ -3352,7 +3352,7 @@ This task closes the first half of the "Carried forward" SSE item: the 30s `Writ
 - Consumes: `ShoppingLists.Subscribe`, `ListSubscription`, `ListEvent`, `ErrEventStreamsClosed` (Tasks 4 and 5); `shoppingEnv`/`newShoppingListsRouter` (Task 7).
 - Produces: `ServerInterface.StreamShoppingListEvents(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)` (scratch-verified signature); `ShoppingListsService.Subscribe(ctx, ownerID, listID uuid.UUID) (*service.ListSubscription, error)`.
 
-- [ ] **Step 1: Add the events path**
+- [x] **Step 1: Add the events path**
 
 In `openapi.yaml`, after the `/shopping-lists/{id}/items/{item_id}` path and before `/healthz:`, add:
 
@@ -3397,7 +3397,7 @@ The description is a `|` block scalar because it contains `": "`. The `503` is t
 Run: `make lint-api`. Expected: valid, no warnings.
 Run: `make generate`. The build now fails until Step 5 implements `StreamShoppingListEvents`, which is expected.
 
-- [ ] **Step 2: Register the test decoder and write the failing tests**
+- [x] **Step 2: Register the test decoder and write the failing tests**
 
 In `backend/internal/httpapi/contract_test.go`, after `stubShoppingLists`, add:
 
@@ -3547,12 +3547,12 @@ func TestShoppingListEventsOutliveTheServerWriteTimeout(t *testing.T) {
 
 The test deletes the list at the end so the handler returns on its own. `httptest.Server.Close` waits for active handlers, so the test must not leave a stream open when it finishes.
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `cd backend && go test ./internal/httpapi/... -run TestShoppingListEvents -v`
 Expected: FAIL to compile, because `*server` does not implement `api.ServerInterface` (it is missing `StreamShoppingListEvents`).
 
-- [ ] **Step 4: Map the shutdown error**
+- [x] **Step 4: Map the shutdown error**
 
 In `backend/internal/httpapi/account.go`, in `writeServiceError`, add after the `ErrShoppingItemVersionRequired` case:
 
@@ -3562,7 +3562,7 @@ In `backend/internal/httpapi/account.go`, in `writeServiceError`, add after the 
 		WriteProblem(w, http.StatusServiceUnavailable, CodeNotReady, "the server is shutting down")
 ```
 
-- [ ] **Step 5: Write the stream handler**
+- [x] **Step 5: Write the stream handler**
 
 In `backend/internal/httpapi/shopping_lists.go`:
 
@@ -3681,12 +3681,12 @@ func writeListEvent(w io.Writer, ev service.ListEvent) error {
 
 Every write goes through `w`, which is the request logger's chi wrapper, so the logged `bytes` stays accurate for streams. `requestLogger` logs the stream's line when the stream ends, with its full duration.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `cd backend && go test ./internal/httpapi/... -run 'TestShoppingList' -v`
 Expected: PASS, including `TestShoppingListEventsThroughTheContract` and `TestShoppingListEventsOutliveTheServerWriteTimeout`.
 
-- [ ] **Step 7: Prove the deadline override is load-bearing**
+- [x] **Step 7: Prove the deadline override is load-bearing**
 
 Temporarily replace `rc.SetWriteDeadline(time.Time{})` in `StreamShoppingListEvents` with `error(nil)`, then run:
 
@@ -3695,7 +3695,7 @@ Expected: FAIL with `stream ended early`. The server cut the stream at its 200ms
 
 Restore `rc.SetWriteDeadline(time.Time{})` and re-run: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add openapi.yaml backend/internal/api/api.gen.go backend/internal/httpapi/shopping_lists.go \
@@ -3718,7 +3718,7 @@ This task closes the second half of the "Carried forward" SSE item.
 - Consumes: `(*service.ListEventHub).Close` (Task 4); the `listEvents` variable Task 7 added to `serve`; the existing `startServer`/`runningServer` test helpers.
 - Produces: nothing new.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `backend/cmd/api/main_test.go`. Add `"bufio"` to its imports; `encoding/json`, `io`, `net/http`, `strings`, `time` and `testutil` are already there:
 
@@ -3792,12 +3792,12 @@ func TestServeEndsOpenEventStreamsOnShutdown(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd backend && go test ./cmd/api/... -run TestServeEndsOpenEventStreamsOnShutdown -v`
 Expected: FAIL, `serve did not return within 5s of cancellation with an open event stream`. `Shutdown` is waiting on a connection that never goes idle, and would give up only at the 10s `shutdownTimeout` with an error.
 
-- [ ] **Step 3: Register the hook**
+- [x] **Step 3: Register the hook**
 
 In `backend/cmd/api/main.go`, change the tail of the `srv := &http.Server{...}` literal and add the hook right after it:
 
@@ -3818,12 +3818,12 @@ In `backend/cmd/api/main.go`, change the tail of the `srv := &http.Server{...}` 
 	srv.RegisterOnShutdown(listEvents.Close)
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd backend && go test ./cmd/api/... -v`
 Expected: PASS, including `TestServeEndsOpenEventStreamsOnShutdown` and every existing `TestServe*` test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/cmd/api/main.go backend/cmd/api/main_test.go
@@ -3839,7 +3839,7 @@ git commit -m "fix(backend): end open shopping-list event streams on shutdown"
 
 **Interfaces:** none (documentation only).
 
-- [ ] **Step 1: Update `backend/CLAUDE.md`**
+- [x] **Step 1: Update `backend/CLAUDE.md`**
 
 In "Behaviour worth knowing", replace the "Cascades alone are not enough for account deletion" bullet with:
 
@@ -3864,7 +3864,7 @@ In "Not built yet", replace the bullet that begins "The domain beyond diets and 
 
 In "Carried forward (hardening to schedule)", delete the bullet that begins "Later (shopping-list SSE plan): the 30s server `WriteTimeout` cuts event streams". Tasks 8 and 9 implemented both halves, and the "Shopping-list events are in memory" bullet above now documents the result.
 
-- [ ] **Step 2: Run everything CI runs**
+- [x] **Step 2: Run everything CI runs**
 
 Run: `make check`
 Expected: PASS. It lints `openapi.yaml`, vets and tests the backend, runs golangci-lint, and fails if generated code is stale.
@@ -3872,7 +3872,7 @@ Expected: PASS. It lints `openapi.yaml`, vets and tests the backend, runs golang
 Run: `make check-generated`
 Expected: clean (no diff).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/CLAUDE.md
