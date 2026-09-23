@@ -17,7 +17,7 @@ Module: `github.com/InzKazik/mealplanner/backend`. Go 1.26, `chi` router, `pgx` 
 - `internal/testutil/`: integration-test helpers (Postgres via testcontainers; a migrated template database copied per test).
 - `migrations/`: embedded goose SQL migrations.
 
-Dependencies point one way: `httpapi` → `service` → `store`; `auth` is a leaf used by `service` and `config`. A package never imports one to its left. `internal/usda` is a separate leaf-like package beside `httpapi`, not below `service`: it imports `service` directly (for the nutrient-key constants only) and `store` directly, so `service` must never import `usda`.
+Dependencies point one way: `httpapi` → `service` → `store`; `auth` is a leaf used by `service` and `config`. A package never imports one to its left. `internal/usda` is a separate leaf-like package beside `httpapi`, not below `service`: it imports `service` directly (for the nutrient-key constants only) and `store` directly, so `service` must never import `usda`. One documented exception within `service` itself: `Plan` depends on `Meals` (see the doc comment on the `Plan` type in `plan.go`), so it can reuse `Meals.Get`'s nutrition computation instead of a third copy of the unit-conversion/null-propagation logic.
 
 ## Commands (from repo root)
 
@@ -38,7 +38,7 @@ Dependencies point one way: `httpapi` → `service` → `store`; `auth` is a lea
 - **SQL** lives only in `internal/store/queries/*.sql`; run `make generate` and commit the output. Services take a `*store.Store`, use `InTx` for multi-statement changes, and translate database errors into service errors (`store.IsUniqueViolation`, `store.IsNotFound`).
 - **Secrets never reach logs or errors**: no passwords, tokens, refresh tokens, JWT secret or query strings. Compare secrets in constant time (argon2id and JWT libraries do).
 - Every response carries `X-Request-Id`. Log with `slog` (JSON to stdout) and include `httpapi.RequestID(ctx)`. No `fmt.Println` in non-test code.
-- **Migrations** are goose SQL files named `NNNNN_description.sql` in `migrations/`, forward-only in production. Every table has `created_at` and `updated_at`, and an `updated_at` trigger that uses `set_updated_at()`.
+- **Migrations** are goose SQL files named `NNNNN_description.sql` in `migrations/`, forward-only in production. Every table has `created_at` and `updated_at`, and an `updated_at` trigger that uses `set_updated_at()`, except line-item tables that belong entirely to their parent row and are always replaced wholesale rather than edited in place (`meal_ingredients`, `template_slots`): those have neither column.
 - **Tests** are table-driven where there are several cases. Handler tests use `httptest`; integration tests use a real Postgres via `testutil.NewMigratedDatabase` (or `NewDatabase` for an empty one), never mocks. Use light argon2 parameters in tests (`auth.HashParams{MemoryKiB: 8, Iterations: 1, Parallelism: 1}`).
 - Configuration comes from environment variables and is documented in `.env.example`.
 

@@ -363,13 +363,11 @@ func (s *DietTemplates) Copy(ctx context.Context, callerID, id uuid.UUID) (DietT
 // non-snack targets are replaced first. Returns the number of entries
 // written.
 //
-// Deviation from the brief: plan_entries.date (and template_slots'
-// downstream targets) are sqlc.PlanEntry.Date/GetPlanEntriesForUserOnDatesParams.Dates
-// of type pgtype.Date, not time.Time as the brief's draft assumed (see
-// util.go's toPgDate/fromPgDate doc comment) — every date value crossing
-// into a sqlc call or read back from one is converted at that boundary
-// below; the service-level logic (which target dates conflict, which get
-// overwritten) is unchanged from the brief.
+// plan_entries.date (and template_slots' downstream targets) are
+// sqlc.PlanEntry.Date/GetPlanEntriesForUserOnDatesParams.Dates of type
+// pgtype.Date, not time.Time (see util.go's toPgDate/fromPgDate doc
+// comment) — every date value crossing into a sqlc call or read back from
+// one is converted at that boundary below.
 func (s *DietTemplates) Apply(ctx context.Context, ownerID, id uuid.UUID, in ApplyTemplateInput) (int, error) {
 	var written int
 	err := s.st.InTx(ctx, func(q *sqlc.Queries) error {

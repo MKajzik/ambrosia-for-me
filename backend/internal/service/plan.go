@@ -100,12 +100,11 @@ func NewPlan(st *store.Store, meals *Meals) *Plan { return &Plan{st: st, meals: 
 // inclusive, capped at maxPlanRangeDays calendar days in total (from and to
 // both inclusive) — so to may be at most from+(maxPlanRangeDays-1).
 //
-// Deviation from the brief: plan_entries.date is sqlc.PlanEntry.Date of
-// type pgtype.Date, not time.Time as the brief's draft assumed (see
-// util.go's toPgDate/fromPgDate doc comment, and diet_templates.go's Apply
-// for the established pattern) — every date value crossing into a sqlc call
-// or read back from one is converted at that boundary below; the
-// service-level aggregation logic is unchanged from the brief.
+// plan_entries.date is sqlc.PlanEntry.Date of type pgtype.Date, not
+// time.Time (see util.go's toPgDate/fromPgDate doc comment, and
+// diet_templates.go's Apply for the same pattern) — every date value
+// crossing into a sqlc call or read back from one is converted at that
+// boundary below.
 func (s *Plan) GetRange(ctx context.Context, ownerID uuid.UUID, from, to time.Time) (PlanRange, error) {
 	if to.Before(from) {
 		return PlanRange{}, ErrPlanRangeInvalid

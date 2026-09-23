@@ -29,11 +29,12 @@ func uniqueUUIDs[T any](items []T, get func(T) uuid.UUID) []uuid.UUID {
 
 // toPgDate and fromPgDate convert between the service layer's plain
 // time.Time (used on every public Diet Templates/Plan type, per the plan's
-// interfaces) and sqlc's pgtype.Date (the generated type for the plan_entries
-// and template-related "date" columns). Neither diet_templates.sql.go nor
-// plan_entries.sql.go use time.Time directly for a date column, so every
-// service that reads or writes plan_entries needs this conversion at the
-// store boundary.
+// interfaces) and sqlc's pgtype.Date (the generated type for
+// plan_entries.date, the only "date" column either domain has —
+// template_slots targets a day by day_index, an integer, not a date).
+// plan_entries.sql.go does not use time.Time directly for that column, so
+// every service that reads or writes plan_entries needs this conversion at
+// the store boundary.
 func toPgDate(t time.Time) pgtype.Date {
 	return pgtype.Date{Time: t, Valid: true}
 }
