@@ -292,6 +292,96 @@ func TestMealsAreOwnerOnlyForNow(t *testing.T) {
 	}
 }
 
+// TestMealsUpdateRecomputesNutritionWhenServingsChange is finding #3's first
+// PATCH success-path case: Update had no test coverage beyond the two
+// failure-path cases above. A servings change must recompute
+// NutritionPerServing (the ingredient totals are unchanged; only the
+// division changes).
+func TestMealsUpdateRecomputesNutritionWhenServingsChange(t *testing.T) {
+	meals, ing, st := newMealsFixture(t)
+	owner := newTestUser(t, st, "patch1@example.com")
+
+	rice := mustCreateIngredient(t, ing, owner, service.CreateIngredientInput{
+		Name: "Rice", Category: "grains_bread",
+		Nutrients: map[string]float64{service.NutrientCalories: 130},
+	})
+	meal, err := meals.Create(context.Background(), owner, service.CreateMealInput{Name: "Bowl", Servings: 2})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	meal, err = meals.ReplaceIngredients(context.Background(), owner, meal.ID, []service.MealIngredientInput{
+		{IngredientID: rice.ID, Quantity: 200, Unit: "g"},
+	})
+	if err != nil {
+		t.Fatalf("ReplaceIngredients: %v", err)
+	}
+	// 200g rice at 130 kcal/100g = 260 kcal total, /2 servings = 130/serving.
+	if got := meal.NutritionPerServing[service.NutrientCalories]; got != 130 {
+		t.Fatalf("calories per serving before update = %v, want 130", got)
+	}
+
+	newServings := 1.0
+	updated, err := meals.Update(context.Background(), owner, meal.ID, service.UpdateMealInput{Servings: &newServings})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Servings != 1 {
+		t.Errorf("Servings = %v, want 1", updated.Servings)
+	}
+	// Same 260 kcal total, now /1 serving = 260/serving.
+	if got := updated.NutritionPerServing[service.NutrientCalories]; got != 260 {
+		t.Errorf("calories per serving after update = %v, want 260", got)
+	}
+}
+
+// TestMealsUpdateNotesHandlesAllThreeTriStates is finding #3's remaining two
+// PATCH success-path cases, both exercising the Optional[string] tri-state
+// toOptionalString maps a request onto: an explicit null clears existing
+// notes, and an omitted notes field (the zero-value Optional[string]{},
+// Specified: false) leaves the existing value alone — the third state the
+// tri-state exists to distinguish from null.
+func TestMealsUpdateNotesHandlesAllThreeTriStates(t *testing.T) {
+	meals, _, st := newMealsFixture(t)
+	owner := newTestUser(t, st, "patch2@example.com")
+
+	meal, err := meals.Create(context.Background(), owner, service.CreateMealInput{
+		Name: "Notes Meal", Notes: strPtr("original notes"), Servings: 1,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Omitted (Optional[string]{}, the zero value): notes unchanged, even
+	// though another field is updated in the same call.
+	newName := "Renamed"
+	updated, err := meals.Update(context.Background(), owner, meal.ID, service.UpdateMealInput{Name: &newName})
+	if err != nil {
+		t.Fatalf("Update(name only): %v", err)
+	}
+	if updated.Notes == nil || *updated.Notes != "original notes" {
+		t.Errorf("Notes after an update that omits notes = %v, want unchanged (original notes)", updated.Notes)
+	}
+
+	// Set[string](nil): explicit null clears notes.
+	cleared, err := meals.Update(context.Background(), owner, meal.ID, service.UpdateMealInput{Notes: service.Set[string](nil)})
+	if err != nil {
+		t.Fatalf("Update(clear notes): %v", err)
+	}
+	if cleared.Notes != nil {
+		t.Errorf("Notes after Set(nil) = %v, want nil", cleared.Notes)
+	}
+
+	// Set(&v): a genuine new value.
+	newNotes := "updated notes"
+	set, err := meals.Update(context.Background(), owner, meal.ID, service.UpdateMealInput{Notes: service.Set(&newNotes)})
+	if err != nil {
+		t.Fatalf("Update(set notes): %v", err)
+	}
+	if set.Notes == nil || *set.Notes != newNotes {
+		t.Errorf("Notes after Set(&newNotes) = %v, want %q", set.Notes, newNotes)
+	}
+}
+
 // TestMealsReplaceIngredientsRejectsAnotherUsersCustomIngredient pins the
 // visibility half of the write-path guard: the ingredient exists, so only the
 // (owner_id IS NULL OR owner_id = user_id) filter in GetIngredientsForUser

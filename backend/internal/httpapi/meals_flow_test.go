@@ -143,6 +143,71 @@ func TestMealsReplaceIngredientsWithAnUnknownIngredientIsRejected(t *testing.T) 
 	}
 }
 
+// TestMealsUpdateThroughTheContract is finding #3's HTTP-level PATCH
+// success case: PATCH was the one new endpoint in this plan without a
+// contract()-validated success response (only the two failure cases in
+// TestMealsLifecycle exercised it). Covers a servings change that
+// recomputes nutrition_per_serving, then notes going through all three
+// tri-states (omitted, explicit null, a new value).
+func TestMealsUpdateThroughTheContract(t *testing.T) {
+	router, token1, _ := newMealsRouter(t)
+
+	rec := contract(t, router, http.MethodPost, "/ingredients", withBearer(token1),
+		withBody(`{"name":"Rice","category":"grains_bread","nutrients":{"calories":130}}`))
+	rice := decodeAs[api.Ingredient](t, rec)
+
+	rec = contract(t, router, http.MethodPost, "/meals", withBearer(token1),
+		withBody(`{"name":"Original","notes":"first notes","servings":2}`))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create meal: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	meal := decodeAs[api.Meal](t, rec)
+
+	rec = contract(t, router, http.MethodPut, "/meals/"+meal.Id.String()+"/ingredients", withBearer(token1),
+		withBody(`{"items":[{"ingredient_id":"`+rice.Id.String()+`","quantity":200,"unit":"g"}]}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("replace ingredients: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	// Changing servings (and omitting notes) recomputes nutrition_per_serving
+	// and leaves notes unchanged: 200g rice at 130 kcal/100g = 260 kcal
+	// total; /2 servings = 130/serving before, /4 = 65/serving after.
+	rec = contract(t, router, http.MethodPatch, "/meals/"+meal.Id.String(), withBearer(token1), withBody(`{"servings":4}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update servings: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	updated := decodeAs[api.Meal](t, rec)
+	if updated.Servings != 4 {
+		t.Errorf("Servings = %v, want 4", updated.Servings)
+	}
+	if got := updated.NutritionPerServing.Calories.MustGet(); got != 65 {
+		t.Errorf("calories per serving after servings change = %v, want 65", got)
+	}
+	if !updated.Notes.IsSpecified() || updated.Notes.IsNull() || updated.Notes.MustGet() != "first notes" {
+		t.Errorf("Notes after an update that omits notes = %+v, want unchanged (first notes)", updated.Notes)
+	}
+
+	// Explicit null clears notes.
+	rec = contract(t, router, http.MethodPatch, "/meals/"+meal.Id.String(), withBearer(token1), withBody(`{"notes":null}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clear notes: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	cleared := decodeAs[api.Meal](t, rec)
+	if cleared.Notes.IsSpecified() && !cleared.Notes.IsNull() {
+		t.Errorf("Notes after {\"notes\":null} = %+v, want cleared", cleared.Notes)
+	}
+
+	// A new value sets it.
+	rec = contract(t, router, http.MethodPatch, "/meals/"+meal.Id.String(), withBearer(token1), withBody(`{"notes":"second notes"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("set notes: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	set := decodeAs[api.Meal](t, rec)
+	if !set.Notes.IsSpecified() || set.Notes.IsNull() || set.Notes.MustGet() != "second notes" {
+		t.Errorf("Notes after {\"notes\":\"second notes\"} = %+v, want \"second notes\"", set.Notes)
+	}
+}
+
 // TestUpdateIngredientRejectsClearingDensityWhileInUseByAMeal sends finding
 // #2's write-time rejection through the real HTTP router, so its 409
 // unit_not_convertible status and problem+json shape are checked against
