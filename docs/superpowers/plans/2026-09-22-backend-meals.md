@@ -60,7 +60,7 @@
 **Interfaces:**
 - Produces: the `meals` table (`id, owner_id, name, notes, servings, shared_with_partner, created_at, updated_at`) and the `meal_ingredients` table (`id, meal_id, ingredient_id, quantity, unit, position`). Three named foreign keys (Postgres's default naming for an unnamed inline `REFERENCES`, matching `00004_ingredients.sql`'s style): `meals_owner_id_fkey`, `meal_ingredients_meal_id_fkey` (`ON DELETE CASCADE`), and `meal_ingredients_ingredient_id_fkey` (no `ON DELETE` clause — Task 3 relies on this exact name to block deleting an ingredient that is in use, translating the violation into `409 ingredient_in_use`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `backend/internal/db/schema_test.go` (same file and `migratedConn` helper as `TestIngredientsSchemaEnforcesItsConstraints`):
 
@@ -134,12 +134,12 @@ func TestMealsSchemaEnforcesItsConstraints(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd backend && go test ./internal/db/... -run TestMealsSchemaEnforcesItsConstraints -v`
 Expected: FAIL — `relation "meals" does not exist` (needs Docker; skips locally without it, fails under `CI=1`, per `testutil.requireDocker`).
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 Create `backend/migrations/00005_meals.sql`:
 
@@ -182,12 +182,12 @@ DROP TABLE meals;
 
 `ingredient_id` deliberately has no `ON DELETE` clause (defaults to `NO ACTION`/`RESTRICT`): deleting an ingredient that a meal references must fail, not silently orphan or cascade-delete the meal line. This is scratch-verified: this exact migration was applied via `sqlc generate` against a copy of the repo's `sqlc.yaml` with no errors, and its shape (inline `REFERENCES`, `CHECK`, the shared `set_updated_at` trigger, index naming) matches `00004_ingredients.sql` exactly. The default constraint names this migration relies on (`meals_owner_id_fkey`, `meal_ingredients_meal_id_fkey`, `meal_ingredients_ingredient_id_fkey`) follow the same Postgres naming Task 3's ingredients-plan predecessor already established for `ingredients_owner_id_fkey`.
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `cd backend && go test ./internal/db/... -run TestMealsSchemaEnforcesItsConstraints -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/migrations/00005_meals.sql backend/internal/db/schema_test.go
@@ -218,7 +218,7 @@ git commit -m "feat(backend): add the meals and meal_ingredients tables"
 
   All of the above is scratch-verified: a real `sqlc generate` run against these exact query texts (with a copy of the repo's `sqlc.yaml`) produced exactly these signatures with no errors, confirmed by reading the generated `meals.sql.go` and the diff to `ingredients.sql.go`.
 
-- [ ] **Step 1: Write the meals queries**
+- [x] **Step 1: Write the meals queries**
 
 Create `backend/internal/store/queries/meals.sql`:
 
@@ -275,7 +275,7 @@ Notes on choices already made (do not redesign these):
 - `InsertMealIngredient` is `:one` with `RETURNING *`, not `:exec`, even though the service could compute the row itself: Task 4's `ReplaceIngredients` needs each inserted row's real (database-generated) `id` to build an accurate response, and re-reading after insert would be an extra round trip for no benefit.
 - No query blocks a `meal_ingredients` row from referencing an ingredient invisible to the meal's owner — that is a service-layer check (Task 4), because visibility depends on `ingredients.owner_id`, which needs the same visibility rule `GetIngredientsForUser` (below) implements, not a table-level constraint.
 
-- [ ] **Step 2: Add `GetIngredientsForUser` to the ingredients queries**
+- [x] **Step 2: Add `GetIngredientsForUser` to the ingredients queries**
 
 In `backend/internal/store/queries/ingredients.sql`, after `GetIngredientNutrients`, add:
 
@@ -287,7 +287,7 @@ WHERE id = ANY(sqlc.arg('ids')::uuid[]) AND (owner_id IS NULL OR owner_id = sqlc
 
 This is the batch counterpart to the existing (still-unused) `GetIngredientForUser`: given a set of ingredient ids, it returns only the ones that exist and are visible to `user_id` (global, or owned by them). The meals service uses it to fetch every ingredient a meal's lines reference in one query, and — because it silently drops ids that don't exist or aren't visible — to detect them: if it returns fewer rows than distinct ids requested, one of them was invalid.
 
-- [ ] **Step 3: Regenerate and verify it compiles**
+- [x] **Step 3: Regenerate and verify it compiles**
 
 Run: `cd backend && go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate`
 Expected: exits 0, creates `internal/store/sqlc/meals.sql.go`, updates `ingredients.sql.go` and adds `Meal`/`MealIngredient` to `models.go`.
@@ -295,7 +295,7 @@ Expected: exits 0, creates `internal/store/sqlc/meals.sql.go`, updates `ingredie
 Run: `cd backend && go build ./...`
 Expected: builds cleanly (nothing references the new queries yet, so this only proves the generated code itself compiles).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add backend/internal/store/queries/meals.sql backend/internal/store/queries/ingredients.sql backend/internal/store/sqlc/
@@ -321,7 +321,7 @@ The ingredients plan (`docs/superpowers/plans/2026-09-22-backend-ingredients.md`
 - Consumes: `store.IsForeignKeyViolation` (existing, Task 3 of the ingredients plan).
 - Produces: `service.ErrIngredientInUse` (consumed by `httpapi.writeServiceError`), `httpapi.CodeIngredientInUse = "ingredient_in_use"`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `backend/internal/service/ingredients_test.go`, add (needs `st.CreateMeal` and `st.InsertMealIngredient` from Task 2 — both promoted directly onto `*store.Store`, no service needed):
 
@@ -358,12 +358,12 @@ func TestIngredientsDeleteIsBlockedWhileInUseByAMeal(t *testing.T) {
 
 Add `"github.com/InzKazik/mealplanner/backend/internal/store/sqlc"` to the file's imports if not already present (it is, from `newTestUser`'s `sqlc.CreateUserParams`).
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd backend && go test ./internal/service/... -run TestIngredientsDeleteIsBlockedWhileInUseByAMeal -v`
 Expected: FAIL to compile — `service.ErrIngredientInUse` does not exist yet (`sqlc.CreateMealParams` etc. already exist from Task 2).
 
-- [ ] **Step 3: Add `ErrIngredientInUse` and teach `Delete` about it**
+- [x] **Step 3: Add `ErrIngredientInUse` and teach `Delete` about it**
 
 In `backend/internal/service/ingredients.go`, add to the `var` block alongside `ErrIngredientNotFound`:
 
@@ -393,7 +393,7 @@ func (s *Ingredients) Delete(ctx context.Context, ownerID, id uuid.UUID) error {
 }
 ```
 
-- [ ] **Step 4: Update the now-resolved comment in the queries file**
+- [x] **Step 4: Update the now-resolved comment in the queries file**
 
 In `backend/internal/store/queries/ingredients.sql`, replace the comment above `DeleteIngredient`:
 
@@ -406,7 +406,7 @@ In `backend/internal/store/queries/ingredients.sql`, replace the comment above `
 DELETE FROM ingredients WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id');
 ```
 
-- [ ] **Step 5: Add the problem code and the `writeServiceError` case**
+- [x] **Step 5: Add the problem code and the `writeServiceError` case**
 
 In `backend/internal/httpapi/problem.go`, add to the `Code*` constants:
 
@@ -421,7 +421,7 @@ In `backend/internal/httpapi/account.go`, in `writeServiceError`, add a case (or
 		WriteProblem(w, http.StatusConflict, CodeIngredientInUse, "")
 ```
 
-- [ ] **Step 6: Add `409` to the contract**
+- [x] **Step 6: Add `409` to the contract**
 
 In `openapi.yaml`, in `DELETE /ingredients/{id}`'s `responses`, add before `429`:
 
@@ -433,7 +433,7 @@ In `openapi.yaml`, in `DELETE /ingredients/{id}`'s `responses`, add before `429`
 Run: `make lint-api` — expect the same pre-existing warnings only, no new ones.
 Run: `make generate` — regenerates `backend/internal/api/api.gen.go` (this response addition does not change any Go type, only the embedded spec used by response validation in tests).
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 Run: `cd backend && go test ./internal/service/... -run TestIngredients -v`
 Expected: PASS, including the new test.
@@ -441,7 +441,7 @@ Expected: PASS, including the new test.
 Run: `cd backend && go build ./...`
 Expected: builds cleanly.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/internal/service/ingredients.go backend/internal/service/ingredients_test.go \
@@ -477,7 +477,7 @@ git commit -m "feat(backend): block deleting an ingredient a meal still referenc
   - `func (*Meals) ReplaceIngredients(ctx, ownerID, id uuid.UUID, items []MealIngredientInput) (Meal, error)`
   - `func (*Meals) Copy(ctx, callerID, id uuid.UUID) (Meal, error)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/internal/service/meals_test.go`:
 
@@ -836,12 +836,12 @@ func strPtr(s string) *string { return &s }
 
 The first test (`TestMealsNutritionIsComputedToTheGram`) shows a bit of setup noise (two throwaway `newIngredientsFixture`/`newMealsFixture` calls) to work around needing both a real user id and a real `*service.Ingredients`/`*service.Meals` pair sharing the same store — clean this up in Step 5, same as the ingredients plan's Task 3 Step 5. Only one call to each fixture helper belongs in the final file.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd backend && go test ./internal/service/... -run TestMeals -v`
 Expected: FAIL to compile — `service.Meals` etc. do not exist yet.
 
-- [ ] **Step 3: Implement the service**
+- [x] **Step 3: Implement the service**
 
 Create `backend/internal/service/meals.go`:
 
@@ -1335,11 +1335,11 @@ func uniqueIngredientIDs(rows []sqlc.MealIngredient) []uuid.UUID {
 
 `toRowLimit` is reused unchanged from `ingredients.go` (same package, already unexported there).
 
-- [ ] **Step 4: Clean up the test file's setup noise**
+- [x] **Step 4: Clean up the test file's setup noise**
 
 As flagged in Step 1: in the final `meals_test.go`, each test calls `newIngredientsFixture`/`newMealsFixture` exactly once and uses the returned values directly. Remove the throwaway double-calls and unused `_ = svc`/`_ = ing` lines from `TestMealsNutritionIsComputedToTheGram` and every other test that has them; re-read the finished file before running it.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `cd backend && go test ./internal/service/... -run TestMeals -v`
 Expected: PASS
@@ -1347,7 +1347,7 @@ Expected: PASS
 Run: `cd backend && go build ./...`
 Expected: builds cleanly.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/internal/service/meals.go backend/internal/service/meals_test.go
@@ -1367,7 +1367,7 @@ git commit -m "feat(backend): add the meals service"
 
   All of the above is scratch-verified: this exact YAML addition was run through `redocly lint` (valid, the same pre-existing warnings only) and a real `oapi-codegen` v2.8.0 generate (matches the repo's pinned version) against a copy of the repo, and every struct field name, JSON tag and `ServerInterface` signature above was read from that generated output. `Meal.Notes`/`MealSummary.Notes` are `nullable.Nullable[string]` (the `notes` column is nullable, so both schemas mark it `nullable: true`); `UpdateMealRequest.Servings` is a plain `*float64`, **not** `nullable.Nullable[float64]` — `servings` is `NOT NULL` in the database and was deliberately not marked `nullable: true` in the schema, matching `UpdateIngredientRequest`'s treatment of `name`/`category` versus `grams_per_piece`/`density_g_per_ml`.
 
-- [ ] **Step 1: Add the tag**
+- [x] **Step 1: Add the tag**
 
 In `openapi.yaml`, after the `Ingredients` tag, add:
 
@@ -1376,7 +1376,7 @@ In `openapi.yaml`, after the `Ingredients` tag, add:
     description: Meals built from ingredients, with nutrition computed on read.
 ```
 
-- [ ] **Step 2: Add the five paths**
+- [x] **Step 2: Add the five paths**
 
 Immediately before `/healthz:`, add:
 
@@ -1585,7 +1585,7 @@ Immediately before `/healthz:`, add:
           $ref: '#/components/responses/Problem'
 ```
 
-- [ ] **Step 3: Add the schemas**
+- [x] **Step 3: Add the schemas**
 
 In `components.schemas`, after `IngredientList` (before `responses:`), add:
 
@@ -1746,7 +1746,7 @@ In `components.schemas`, after `IngredientList` (before `responses:`), add:
           nullable: true
 ```
 
-- [ ] **Step 4: Lint and regenerate**
+- [x] **Step 4: Lint and regenerate**
 
 Run: `make lint-api`
 Expected: valid, same pre-existing warnings only, no new ones.
@@ -1757,7 +1757,7 @@ Expected: `backend/internal/api/api.gen.go` is regenerated; `git diff --stat` sh
 Run: `cd backend && go build ./...`
 Expected: builds cleanly (nothing implements the new `ServerInterface` methods yet, but `api.gen.go` alone must compile).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add openapi.yaml backend/internal/api/api.gen.go
@@ -1779,7 +1779,7 @@ git commit -m "feat(api): add the meals endpoints to the contract"
 - Consumes: `service.Meals` and its types from Task 4; `api.*` types from Task 5; the existing `toNullable`, `decodeJSON`, `requireUser`, `writeJSON` helpers from `account.go`; `nutrientsToAPI` from `nutrients.go` (Meal's `nutrition_per_serving` reuses the exact same `NutrientAmounts` schema as an ingredient's `nutrients`).
 - Produces: `httpapi.MealsService` interface (consumed by `router.go`'s `Deps.Meals` and by Task 7's tests).
 
-- [ ] **Step 1: Add the new problem codes**
+- [x] **Step 1: Add the new problem codes**
 
 In `backend/internal/httpapi/problem.go`, add to the `Code*` constants (alongside `CodeIngredientInUse` from Task 3):
 
@@ -1788,7 +1788,7 @@ In `backend/internal/httpapi/problem.go`, add to the `Code*` constants (alongsid
 	CodeUnitNotConvertible = "unit_not_convertible"
 ```
 
-- [ ] **Step 2: Add the `writeServiceError` cases**
+- [x] **Step 2: Add the `writeServiceError` cases**
 
 In `backend/internal/httpapi/account.go`, in `writeServiceError`, add (next to the existing `ErrIngredientNotFound`/`ErrIngredientInUse` cases):
 
@@ -1801,7 +1801,7 @@ In `backend/internal/httpapi/account.go`, in `writeServiceError`, add (next to t
 		WriteProblem(w, http.StatusConflict, CodeUnitNotConvertible, "")
 ```
 
-- [ ] **Step 3: Write the handlers**
+- [x] **Step 3: Write the handlers**
 
 Create `backend/internal/httpapi/meals.go`:
 
@@ -2057,7 +2057,7 @@ Note: `GetMeal`/`UpdateMeal`/`DeleteMeal`/`ReplaceMealIngredients`/`CopyMeal`'s 
 
 `nutrientsToAPI` is reused unchanged from `nutrients.go` — `Meal.NutritionPerServing` is a `map[string]float64` keyed by the same `service.Nutrient*` constants as `Ingredient.Nutrients`, so the exact same converter applies; a key missing from the map (the "unknown, propagated" case from Task 4) renders as an explicit JSON `null`, exactly like an ingredient's missing nutrient does today.
 
-- [ ] **Step 4: Wire the new service into `server` and the router**
+- [x] **Step 4: Wire the new service into `server` and the router**
 
 In `backend/internal/httpapi/server.go`, add a field:
 
@@ -2091,12 +2091,12 @@ In `backend/internal/httpapi/router.go`, add `Meals MealsService` to `Deps`, req
 
 (Keep every other line of `router.go` and `server.go` unchanged.)
 
-- [ ] **Step 5: Build**
+- [x] **Step 5: Build**
 
 Run: `cd backend && go build ./...`
 Expected: builds cleanly. `var _ api.ServerInterface = (*server)(nil)` in `server.go` now also checks the seven new methods.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/internal/httpapi/
@@ -2115,7 +2115,7 @@ git commit -m "feat(backend): implement the meals handlers"
 **Interfaces:**
 - Consumes: everything from Tasks 4–6, plus the existing `newTestRouter`, `contract`, `decodeAs[T]`, `withBody`, `withBearer`, `withInvalidRequest` helpers already in the `httpapi_test` package.
 
-- [ ] **Step 1: Wire the service in `cmd/api/main.go`**
+- [x] **Step 1: Wire the service in `cmd/api/main.go`**
 
 Next to `ingredients := service.NewIngredients(st)`, add:
 
@@ -2125,7 +2125,7 @@ Next to `ingredients := service.NewIngredients(st)`, add:
 
 Add `Meals: meals,` to the `httpapi.Deps{...}` literal, alongside `Ingredients: ingredients,`.
 
-- [ ] **Step 2: Add a stub to the shared test router**
+- [x] **Step 2: Add a stub to the shared test router**
 
 In `backend/internal/httpapi/contract_test.go`, add a no-op stub next to `stubIngredients` and wire it into `newTestRouter`'s default `Deps`:
 
@@ -2137,7 +2137,7 @@ type stubMeals struct{ httpapi.MealsService }
 
 In `newTestRouter`, add `Meals: stubMeals{},` to the `httpapi.Deps{...}` literal (alongside `Ingredients: stubIngredients{}`). Also add `d.Meals == nil` and a `"no meals"` case to `TestNewRouterPanicsWithoutRequiredDependencies`'s `tests` map and to its `full` literal, mirroring the existing `"no ingredients"` case exactly.
 
-- [ ] **Step 3: Write the end-to-end test**
+- [x] **Step 3: Write the end-to-end test**
 
 Create `backend/internal/httpapi/meals_flow_test.go`, modeled on `ingredients_flow_test.go`'s `newIngredientsRouter`/`TestIngredientsLifecycle`:
 
@@ -2324,12 +2324,12 @@ func TestMealsListPaginatesThroughTheContract(t *testing.T) {
 
 `stubTwoUserTokens` is reused unchanged from `ingredients_flow_test.go` (same `httpapi_test` package).
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && go test ./... -v 2>&1 | tail -100`
 Expected: all PASS, including `TestMealsLifecycle`, `TestMealsReplaceIngredientsWithAnUnknownIngredientIsRejected`, `TestMealsListPaginatesThroughTheContract`, and every pre-existing test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/cmd/api/main.go backend/internal/httpapi/contract_test.go backend/internal/httpapi/meals_flow_test.go
@@ -2345,7 +2345,7 @@ git commit -m "feat(backend): wire the meals service into cmd/api and add end-to
 
 **Interfaces:** none (documentation only).
 
-- [ ] **Step 1: Update `backend/CLAUDE.md`**
+- [x] **Step 1: Update `backend/CLAUDE.md`**
 
 In "Behaviour worth knowing", add two entries after the existing "Nutrients use two schemas on purpose" line:
 
@@ -2362,7 +2362,7 @@ In "Not built yet", replace the line `- The domain beyond ingredients: meals, di
 - The domain beyond meals: diets, plan, shopping lists, partners (later plans). **Meals have no partner visibility yet**: `meals.shared_with_partner` is stored, but every meals read checks `owner_id` only, because the `partnerships` table does not exist until the partner plan (backend build order item 6, after shopping lists). When that plan lands, `Meals.Get`/`List`/`Copy` (and their `GetMealForUser`/`ListMealsForUser` queries) need an active-partner lookup added alongside the owner check, and `Copy` needs to decide whether a partner may copy a shared meal (the spec's sharing rule, §3.6, says partners get read-only + copy access to meals — this plan only implements that for the owner).
 ```
 
-- [ ] **Step 2: Run everything CI runs**
+- [x] **Step 2: Run everything CI runs**
 
 Run: `make check`
 Expected: PASS (lints `openapi.yaml`, vets and tests the backend, runs golangci-lint, fails if generated code is stale)
@@ -2370,7 +2370,7 @@ Expected: PASS (lints `openapi.yaml`, vets and tests the backend, runs golangci-
 Run: `make check-generated`
 Expected: clean (no diff)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/CLAUDE.md
