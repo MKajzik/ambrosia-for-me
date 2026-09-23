@@ -345,6 +345,80 @@ func TestDietTemplatesApplyWritesPlanEntriesAtTheRightDates(t *testing.T) {
 	}
 }
 
+// TestDietTemplatesApplyConcurrentCallsOnOverlappingDatesConflictInsteadOfErroring
+// is finding #2's regression test: before the fix, two concurrent
+// POST /diet-templates/{id}/apply calls (e.g. a double-tapped Apply button)
+// targeting the same dates both passed the pre-write conflict check, and
+// the loser's InsertPlanEntry then blocked on plan_entries_unique_slot_idx
+// and failed with a raw, untranslated 23505 (a 500). Firing several
+// concurrent Apply calls at the same template/start date and asserting
+// every result is either a successful write or the ErrPlanConflict
+// sentinel — never any other error — catches that regression.
+func TestDietTemplatesApplyConcurrentCallsOnOverlappingDatesConflictInsteadOfErroring(t *testing.T) {
+	tpls, meals, _, st := newDietTemplatesFixture(t)
+	owner := newTestUser(t, st, "planner8@example.com")
+	meal := mustCreateMeal(t, meals, owner, "Meal")
+
+	tpl, err := tpls.Create(context.Background(), owner, service.CreateDietTemplateInput{Name: "One Day", DayCount: 1})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := tpls.ReplaceSlots(context.Background(), owner, tpl.ID, []service.TemplateSlotInput{
+		{DayIndex: 0, Slot: "breakfast", MealID: meal.ID, Portion: 1},
+	}); err != nil {
+		t.Fatalf("ReplaceSlots: %v", err)
+	}
+	start := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	const numGoroutines = 8
+	var (
+		wg        sync.WaitGroup
+		barrier   = make(chan struct{})
+		writeErrs = make([]error, numGoroutines)
+		written   = make([]int, numGoroutines)
+	)
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			<-barrier // release all goroutines at once
+			n, err := tpls.Apply(context.Background(), owner, tpl.ID, service.ApplyTemplateInput{StartDate: start})
+			written[idx] = n
+			writeErrs[idx] = err
+		}(i)
+	}
+	close(barrier)
+	wg.Wait()
+
+	succeeded := 0
+	for i, err := range writeErrs {
+		switch {
+		case err == nil:
+			succeeded++
+			if written[i] != 1 {
+				t.Errorf("goroutine %d: Apply wrote %d entries, want 1", i, written[i])
+			}
+		case errors.Is(err, service.ErrPlanConflict):
+			// Expected for every loser of the race.
+		default:
+			t.Errorf("goroutine %d: Apply returned an unexpected error: %v", i, err)
+		}
+	}
+	if succeeded != 1 {
+		t.Errorf("successful Apply calls = %d, want exactly 1 (one winner, the rest ErrPlanConflict)", succeeded)
+	}
+
+	rows, err := st.GetPlanEntriesForUserInRange(context.Background(), sqlc.GetPlanEntriesForUserInRangeParams{
+		UserID: owner, FromDate: pgtype.Date{Time: start, Valid: true}, ToDate: pgtype.Date{Time: start, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("GetPlanEntriesForUserInRange: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Errorf("plan entries after concurrent applies = %d, want exactly 1 (no duplicate from a half-applied loser)", len(rows))
+	}
+}
+
 func TestDietTemplatesApplyWithoutOverwriteConflictsOnAnExistingNonSnackEntry(t *testing.T) {
 	tpls, meals, _, st := newDietTemplatesFixture(t)
 	owner := newTestUser(t, st, "planner6@example.com")

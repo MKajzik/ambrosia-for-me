@@ -416,6 +416,18 @@ func (s *DietTemplates) Apply(ctx context.Context, ownerID, id uuid.UUID, in App
 			if _, err := q.InsertPlanEntry(ctx, sqlc.InsertPlanEntryParams{
 				OwnerID: ownerID, Date: targetPgDates[i], Slot: sl.Slot, MealID: sl.MealID, Portion: sl.Portion, FromTemplateID: &fromID,
 			}); err != nil {
+				// A concurrent Apply (or a concurrent manual PUT
+				// /plan/{date}/{slot}) targeting the same non-snack
+				// date+slot can pass the conflict check above and then lose
+				// this insert race: the loser's INSERT blocks on
+				// plan_entries_unique_slot_idx and fails once the winner
+				// commits. Translate that into the same ErrPlanConflict the
+				// pre-write check above returns, instead of letting a raw
+				// 23505 surface as a 500 — the transaction still rolls back
+				// cleanly, so nothing is left half-applied.
+				if store.IsUniqueViolation(err, "plan_entries_unique_slot_idx") {
+					return ErrPlanConflict
+				}
 				return fmt.Errorf("insert plan entry: %w", err)
 			}
 			written++
