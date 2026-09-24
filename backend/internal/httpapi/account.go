@@ -199,6 +199,12 @@ func (s *server) writeServiceError(w http.ResponseWriter, r *http.Request, err e
 		WriteProblem(w, http.StatusBadRequest, CodeInvalidIngredient, "")
 	case errors.Is(err, service.ErrShoppingItemVersionRequired):
 		WriteProblem(w, http.StatusBadRequest, CodeVersionRequired, "version is required to change name, quantity, unit or category")
+	case errors.Is(err, service.ErrPartnerNotLinked):
+		WriteProblem(w, http.StatusNotFound, CodePartnerNotLinked, "")
+	case errors.Is(err, service.ErrPartnerAlreadyLinked):
+		WriteProblem(w, http.StatusConflict, CodePartnerAlreadyLinked, "")
+	case errors.Is(err, service.ErrInviteInvalid):
+		WriteProblem(w, http.StatusNotFound, CodeInviteInvalid, "")
 	case errors.Is(err, service.ErrEventStreamsClosed):
 		// Only reachable while the server is shutting down.
 		WriteProblem(w, http.StatusServiceUnavailable, CodeNotReady, "the server is shutting down")

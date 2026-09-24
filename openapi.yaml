@@ -25,6 +25,8 @@ tags:
     description: The calendar of scheduled meals and their computed nutrition totals.
   - name: ShoppingLists
     description: Shopping lists generated from the plan or built by hand, with live updates over Server-Sent Events.
+  - name: Partner
+    description: Linking with one partner through an invite code, and reading what the partner has shared.
 paths:
   /ingredients:
     get:
@@ -983,6 +985,95 @@ paths:
         '500':
           $ref: '#/components/responses/Problem'
         '503':
+          $ref: '#/components/responses/Problem'
+  /partner:
+    get:
+      tags: [Partner]
+      operationId: getPartner
+      summary: Get the caller's partnership
+      description: Returns the active partnership (the partner's `display_name` and `linked_at`), or the caller's own pending invite (`expires_at`; the code is never returned again). `404 partner_not_linked` when there is neither, and also once a pending invite has expired.
+      responses:
+        '200':
+          description: The partnership.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Partnership'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+    delete:
+      tags: [Partner]
+      operationId: unlinkPartner
+      summary: End the partnership or cancel a pending invite
+      description: Either side may unlink. Access ends at once, so the former partner's next read of shared meals, diet templates and shopping lists is `404`, and their open shopping-list event streams are closed. Every list, meal and template stays with its owner; copies are independent. Re-linking needs a fresh invite.
+      responses:
+        '204':
+          description: The link was ended, or the pending invite cancelled.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /partner/invite:
+    post:
+      tags: [Partner]
+      operationId: createPartnerInvite
+      summary: Create an invite code
+      description: Creates an invite for the caller and returns its code, which is shown only here (only its hash is stored). The code has 8 characters from `23456789ABCDEFGHJKMNPQRSTUVWXYZ` and expires after 48 hours. A new invite replaces the caller's pending one. `409 partner_already_linked` if the caller already has a partner.
+      responses:
+        '201':
+          description: The invite.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerInvite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /partner/accept:
+    post:
+      tags: [Partner]
+      operationId: acceptPartnerInvite
+      summary: Accept an invite code
+      description: Links the caller with the user who issued the code. A wrong, expired, own or already used code all return the same `404 invite_invalid`. A caller who already has a partner gets `409 partner_already_linked` whatever the code. Case, spaces and dashes in the code do not matter. This route has its own, tighter rate limit (per user and per client IP).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptPartnerInviteRequest'
+      responses:
+        '200':
+          description: The new partnership.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Partnership'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
           $ref: '#/components/responses/Problem'
   /healthz:
     get:
@@ -2099,6 +2190,44 @@ components:
           type: string
         current:
           $ref: '#/components/schemas/ShoppingItem'
+    Partnership:
+      type: object
+      description: The caller's partnership. While `status` is `active`, `display_name` is the partner's name and `linked_at` says since when; while it is `pending`, `expires_at` is when the invite code stops working.
+      required: [status, display_name, linked_at, expires_at]
+      properties:
+        status:
+          type: string
+          enum: [pending, active]
+        display_name:
+          type: string
+          nullable: true
+        linked_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    PartnerInvite:
+      type: object
+      required: [code, expires_at]
+      properties:
+        code:
+          type: string
+          description: Shown once; only its hash is stored.
+        expires_at:
+          type: string
+          format: date-time
+    AcceptPartnerInviteRequest:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
   responses:
     Problem:
       description: An error occurred.

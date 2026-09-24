@@ -79,6 +79,10 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 	plan := service.NewPlan(st, meals)
 	listEvents := service.NewListEventHub()
 	shoppingLists := service.NewShoppingLists(st, listEvents)
+	partners := service.NewPartners(st, listEvents, time.Now)
+	// DeleteUser removes an account's lists with a raw DELETE, which publishes
+	// no list_deleted event, so the hub is told to close the streams itself.
+	accounts.OnUserDeleted(listEvents.CloseUser)
 
 	srv := &http.Server{
 		Handler: httpapi.NewRouter(httpapi.Deps{
@@ -91,6 +95,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 			DietTemplates:  dietTemplates,
 			Plan:           plan,
 			ShoppingLists:  shoppingLists,
+			Partners:       partners,
 			Tokens:         tokens,
 			TrustedProxies: cfg.TrustedProxies,
 		}),
