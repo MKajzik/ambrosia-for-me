@@ -15,7 +15,7 @@ This is the last backend domain in the build order. Meals, diet templates and sh
 | Partner meal that uses the partner's custom ingredients | The partner can read it (ingredients resolved with the **meal owner's** visibility). On copy, each custom ingredient is duplicated into the caller's library; global (USDA) ingredients stay shared references. |
 | Invite code | 8 characters from `23456789ABCDEFGHJKMNPQRSTUVWXYZ` (no `0 O 1 I L`), 48 h expiry, stored hashed, shown once, one pending invite per user (a new invite replaces the old). |
 | Partner powers on a shared list | Item add, edit, check, delete. List-level actions (rename, delete, toggle sharing, regenerate) stay owner-only; regenerate keeps reading the owner's own `plan_entries`. |
-| Enforcement | A `Partners` resolver plus a shared visibility predicate passed into queries. No partnership knowledge in SQL. |
+| Enforcement | The package functions `activePartnerID` and `partnerOrNil` in `service/partners.go` resolve the partner, so `Meals`, `DietTemplates` and `ShoppingLists` need no new constructor argument. The result goes into the queries as one `partner_id` parameter of a shared read predicate. No other partnership knowledge in SQL. |
 | Plans | `plan_entries` stay owner-only. A partner copies a template and applies their own copy. |
 | Where partner resources are listed | Own `GET meals`, `GET diet-templates` and `GET shopping-lists` stay owner-only. The partner's shared resources come only from `GET partner/*`. `Get` by id, and shopping-list item edits and events, also accept a partner-shared resource (`is_owner` tells clients which). |
 | Shared template and its meals | Sharing a template implicitly shares what its slots show: `meal_id` and meal name. The meals' own `shared_with_partner` flags are not consulted for that, and `GET meals/{id}` on an unshared meal still returns `404`. Copy reads the template's meals through the template, not through the meal visibility predicate. |
@@ -45,7 +45,7 @@ All under `/v1`, bearer-authenticated. `openapi.yaml` changes first, then `make 
 |---|---|
 | `POST partner/invite` | Returns `{code, expires_at}`. Replaces any pending invite. `409 partner_already_linked` if the caller is linked. |
 | `POST partner/accept` `{code}` | Returns the partnership. Wrong, expired, own or used code all return the same `404 invite_invalid`. `409 partner_already_linked` if the caller is linked. Because a linked inviter's code is always cleared, a code that resolves to a linked inviter cannot occur and never leaks as `409`. Rate limited by a dedicated limiter, per user and per client IP (8 characters from 31 symbols is about 39 bits, so the general per-user limit is not enough against many accounts). |
-| `GET partner` | Active: partner `display_name`, `linked_at`, `status`. Pending: `status` and `expires_at`, never the code. None: `404 partner_not_linked`. |
+| `GET partner` | One schema with four fields, the unused ones `null`: `status`, `display_name` (the partner's, when active), `linked_at` (when active), `expires_at` (when pending). Never the code. `404 partner_not_linked` when there is neither an active partner nor a live invite, so an expired pending invite is `404` too (`DELETE partner` still cancels it). |
 | `DELETE partner` | Ends an active link or cancels a pending invite; `204`. Either side may unlink. `404 partner_not_linked` if none. |
 | `GET partner/meals` | The partner's `shared_with_partner` meals only; cursor pagination. `404 partner_not_linked` without an active partner. |
 | `GET partner/diet-templates` | Same, for templates. |
@@ -55,7 +55,7 @@ New problem codes: `partner_not_linked` (404), `partner_already_linked` (409), `
 
 ## 5. Visibility (service layer)
 
-`Partners.ActivePartnerID(ctx, q, userID)` returns the active partner's id or none. Each service calls it once at the start of a transaction and passes the result to its queries. No caching, so an unlink is visible to the next transaction. Plain reads take no lock. Only shopping-item writes and the SSE subscribe check take `FOR SHARE` on the partnership row (see §6).
+`activePartnerID(ctx, q, userID, forShare)` returns the active partner's id, or `ErrPartnerNotLinked`. Each service calls it (through `partnerOrNil`, which turns "none" into a nil `partner_id`) once at the start of a transaction and passes the result to its queries. No caching, so an unlink is visible to the next transaction. Plain reads take no lock. Only shopping-item writes and the final access check of an SSE subscribe take `FOR SHARE` on the partnership row (see §6).
 
 Read predicate: `owner_id = @user_id OR (owner_id = @partner_id AND shared_with_partner)`. With no partner, `@partner_id` is null and the second branch matches nothing.
 
@@ -72,7 +72,7 @@ Read predicate: `owner_id = @user_id OR (owner_id = @partner_id AND shared_with_
 - **`checked_by`** is the acting user's id when checking and cleared when unchecking.
 - **Owner-only:** rename, delete, toggle `shared_with_partner`, regenerate (`404` for a partner). Partner-added items have `origin = manual`, so the owner's regenerate keeps them.
 - **Unlink ordering.** Item edits resolve the partner with `SELECT ... FOR SHARE` on the partnership row. Unlink's `DELETE` waits for in-flight edits, and any edit starting afterwards finds no partner and gets `404`.
-- **Subscribe ordering.** `Subscribe` registers in the hub first, then checks access. If the check fails, it unregisters and returns `404`. Without this order, a subscribe that passed its check just before an unlink commits could register after `CloseAccess` ran and stay open. Test required.
+- **Subscribe ordering.** `Subscribe` looks the list up (which tells the hub who owns it), registers in the hub, then checks access again with the partnership row taken `FOR SHARE`, so the check waits for an unlink in flight. If the check fails, it unregisters and returns `404`. Without this order, a subscribe that passed its check just before an unlink commits could register after `CloseAccess` ran and stay open. Test required.
 - **SSE hub.** Each subscription records the watching user and the list owner. New hub methods:
   - `CloseAccess(userA, userB)`: closes streams where one of them watches a list the other owns. Called on unlink.
   - `CloseListForNonOwners(listID)`: called when the owner turns sharing off.
