@@ -20,12 +20,12 @@ func itemEvent(listID uuid.UUID, version int) service.ListEvent {
 func TestListEventHubDeliversOnlyToSubscribersOfThatList(t *testing.T) {
 	hub := service.NewListEventHub()
 	listA, listB := uuid.New(), uuid.New()
-	subA, err := hub.Subscribe(listA)
+	subA, err := hub.Subscribe(listA, uuid.Nil, uuid.Nil)
 	if err != nil {
 		t.Fatalf("Subscribe A: %v", err)
 	}
 	defer subA.Close()
-	subB, err := hub.Subscribe(listB)
+	subB, err := hub.Subscribe(listB, uuid.Nil, uuid.Nil)
 	if err != nil {
 		t.Fatalf("Subscribe B: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestListEventHubDeliversOnlyToSubscribersOfThatList(t *testing.T) {
 func TestListEventHubDisconnectsASubscriberThatFallsBehind(t *testing.T) {
 	hub := service.NewListEventHub()
 	list := uuid.New()
-	slow, err := hub.Subscribe(list)
+	slow, err := hub.Subscribe(list, uuid.Nil, uuid.Nil)
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestListEventHubDisconnectsASubscriberThatFallsBehind(t *testing.T) {
 func TestListEventHubEndsStreamsAfterListDeleted(t *testing.T) {
 	hub := service.NewListEventHub()
 	list := uuid.New()
-	sub, err := hub.Subscribe(list)
+	sub, err := hub.Subscribe(list, uuid.Nil, uuid.Nil)
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestListEventHubEndsStreamsAfterListDeleted(t *testing.T) {
 
 func TestListEventHubCloseEndsEveryStreamAndRefusesNewOnes(t *testing.T) {
 	hub := service.NewListEventHub()
-	sub, err := hub.Subscribe(uuid.New())
+	sub, err := hub.Subscribe(uuid.New(), uuid.Nil, uuid.Nil)
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestListEventHubCloseEndsEveryStreamAndRefusesNewOnes(t *testing.T) {
 		t.Error("channel still open after Close, want closed")
 	}
 	sub.Close() // must not panic on an already-closed subscription
-	if _, err := hub.Subscribe(uuid.New()); !errors.Is(err, service.ErrEventStreamsClosed) {
+	if _, err := hub.Subscribe(uuid.New(), uuid.Nil, uuid.Nil); !errors.Is(err, service.ErrEventStreamsClosed) {
 		t.Errorf("Subscribe after Close: err = %v, want ErrEventStreamsClosed", err)
 	}
 }
@@ -166,7 +166,7 @@ func TestListEventHubConcurrentPublishSubscribeClose(t *testing.T) {
 		go func(s int) {
 			defer wg.Done()
 			list := lists[s%numLists]
-			sub, err := hub.Subscribe(list)
+			sub, err := hub.Subscribe(list, uuid.Nil, uuid.Nil)
 			if err != nil {
 				// The hub is never closed in this test, so this must never happen.
 				atomic.AddInt64(&subFailures, 1)
@@ -208,5 +208,119 @@ func TestListEventHubConcurrentPublishSubscribeClose(t *testing.T) {
 		if n := hub.Subscribers(list); n != 0 {
 			t.Errorf("Subscribers(%v) after every subscriber closed = %d, want 0", list, n)
 		}
+	}
+}
+
+// closedWithin reports whether sub's channel is closed (after draining any
+// buffered events) within a moment.
+func closedWithin(sub *service.ListSubscription) bool {
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case _, open := <-sub.Events():
+			if !open {
+				return true
+			}
+		case <-deadline:
+			return false
+		}
+	}
+}
+
+// stillOpen reports whether sub's channel is open with nothing pending.
+func stillOpen(sub *service.ListSubscription) bool {
+	select {
+	case _, open := <-sub.Events():
+		return open
+	default:
+		return true
+	}
+}
+
+func TestListEventHubCloseAccessEndsOnlyTheStreamsBetweenTwoUsers(t *testing.T) {
+	hub := service.NewListEventHub()
+	alice, bob, carol := uuid.New(), uuid.New(), uuid.New()
+	aliceList, bobList, carolList := uuid.New(), uuid.New(), uuid.New()
+	subscribe := func(list, watcher, owner uuid.UUID) *service.ListSubscription {
+		t.Helper()
+		sub, err := hub.Subscribe(list, watcher, owner)
+		if err != nil {
+			t.Fatalf("Subscribe: %v", err)
+		}
+		t.Cleanup(sub.Close)
+		return sub
+	}
+	bobWatchesAlice := subscribe(aliceList, bob, alice)
+	aliceWatchesBob := subscribe(bobList, alice, bob)
+	aliceWatchesOwn := subscribe(aliceList, alice, alice)
+	carolWatchesAlice := subscribe(aliceList, carol, alice)
+	aliceWatchesCarol := subscribe(carolList, alice, carol)
+
+	hub.CloseAccess(alice, bob)
+
+	if !closedWithin(bobWatchesAlice) || !closedWithin(aliceWatchesBob) {
+		t.Error("a stream between the two users stayed open, want it closed both ways")
+	}
+	for name, sub := range map[string]*service.ListSubscription{
+		"the owner's own stream":              aliceWatchesOwn,
+		"a third user watching one of them":   carolWatchesAlice,
+		"one of them watching a third user's": aliceWatchesCarol,
+	} {
+		if !stillOpen(sub) {
+			t.Errorf("%s was closed, want it left open", name)
+		}
+	}
+}
+
+func TestListEventHubCloseListForNonOwnersKeepsTheOwnersStreams(t *testing.T) {
+	hub := service.NewListEventHub()
+	owner, partner := uuid.New(), uuid.New()
+	list, otherList := uuid.New(), uuid.New()
+	ownerSub, _ := hub.Subscribe(list, owner, owner)
+	partnerSub, _ := hub.Subscribe(list, partner, owner)
+	elsewhere, _ := hub.Subscribe(otherList, partner, owner)
+	defer ownerSub.Close()
+	defer partnerSub.Close()
+	defer elsewhere.Close()
+
+	hub.CloseListForNonOwners(list)
+
+	if !closedWithin(partnerSub) {
+		t.Error("the partner's stream stayed open, want it closed")
+	}
+	if !stillOpen(ownerSub) {
+		t.Error("the owner's stream was closed, want it left open")
+	}
+	if !stillOpen(elsewhere) {
+		t.Error("a stream on another list was closed, want it left open")
+	}
+}
+
+func TestListEventHubCloseUserEndsEveryStreamTouchingThem(t *testing.T) {
+	hub := service.NewListEventHub()
+	gone, other, third := uuid.New(), uuid.New(), uuid.New()
+	goneList, otherList := uuid.New(), uuid.New()
+	watching, _ := hub.Subscribe(otherList, gone, other)
+	ownersOwn, _ := hub.Subscribe(goneList, gone, gone)
+	watchedByOther, _ := hub.Subscribe(goneList, other, gone)
+	unrelated, _ := hub.Subscribe(otherList, third, other)
+	defer watching.Close()
+	defer ownersOwn.Close()
+	defer watchedByOther.Close()
+	defer unrelated.Close()
+
+	hub.CloseUser(gone)
+
+	for name, sub := range map[string]*service.ListSubscription{
+		"a stream the user watched":       watching,
+		"the user's own stream":           ownersOwn,
+		"a stream on the user's own list": watchedByOther,
+	} {
+		if !closedWithin(sub) {
+			t.Errorf("%s stayed open, want it closed", name)
+		}
+	}
+	if !stillOpen(unrelated) {
+		t.Error("an unrelated stream was closed, want it left open")
 	}
 }

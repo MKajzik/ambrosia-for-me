@@ -494,7 +494,7 @@ func (s *ShoppingLists) DeleteItem(ctx context.Context, ownerID, listID, itemID 
 // subscription is already registered when the list_deleted event is
 // published.
 func (s *ShoppingLists) Subscribe(ctx context.Context, ownerID, listID uuid.UUID) (*ListSubscription, error) {
-	sub, err := s.events.Subscribe(listID)
+	sub, err := s.events.Subscribe(listID, ownerID, ownerID)
 	if err != nil {
 		return nil, err
 	}
