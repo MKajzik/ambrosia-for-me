@@ -569,3 +569,124 @@ func TestRefreshWaitsForTheTokenRowLock(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// linkedUsers registers two users through Auth and links them as partners.
+func linkedUsers(t *testing.T, f *fixture, ownerEmail, partnerEmail string) (owner, partner uuid.UUID, partners *service.Partners, hub *service.ListEventHub) {
+	t.Helper()
+	owner, partner = register(t, f, ownerEmail).User.ID, register(t, f, partnerEmail).User.ID
+	hub = service.NewListEventHub()
+	partners = service.NewPartners(f.store, hub, time.Now)
+	linkWith(t, partners, owner, partner)
+	return owner, partner, partners, hub
+}
+
+func TestDeleteUserAPartnerWhoCheckedItemsLeavesTheOwnersListIntact(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	owner, partner, partners, hub := linkedUsers(t, f, "owner-del1@example.com", "partner-del1@example.com")
+	lists := service.NewShoppingLists(f.store, hub)
+
+	list, err := lists.Create(ctx, owner, service.CreateShoppingListInput{Name: "Shared", SharedWithPartner: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	item, err := lists.AddItem(ctx, owner, list.ID, service.CreateShoppingItemInput{Name: "Milk"})
+	if err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+	if _, err := lists.UpdateItem(ctx, partner, list.ID, item.ID, service.UpdateShoppingItemInput{Checked: ptr(true)}); err != nil {
+		t.Fatalf("partner check: %v", err)
+	}
+	added, err := lists.AddItem(ctx, partner, list.ID, service.CreateShoppingItemInput{Name: "Eggs"})
+	if err != nil {
+		t.Fatalf("partner AddItem: %v", err)
+	}
+
+	if err := f.svc.DeleteUser(ctx, partner); err != nil {
+		t.Fatalf("DeleteUser of the partner: %v", err)
+	}
+
+	got, err := lists.Get(ctx, owner, list.ID)
+	if err != nil {
+		t.Fatalf("the owner's list did not survive its partner's account deletion: %v", err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("items after the partner's deletion = %+v, want both (the partner's added item stays too)", got.Items)
+	}
+	for _, it := range got.Items {
+		if it.ID == item.ID && (!it.Checked || it.CheckedBy != nil) {
+			t.Errorf("item the partner checked = %+v, want it still checked with checked_by NULL (ON DELETE SET NULL)", it)
+		}
+		if it.ID == added.ID && it.Origin != "manual" {
+			t.Errorf("item the partner added = %+v, want origin manual", it)
+		}
+	}
+	if _, err := partners.Get(ctx, owner); !errors.Is(err, service.ErrPartnerNotLinked) {
+		t.Errorf("owner's partnership after the partner's deletion: err = %v, want ErrPartnerNotLinked", err)
+	}
+}
+
+func TestDeleteUserAnOwnerEndsThePartnersAccessAndClosesTheirStreams(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	owner, partner, partners, hub := linkedUsers(t, f, "owner-del2@example.com", "partner-del2@example.com")
+	f.svc.OnUserDeleted(hub.CloseUser)
+	lists := service.NewShoppingLists(f.store, hub)
+	list, err := lists.Create(ctx, owner, service.CreateShoppingListInput{Name: "Shared", SharedWithPartner: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	partnerSub, err := lists.Subscribe(ctx, partner, list.ID)
+	if err != nil {
+		t.Fatalf("partner Subscribe: %v", err)
+	}
+	defer partnerSub.Close()
+	other := register(t, f, "other-del2@example.com").User.ID
+	otherList, err := lists.Create(ctx, other, service.CreateShoppingListInput{Name: "Unrelated"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	otherSub, err := lists.Subscribe(ctx, other, otherList.ID)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer otherSub.Close()
+
+	if err := f.svc.DeleteUser(ctx, owner); err != nil {
+		t.Fatalf("DeleteUser of the owner: %v", err)
+	}
+
+	if !closedWithin(partnerSub) {
+		t.Error("the partner's stream on the deleted owner's list stayed open, want it closed (no list_deleted event is published for an account deletion)")
+	}
+	if !stillOpen(otherSub) {
+		t.Error("an unrelated user's stream was closed")
+	}
+	if _, err := lists.Get(ctx, partner, list.ID); !errors.Is(err, service.ErrShoppingListNotFound) {
+		t.Errorf("partner Get of the deleted owner's list: err = %v, want ErrShoppingListNotFound", err)
+	}
+	if _, err := partners.Get(ctx, partner); !errors.Is(err, service.ErrPartnerNotLinked) {
+		t.Errorf("partner's partnership after the owner's deletion: err = %v, want ErrPartnerNotLinked", err)
+	}
+}
+
+func TestDeleteUserRunsTheOnUserDeletedHookOnlyAfterACommittedDelete(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	var got []uuid.UUID
+	f.svc.OnUserDeleted(func(id uuid.UUID) { got = append(got, id) })
+	s := register(t, f, "hook@example.com")
+
+	if err := f.svc.DeleteUser(ctx, uuid.New()); !errors.Is(err, service.ErrNotFound) {
+		t.Fatalf("DeleteUser of a missing user: err = %v, want ErrNotFound", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("hook ran for a delete that failed: %v", got)
+	}
+	if err := f.svc.DeleteUser(ctx, s.User.ID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	if len(got) != 1 || got[0] != s.User.ID {
+		t.Errorf("hook calls = %v, want exactly [%v]", got, s.User.ID)
+	}
+}
