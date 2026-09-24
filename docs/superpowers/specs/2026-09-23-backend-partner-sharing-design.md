@@ -1,6 +1,6 @@
 # Backend: Partner and Sharing Design
 
-Status: draft, revised after review. Two decisions await confirmation: sharing a template implicitly shares its slots' meal names and ids (§2), and own lists stay owner-only with partner resources only under `GET partner/*` (§2). Extends `2026-09-21-meal-planner-design.md` (§3.1, §3.6, §4.1, §4.3, §10). Where the two disagree on the partner domain, this document wins and the parent spec is updated in the same change.
+Status: implemented by `docs/superpowers/plans/2026-09-24-backend-partner-sharing.md`. Extends `2026-09-21-meal-planner-design.md` (§3.1, §3.6, §4.1, §4.3, §10). Where the two disagree on the partner domain, this document wins and the parent spec is updated in the same change.
 
 ## 1. Goal
 

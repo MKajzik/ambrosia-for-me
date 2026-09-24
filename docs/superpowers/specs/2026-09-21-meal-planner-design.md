@@ -78,7 +78,7 @@ All primary keys are UUIDs. Every table has `created_at` and `updated_at`. Delet
 
 - **users:** `email` (unique, citext), `password_hash` (nullable for Apple-only accounts), `apple_sub` (unique, nullable), `display_name`, daily targets `target_kcal`, `target_protein_g`, `target_carbs_g`, `target_fat_g` (all nullable).
 - **refresh_tokens:** `user_id`, `token_hash`, `family_id`, `expires_at`, `revoked_at`.
-- **partnerships:** `user_a`, `user_b` (nullable until accepted), `status` (`pending` | `active`), `invite_code` (unique, expiring), `created_by`. A partial unique index limits each user to one active partnership.
+- **partnerships:** `user_a` (the inviter), `user_b` (nullable until accepted), `status` (`pending` | `active`), `invite_code_hash` and `invite_expires_at` (set while pending, cleared on accept), `created_by`. The invite code has 8 characters from `23456789ABCDEFGHJKMNPQRSTUVWXYZ`, expires after 48 hours, is stored hashed and shown once. Partial unique indexes limit each user to one active row per column and one pending invite; `accept` locks both users so nobody ends up in two active rows. Details: `2026-09-23-backend-partner-sharing-design.md`.
 
 ### 3.2 Ingredients and nutrition
 
@@ -131,7 +131,7 @@ All routes are under `/v1`, JSON only. Everything except `auth/*` and health che
 - **Diet templates:** `GET/POST diet-templates`; `GET/PATCH/DELETE diet-templates/{id}`; `PUT diet-templates/{id}/slots`; `POST diet-templates/{id}/apply` (`{start_date, overwrite?}`); `POST diet-templates/{id}/copy`.
 - **Plan:** `GET plan?from=&to=` (entries, daily totals, target comparison); `PUT/DELETE plan/{date}/{slot}` (set or swap a meal, or change the portion).
 - **Shopping lists:** `GET/POST shopping-lists`; `GET/PATCH/DELETE shopping-lists/{id}`; `POST shopping-lists/generate` (`{from, to}`); `POST shopping-lists/{id}/items`; `PATCH/DELETE shopping-lists/{id}/items/{item}`; `GET shopping-lists/{id}/events` (SSE).
-- **Partner:** `POST partner/invite` (returns a code); `POST partner/accept`; `GET partner`; `DELETE partner`; `GET partner/meals`; `GET partner/diet-templates`.
+- **Partner:** `POST partner/invite` (returns a code); `POST partner/accept`; `GET partner`; `DELETE partner`; `GET partner/meals`; `GET partner/diet-templates`; `GET partner/shopping-lists`. `Meal`, `DietTemplate` and `ShoppingList` carry `is_owner`, so clients can render a partner's resource read-only.
 
 ### 4.2 Conventions
 
@@ -216,5 +216,4 @@ Each step gets its own implementation plan.
 ## 10. Open items to resolve during planning
 
 - Daily reference values used for micronutrient percentages (source and whether they vary by user).
-- Invite code format and expiry duration.
 - Production hosting choice (post-API).
