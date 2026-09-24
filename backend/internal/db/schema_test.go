@@ -443,3 +443,81 @@ func TestShoppingListsSchemaEnforcesItsConstraints(t *testing.T) {
 		t.Errorf("shopping_items rows after deleting the list = %d (err %v), want 0", n, err)
 	}
 }
+
+func TestPartnershipsSchemaEnforcesItsConstraints(t *testing.T) {
+	ctx := context.Background()
+	conn := migratedConn(t)
+
+	newUser := func(email string) string {
+		t.Helper()
+		var id string
+		if err := conn.QueryRow(ctx,
+			`INSERT INTO users (email, password_hash, display_name) VALUES ($1, 'h', 'U') RETURNING id`, email,
+		).Scan(&id); err != nil {
+			t.Fatalf("insert user %s: %v", email, err)
+		}
+		return id
+	}
+	alice, bob, carol, dave := newUser("alice@example.com"), newUser("bob@example.com"), newUser("carol@example.com"), newUser("dave@example.com")
+
+	insertPending := func(user, hash string) error {
+		_, err := conn.Exec(ctx,
+			`INSERT INTO partnerships (user_a, status, invite_code_hash, invite_expires_at, created_by)
+			 VALUES ($1, 'pending', $2::bytea, now() + interval '48 hours', $1)`, user, hash)
+		return err
+	}
+	insertActive := func(a, b string) error {
+		_, err := conn.Exec(ctx,
+			`INSERT INTO partnerships (user_a, user_b, status, created_by) VALUES ($1, $2, 'active', $1)`, a, b)
+		return err
+	}
+
+	if err := insertPending(alice, "hash-alice"); err != nil {
+		t.Fatalf("valid pending invite: %v", err)
+	}
+	if err := insertPending(alice, "hash-alice-2"); err == nil {
+		t.Error("a second pending invite for one user was accepted, want a unique violation")
+	}
+	if err := insertPending(bob, "hash-alice"); err == nil {
+		t.Error("a reused invite_code_hash was accepted, want a unique violation")
+	}
+
+	for name, stmt := range map[string]string{
+		"pending with a user_b": `INSERT INTO partnerships (user_a, user_b, status, invite_code_hash, invite_expires_at, created_by)
+			VALUES ('` + carol + `', '` + dave + `', 'pending', 'x'::bytea, now(), '` + carol + `')`,
+		"pending without a code hash": `INSERT INTO partnerships (user_a, status, invite_expires_at, created_by)
+			VALUES ('` + carol + `', 'pending', now(), '` + carol + `')`,
+		"pending without an expiry": `INSERT INTO partnerships (user_a, status, invite_code_hash, created_by)
+			VALUES ('` + carol + `', 'pending', 'y'::bytea, '` + carol + `')`,
+		"active without a user_b": `INSERT INTO partnerships (user_a, status, created_by)
+			VALUES ('` + carol + `', 'active', '` + carol + `')`,
+		"active that keeps its code hash": `INSERT INTO partnerships (user_a, user_b, status, invite_code_hash, invite_expires_at, created_by)
+			VALUES ('` + carol + `', '` + dave + `', 'active', 'z'::bytea, now(), '` + carol + `')`,
+		"a user linked to themselves": `INSERT INTO partnerships (user_a, user_b, status, created_by)
+			VALUES ('` + carol + `', '` + carol + `', 'active', '` + carol + `')`,
+		"an unknown status": `INSERT INTO partnerships (user_a, user_b, status, created_by)
+			VALUES ('` + carol + `', '` + dave + `', 'blocked', '` + carol + `')`,
+	} {
+		if _, err := conn.Exec(ctx, stmt); err == nil {
+			t.Errorf("%s was accepted, want a constraint violation", name)
+		}
+	}
+
+	if err := insertActive(carol, dave); err != nil {
+		t.Fatalf("valid active partnership: %v", err)
+	}
+	if err := insertActive(carol, alice); err == nil {
+		t.Error("a second active partnership for user_a was accepted, want a unique violation")
+	}
+	if err := insertActive(bob, dave); err == nil {
+		t.Error("a second active partnership for user_b was accepted, want a unique violation")
+	}
+	// Deleting a user deletes every partnership row they are in.
+	if _, err := conn.Exec(ctx, `DELETE FROM users WHERE id = $1`, carol); err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+	var n int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM partnerships WHERE user_a = $1 OR user_b = $1 OR created_by = $1`, carol).Scan(&n); err != nil || n != 0 {
+		t.Errorf("partnerships left after deleting one of the users = %d (err %v), want 0", n, err)
+	}
+}
