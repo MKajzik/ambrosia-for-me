@@ -519,3 +519,361 @@ func TestShoppingListsGenerateValidatesTheRangeAndTheListsOwner(t *testing.T) {
 		t.Errorf("92-day range with no plan entries = %+v, %v, %v; want a new empty list with the default name", empty, created, err)
 	}
 }
+
+// sharedListFixture is a shopping lists service with two linked users, alice
+// (the owner) and bob (the partner), one stranger, and a Partners service that
+// shares the lists' event hub, so an unlink closes streams.
+type sharedListFixture struct {
+	shoppingFixture
+	partners             *service.Partners
+	alice, bob, stranger uuid.UUID
+}
+
+func newSharedListFixture(t *testing.T, tag string) sharedListFixture {
+	t.Helper()
+	f := newShoppingListsFixture(t)
+	alice := newTestUser(t, f.st, "alice-"+tag+"@example.com")
+	bob := newTestUser(t, f.st, "bob-"+tag+"@example.com")
+	stranger := newTestUser(t, f.st, "stranger-"+tag+"@example.com")
+	partners := service.NewPartners(f.st, f.events, time.Now)
+	linkWith(t, partners, alice, bob)
+	return sharedListFixture{shoppingFixture: f, partners: partners, alice: alice, bob: bob, stranger: stranger}
+}
+
+func (f sharedListFixture) createList(t *testing.T, owner uuid.UUID, name string, shared bool) service.ShoppingList {
+	t.Helper()
+	list, err := f.lists.Create(context.Background(), owner, service.CreateShoppingListInput{Name: name, SharedWithPartner: shared})
+	if err != nil {
+		t.Fatalf("Create %q: %v", name, err)
+	}
+	return list
+}
+
+func TestShoppingListsPartnerEditsItemsOfASharedListButNotTheListItself(t *testing.T) {
+	f := newSharedListFixture(t, "s1")
+	ctx := context.Background()
+	shared := f.createList(t, f.alice, "Shared", true)
+	private := f.createList(t, f.alice, "Private", false)
+	milk, err := f.lists.AddItem(ctx, f.alice, shared.ID, service.CreateShoppingItemInput{Name: "Milk"})
+	if err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+
+	got, err := f.lists.Get(ctx, f.bob, shared.ID)
+	if err != nil || got.OwnerID != f.alice || len(got.Items) != 1 {
+		t.Fatalf("partner Get = %+v (err %v), want Alice's shared list with its item", got, err)
+	}
+
+	// Add, check, edit, uncheck and delete, as the partner.
+	eggs, err := f.lists.AddItem(ctx, f.bob, shared.ID, service.CreateShoppingItemInput{Name: "Eggs"})
+	if err != nil || eggs.Origin != "manual" {
+		t.Fatalf("partner AddItem = %+v (err %v), want a manual item", eggs, err)
+	}
+	checked, err := f.lists.UpdateItem(ctx, f.bob, shared.ID, milk.ID, service.UpdateShoppingItemInput{Checked: ptr(true)})
+	if err != nil || !checked.Checked || checked.CheckedBy == nil || *checked.CheckedBy != f.bob || checked.Version != 2 {
+		t.Fatalf("partner check = %+v (err %v), want checked by Bob at version 2", checked, err)
+	}
+	renamed, err := f.lists.UpdateItem(ctx, f.bob, shared.ID, milk.ID, service.UpdateShoppingItemInput{Version: ptr(2), Name: ptr("Oat milk")})
+	if err != nil || renamed.Name != "Oat milk" || renamed.CheckedBy == nil || *renamed.CheckedBy != f.bob {
+		t.Fatalf("partner edit = %+v (err %v), want the rename with Bob still recorded as checker", renamed, err)
+	}
+	// The owner unchecks: checked_by is cleared, not left on the partner.
+	unchecked, err := f.lists.UpdateItem(ctx, f.alice, shared.ID, milk.ID, service.UpdateShoppingItemInput{Checked: ptr(false)})
+	if err != nil || unchecked.Checked || unchecked.CheckedBy != nil {
+		t.Fatalf("owner uncheck = %+v (err %v), want unchecked with checked_by cleared", unchecked, err)
+	}
+	if err := f.lists.DeleteItem(ctx, f.bob, shared.ID, eggs.ID); err != nil {
+		t.Fatalf("partner DeleteItem: %v", err)
+	}
+	if list, _ := f.lists.Get(ctx, f.alice, shared.ID); len(list.Items) != 1 {
+		t.Errorf("the owner sees %d items after the partner's changes, want 1", len(list.Items))
+	}
+
+	// List-level actions are owner-only, and answer as if the list did not exist.
+	newName := "Mine now"
+	for label, err := range map[string]error{
+		"Update":     errOf(f.lists.Update(ctx, f.bob, shared.ID, service.UpdateShoppingListInput{Name: &newName})),
+		"unshare":    errOf(f.lists.Update(ctx, f.bob, shared.ID, service.UpdateShoppingListInput{SharedWithPartner: ptr(false)})),
+		"Delete":     f.lists.Delete(ctx, f.bob, shared.ID),
+		"regenerate": errOf2(f.lists.Generate(ctx, f.bob, service.GenerateShoppingListInput{From: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), To: time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC), ListID: &shared.ID})),
+	} {
+		if !errors.Is(err, service.ErrShoppingListNotFound) {
+			t.Errorf("partner %s: err = %v, want ErrShoppingListNotFound", label, err)
+		}
+	}
+
+	// An unshared list, and any list to a stranger, is not there at all.
+	for label, id := range map[string]uuid.UUID{"an unshared list": private.ID, "a list to a stranger": shared.ID} {
+		caller := f.bob
+		if label == "a list to a stranger" {
+			caller = f.stranger
+		}
+		if _, err := f.lists.Get(ctx, caller, id); !errors.Is(err, service.ErrShoppingListNotFound) {
+			t.Errorf("Get of %s: err = %v, want ErrShoppingListNotFound", label, err)
+		}
+		if _, err := f.lists.AddItem(ctx, caller, id, service.CreateShoppingItemInput{Name: "X"}); !errors.Is(err, service.ErrShoppingListNotFound) {
+			t.Errorf("AddItem on %s: err = %v, want ErrShoppingListNotFound", label, err)
+		}
+		if _, err := f.lists.UpdateItem(ctx, caller, id, milk.ID, service.UpdateShoppingItemInput{Checked: ptr(true)}); !errors.Is(err, service.ErrShoppingItemNotFound) {
+			t.Errorf("UpdateItem on %s: err = %v, want ErrShoppingItemNotFound", label, err)
+		}
+		if err := f.lists.DeleteItem(ctx, caller, id, milk.ID); !errors.Is(err, service.ErrShoppingItemNotFound) {
+			t.Errorf("DeleteItem on %s: err = %v, want ErrShoppingItemNotFound", label, err)
+		}
+		if _, err := f.lists.Subscribe(ctx, caller, id); !errors.Is(err, service.ErrShoppingListNotFound) {
+			t.Errorf("Subscribe to %s: err = %v, want ErrShoppingListNotFound", label, err)
+		}
+	}
+
+	// The owner's regenerate keeps the partner's manual item.
+	if _, err := f.lists.AddItem(ctx, f.bob, shared.ID, service.CreateShoppingItemInput{Name: "Bread"}); err != nil {
+		t.Fatalf("partner AddItem: %v", err)
+	}
+	regenerated, _, err := f.lists.Generate(ctx, f.alice, service.GenerateShoppingListInput{
+		From: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), To: time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC), ListID: &shared.ID,
+	})
+	if err != nil || len(regenerated.Items) != 2 {
+		t.Errorf("regenerated = %+v (err %v), want both manual items kept (Oat milk, Bread)", regenerated.Items, err)
+	}
+}
+
+// errOf2 is errOf for the three-value Generate.
+func errOf2[A, B any](_ A, _ B, err error) error { return err }
+
+func TestShoppingListsPartnerListingsAreSeparateFromTheOwnLists(t *testing.T) {
+	f := newSharedListFixture(t, "s2")
+	ctx := context.Background()
+	shared := f.createList(t, f.alice, "Shared", true)
+	f.createList(t, f.alice, "Private", false)
+	mine := f.createList(t, f.bob, "Bob's own", true)
+
+	page, err := f.lists.List(ctx, f.bob, service.ListShoppingListsInput{Limit: 10})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != mine.ID {
+		t.Errorf("Bob's own List = %+v (err %v), want only his own list", page.Items, err)
+	}
+	partnerPage, err := f.lists.ListPartner(ctx, f.bob, service.ListShoppingListsInput{Limit: 10})
+	if err != nil || len(partnerPage.Items) != 1 || partnerPage.Items[0].ID != shared.ID {
+		t.Errorf("ListPartner = %+v (err %v), want only Alice's shared list", partnerPage.Items, err)
+	}
+	if _, err := f.lists.ListPartner(ctx, f.stranger, service.ListShoppingListsInput{Limit: 10}); !errors.Is(err, service.ErrPartnerNotLinked) {
+		t.Errorf("ListPartner without a partner: err = %v, want ErrPartnerNotLinked", err)
+	}
+}
+
+func TestShoppingListsPartnersSeeEachOthersChangesLive(t *testing.T) {
+	f := newSharedListFixture(t, "s3")
+	ctx := context.Background()
+	list := f.createList(t, f.alice, "Shared", true)
+	item, err := f.lists.AddItem(ctx, f.alice, list.ID, service.CreateShoppingItemInput{Name: "Milk"})
+	if err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+	aliceSub, err := f.lists.Subscribe(ctx, f.alice, list.ID)
+	if err != nil {
+		t.Fatalf("owner Subscribe: %v", err)
+	}
+	defer aliceSub.Close()
+	bobSub, err := f.lists.Subscribe(ctx, f.bob, list.ID)
+	if err != nil {
+		t.Fatalf("partner Subscribe: %v", err)
+	}
+	defer bobSub.Close()
+
+	if _, err := f.lists.UpdateItem(ctx, f.bob, list.ID, item.ID, service.UpdateShoppingItemInput{Checked: ptr(true)}); err != nil {
+		t.Fatalf("partner check: %v", err)
+	}
+	if ev := nextEvent(t, aliceSub); ev.Type != service.ListEventItemChanged || ev.ItemID == nil || *ev.ItemID != item.ID || *ev.Version != 2 {
+		t.Errorf("owner's stream got %+v, want the partner's check as item_changed at version 2", ev)
+	}
+	if ev := nextEvent(t, bobSub); ev.Type != service.ListEventItemChanged {
+		t.Errorf("partner's own stream got %+v, want item_changed", ev)
+	}
+	if err := f.lists.DeleteItem(ctx, f.alice, list.ID, item.ID); err != nil {
+		t.Fatalf("owner DeleteItem: %v", err)
+	}
+	if ev := nextEvent(t, bobSub); ev.Type != service.ListEventItemDeleted {
+		t.Errorf("partner's stream got %+v, want the owner's delete as item_deleted", ev)
+	}
+}
+
+func TestShoppingListsAPartnersAccessEndsWithUnlinkingAndUnsharing(t *testing.T) {
+	f := newSharedListFixture(t, "s4")
+	ctx := context.Background()
+	list := f.createList(t, f.alice, "Shared", true)
+	item, err := f.lists.AddItem(ctx, f.alice, list.ID, service.CreateShoppingItemInput{Name: "Milk"})
+	if err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+	subscribe := func(user uuid.UUID) *service.ListSubscription {
+		t.Helper()
+		sub, err := f.lists.Subscribe(ctx, user, list.ID)
+		if err != nil {
+			t.Fatalf("Subscribe: %v", err)
+		}
+		t.Cleanup(sub.Close)
+		return sub
+	}
+
+	// Unsharing closes the partner's stream, not the owner's.
+	ownerSub, partnerSub := subscribe(f.alice), subscribe(f.bob)
+	if _, err := f.lists.Update(ctx, f.alice, list.ID, service.UpdateShoppingListInput{SharedWithPartner: ptr(false)}); err != nil {
+		t.Fatalf("unshare: %v", err)
+	}
+	if !closedWithin(partnerSub) {
+		t.Error("the partner's stream stayed open after the owner stopped sharing")
+	}
+	if !stillOpen(ownerSub) {
+		t.Error("the owner's stream was closed by unsharing")
+	}
+	if _, err := f.lists.Get(ctx, f.bob, list.ID); !errors.Is(err, service.ErrShoppingListNotFound) {
+		t.Errorf("partner Get after unsharing: err = %v, want ErrShoppingListNotFound", err)
+	}
+
+	// Unlinking closes it too, and edits stop at once.
+	if _, err := f.lists.Update(ctx, f.alice, list.ID, service.UpdateShoppingListInput{SharedWithPartner: ptr(true)}); err != nil {
+		t.Fatalf("share again: %v", err)
+	}
+	partnerSub = subscribe(f.bob)
+	if err := f.partners.Unlink(ctx, f.alice); err != nil {
+		t.Fatalf("Unlink: %v", err)
+	}
+	if !closedWithin(partnerSub) {
+		t.Error("the partner's stream stayed open after the unlink")
+	}
+	if _, err := f.lists.UpdateItem(ctx, f.bob, list.ID, item.ID, service.UpdateShoppingItemInput{Checked: ptr(true)}); !errors.Is(err, service.ErrShoppingItemNotFound) {
+		t.Errorf("partner check after unlinking: err = %v, want ErrShoppingItemNotFound", err)
+	}
+	// The list and everything on it, including what the partner added, stays with the owner.
+	if got, err := f.lists.Get(ctx, f.alice, list.ID); err != nil || len(got.Items) != 1 {
+		t.Errorf("owner's list after the unlink = %+v (err %v), want it intact", got.Items, err)
+	}
+}
+
+// An item edit that starts while an unlink is deleting the partnership must
+// wait for it and then find no partner. Each case holds the partnership row
+// in an open transaction (as the unlink's DELETE does), starts the operation,
+// and checks that it waits.
+func TestShoppingListsItemWritesWaitForAnUnlinkInFlightAndThenFindNoPartner(t *testing.T) {
+	ops := map[string]func(f sharedListFixture, list service.ShoppingList, item service.ShoppingItem) error{
+		"AddItem": func(f sharedListFixture, list service.ShoppingList, _ service.ShoppingItem) error {
+			_, err := f.lists.AddItem(context.Background(), f.bob, list.ID, service.CreateShoppingItemInput{Name: "Eggs"})
+			return err
+		},
+		"UpdateItem": func(f sharedListFixture, list service.ShoppingList, item service.ShoppingItem) error {
+			_, err := f.lists.UpdateItem(context.Background(), f.bob, list.ID, item.ID, service.UpdateShoppingItemInput{Checked: ptr(true)})
+			return err
+		},
+		"DeleteItem": func(f sharedListFixture, list service.ShoppingList, item service.ShoppingItem) error {
+			return f.lists.DeleteItem(context.Background(), f.bob, list.ID, item.ID)
+		},
+	}
+	for name, op := range ops {
+		t.Run(name, func(t *testing.T) {
+			f := newSharedListFixture(t, "s5-"+name)
+			ctx := context.Background()
+			list := f.createList(t, f.alice, "Shared", true)
+			item, err := f.lists.AddItem(ctx, f.alice, list.ID, service.CreateShoppingItemInput{Name: "Milk"})
+			if err != nil {
+				t.Fatalf("AddItem: %v", err)
+			}
+
+			deleted, release := make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			releaseTx := func() { releaseOnce.Do(func() { close(release) }) }
+			t.Cleanup(releaseTx) // an open transaction would make closing the pool wait forever
+			txDone := make(chan error, 1)
+			go func() {
+				txDone <- f.st.InTx(ctx, func(q *sqlc.Queries) error {
+					if _, err := q.DeletePartnershipsForUser(ctx, f.alice); err != nil {
+						return err
+					}
+					close(deleted)
+					<-release
+					return nil
+				})
+			}()
+			<-deleted
+
+			result := make(chan error, 1)
+			go func() { result <- op(f, list, item) }()
+			select {
+			case err := <-result:
+				t.Fatalf("%s finished (err %v) while an unlink was in flight, want it to wait for the partnership row", name, err)
+			case <-time.After(300 * time.Millisecond):
+			}
+
+			releaseTx()
+			if err := <-txDone; err != nil {
+				t.Fatalf("unlink transaction: %v", err)
+			}
+			err = <-result
+			if !errors.Is(err, service.ErrShoppingListNotFound) && !errors.Is(err, service.ErrShoppingItemNotFound) {
+				t.Errorf("%s after the unlink committed: err = %v, want the list or item to be not found", name, err)
+			}
+		})
+	}
+}
+
+// Subscribe registers with the hub first and only then makes its final access
+// check, which waits for an unlink in flight. Registered-before-checked is
+// what lets CloseAccess (which runs after an unlink commits) reach a stream
+// whose first lookup was made just before the unlink.
+func TestShoppingListsSubscribeRegistersBeforeItsFinalAccessCheck(t *testing.T) {
+	f := newSharedListFixture(t, "s6")
+	ctx := context.Background()
+	list := f.createList(t, f.alice, "Shared", true)
+
+	deleted, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	releaseTx := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseTx)
+	txDone := make(chan error, 1)
+	go func() {
+		txDone <- f.st.InTx(ctx, func(q *sqlc.Queries) error {
+			if _, err := q.DeletePartnershipsForUser(ctx, f.alice); err != nil {
+				return err
+			}
+			close(deleted)
+			<-release
+			return nil
+		})
+	}()
+	<-deleted
+
+	type subscribed struct {
+		sub *service.ListSubscription
+		err error
+	}
+	result := make(chan subscribed, 1)
+	go func() {
+		sub, err := f.lists.Subscribe(ctx, f.bob, list.ID)
+		result <- subscribed{sub, err}
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for f.events.Subscribers(list.ID) != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("Subscribe did not register with the hub while the unlink was in flight, want it registered before its final check")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	select {
+	case r := <-result:
+		if r.sub != nil {
+			r.sub.Close()
+		}
+		t.Fatalf("Subscribe returned (err %v) while an unlink was in flight, want its final check to wait for the partnership row", r.err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	releaseTx()
+	if err := <-txDone; err != nil {
+		t.Fatalf("unlink transaction: %v", err)
+	}
+	if r := <-result; !errors.Is(r.err, service.ErrShoppingListNotFound) {
+		t.Errorf("Subscribe after the unlink committed: err = %v, want ErrShoppingListNotFound", r.err)
+	}
+	if n := f.events.Subscribers(list.ID); n != 0 {
+		t.Errorf("Subscribers after the refused Subscribe = %d, want 0", n)
+	}
+}

@@ -462,10 +462,9 @@ func partnersFor(st *store.Store) *service.Partners {
 	return service.NewPartners(st, service.NewListEventHub(), time.Now)
 }
 
-// linkPartners makes a and b partners through the real invite flow.
-func linkPartners(t *testing.T, st *store.Store, a, b uuid.UUID) *service.Partners {
+// linkWith makes a and b partners through p's real invite flow.
+func linkWith(t *testing.T, p *service.Partners, a, b uuid.UUID) {
 	t.Helper()
-	p := partnersFor(st)
 	inv, err := p.Invite(context.Background(), a)
 	if err != nil {
 		t.Fatalf("Invite: %v", err)
@@ -473,5 +472,13 @@ func linkPartners(t *testing.T, st *store.Store, a, b uuid.UUID) *service.Partne
 	if _, err := p.Accept(context.Background(), b, inv.Code); err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
+}
+
+// linkPartners makes a and b partners with a fresh Partners service, which it
+// returns so the test can unlink them again.
+func linkPartners(t *testing.T, st *store.Store, a, b uuid.UUID) *service.Partners {
+	t.Helper()
+	p := partnersFor(st)
+	linkWith(t, p, a, b)
 	return p
 }
