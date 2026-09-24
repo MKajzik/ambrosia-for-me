@@ -4,11 +4,16 @@ VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- name: GetMealForUser :one
--- Owner-only visibility for now: shared_with_partner has no effect on GET
--- until the partner plan adds the partnerships table and an active-partner
--- lookup. See "Not built yet" in backend/CLAUDE.md.
+-- The read predicate (spec §5): the caller's own meal, or one the caller's
+-- active partner has shared. partner_id is NULL when the caller has no
+-- partner (or when the caller wants owner-only access), which makes the second
+-- branch match nothing. Every write keeps the strict owner-only queries.
 SELECT * FROM meals
-WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id');
+WHERE id = sqlc.arg('id')
+  AND (
+    owner_id = sqlc.arg('user_id')
+    OR (owner_id = sqlc.narg('partner_id')::uuid AND shared_with_partner)
+  );
 
 -- name: TouchMealForUser :one
 -- Bumps updated_at (via the meals_set_updated_at trigger) and, just as
@@ -21,8 +26,11 @@ WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id')
 RETURNING *;
 
 -- name: ListMealsForUser :many
+-- shared_only is for GET partner/meals: user_id is then the partner's id and
+-- only what the partner has shared comes back.
 SELECT * FROM meals
 WHERE owner_id = sqlc.arg('user_id')
+  AND (NOT sqlc.arg('shared_only')::boolean OR shared_with_partner)
   AND (
     NOT sqlc.arg('has_cursor')::boolean
     OR name > sqlc.arg('cursor_name')::text

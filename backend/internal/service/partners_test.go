@@ -455,3 +455,23 @@ func TestPartnersAcceptWaitsForTheUserLocksAndChecksAgainAfterThem(t *testing.T)
 		t.Errorf("Bob is in %d partnership rows (err %v), want 1", len(rows), err)
 	}
 }
+
+// partnersFor returns a Partners service over st for tests of the other
+// services that only need to link or unlink two users.
+func partnersFor(st *store.Store) *service.Partners {
+	return service.NewPartners(st, service.NewListEventHub(), time.Now)
+}
+
+// linkPartners makes a and b partners through the real invite flow.
+func linkPartners(t *testing.T, st *store.Store, a, b uuid.UUID) *service.Partners {
+	t.Helper()
+	p := partnersFor(st)
+	inv, err := p.Invite(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Invite: %v", err)
+	}
+	if _, err := p.Accept(context.Background(), b, inv.Code); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	return p
+}

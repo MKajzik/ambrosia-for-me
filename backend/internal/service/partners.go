@@ -259,6 +259,19 @@ func activePartnerID(ctx context.Context, q *sqlc.Queries, userID uuid.UUID, for
 	return id, nil
 }
 
+// partnerOrNil is activePartnerID for the read predicate: nil means "no
+// partner", so the predicate's partner branch matches nothing.
+func partnerOrNil(ctx context.Context, q *sqlc.Queries, userID uuid.UUID, forShare bool) (*uuid.UUID, error) {
+	id, err := activePartnerID(ctx, q, userID, forShare)
+	if errors.Is(err, ErrPartnerNotLinked) {
+		return nil, nil //nolint:nilnil // nil is the "no partner" value the visibility queries take
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
+}
+
 // requireUnlinked returns nil if userID has no active partner and linkedErr
 // if they do.
 func requireUnlinked(ctx context.Context, q *sqlc.Queries, userID uuid.UUID, linkedErr error) error {
