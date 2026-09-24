@@ -82,19 +82,26 @@ func (q *Queries) DeleteTemplateSlots(ctx context.Context, templateID uuid.UUID)
 
 const getDietTemplateForUser = `-- name: GetDietTemplateForUser :one
 SELECT id, owner_id, name, day_count, shared_with_partner, created_at, updated_at FROM diet_templates
-WHERE id = $1 AND owner_id = $2
+WHERE id = $1
+  AND (
+    owner_id = $2
+    OR (owner_id = $3::uuid AND shared_with_partner)
+  )
 `
 
 type GetDietTemplateForUserParams struct {
-	ID     uuid.UUID
-	UserID uuid.UUID
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	PartnerID *uuid.UUID
 }
 
-// Owner-only visibility for now: shared_with_partner has no effect on GET
-// until the partner plan adds the partnerships table and an active-partner
-// lookup. See "Not built yet" in backend/CLAUDE.md.
+// The read predicate (spec §5): the caller's own template, or one the
+// caller's active partner has shared. partner_id is NULL when the caller has
+// no partner (or wants owner-only access, as Apply does), which makes the
+// second branch match nothing. Every write keeps the strict owner-only
+// queries.
 func (q *Queries) GetDietTemplateForUser(ctx context.Context, arg GetDietTemplateForUserParams) (DietTemplate, error) {
-	row := q.db.QueryRow(ctx, getDietTemplateForUser, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, getDietTemplateForUser, arg.ID, arg.UserID, arg.PartnerID)
 	var i DietTemplate
 	err := row.Scan(
 		&i.ID,
@@ -183,26 +190,31 @@ func (q *Queries) InsertTemplateSlot(ctx context.Context, arg InsertTemplateSlot
 const listDietTemplatesForUser = `-- name: ListDietTemplatesForUser :many
 SELECT id, owner_id, name, day_count, shared_with_partner, created_at, updated_at FROM diet_templates
 WHERE owner_id = $1
+  AND (NOT $2::boolean OR shared_with_partner)
   AND (
-    NOT $2::boolean
-    OR name > $3::text
-    OR (name = $3::text AND id > $4::uuid)
+    NOT $3::boolean
+    OR name > $4::text
+    OR (name = $4::text AND id > $5::uuid)
   )
 ORDER BY name, id
-LIMIT $5
+LIMIT $6
 `
 
 type ListDietTemplatesForUserParams struct {
 	UserID     uuid.UUID
+	SharedOnly bool
 	HasCursor  bool
 	CursorName string
 	CursorID   uuid.UUID
 	RowLimit   int32
 }
 
+// shared_only is for GET partner/diet-templates: user_id is then the partner's
+// id and only what the partner has shared comes back.
 func (q *Queries) ListDietTemplatesForUser(ctx context.Context, arg ListDietTemplatesForUserParams) ([]DietTemplate, error) {
 	rows, err := q.db.Query(ctx, listDietTemplatesForUser,
 		arg.UserID,
+		arg.SharedOnly,
 		arg.HasCursor,
 		arg.CursorName,
 		arg.CursorID,

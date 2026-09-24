@@ -16,6 +16,11 @@ import (
 
 // Errors returned by DietTemplates. Handlers map them to problem responses.
 var (
+	// ErrDietTemplateNotFound means the template does not exist, or the
+	// caller may not see it: it belongs to someone other than the caller and
+	// the caller's active partner, or to the partner but is not shared.
+	// Writes to a partner's template, shared or not, are also
+	// ErrDietTemplateNotFound.
 	ErrDietTemplateNotFound = errors.New("diet template not found")
 	// ErrDayIndexOutOfRange means a slot's day_index is >= the template's
 	// day_count. There is no database constraint for this (a CHECK cannot
@@ -46,6 +51,7 @@ type TemplateSlot struct {
 // DietTemplate is a reusable meal schedule.
 type DietTemplate struct {
 	ID                uuid.UUID
+	OwnerID           uuid.UUID
 	Name              string
 	DayCount          int
 	SharedWithPartner bool
@@ -114,10 +120,15 @@ type ApplyTemplateInput struct {
 	Overwrite bool
 }
 
-// DietTemplates implements reusable meal-schedule templates, owned by a
-// single user. Partner sharing is not implemented: shared_with_partner is
-// stored, but every read here checks owner_id only. See the "Not built yet"
-// note in backend/CLAUDE.md.
+// DietTemplates implements reusable meal-schedule templates. A template is
+// owned by one user; the owner's active partner may read it, and copy it,
+// when shared_with_partner is true (spec §3.6). Every write, and Apply, is
+// owner-only.
+//
+// Sharing a template shares what its slots show: each slot's meal_id and meal
+// name, even when the meal itself is not shared. The meal's own detail stays
+// hidden (Meals.Get is 404 for it), and a copy of the template carries the
+// meals along.
 type DietTemplates struct {
 	st *store.Store
 }
@@ -148,9 +159,14 @@ func (s *DietTemplates) Create(ctx context.Context, ownerID uuid.UUID, in Create
 	return tpl, nil
 }
 
-// Get returns a template owned by ownerID, with its slots.
-func (s *DietTemplates) Get(ctx context.Context, ownerID, id uuid.UUID) (DietTemplate, error) {
-	row, err := s.st.GetDietTemplateForUser(ctx, sqlc.GetDietTemplateForUserParams{ID: id, UserID: ownerID})
+// Get returns a template with its slots: one owned by callerID, or one their
+// active partner has shared.
+func (s *DietTemplates) Get(ctx context.Context, callerID, id uuid.UUID) (DietTemplate, error) {
+	partnerID, err := partnerOrNil(ctx, s.st.Queries, callerID, false)
+	if err != nil {
+		return DietTemplate{}, err
+	}
+	row, err := s.st.GetDietTemplateForUser(ctx, sqlc.GetDietTemplateForUserParams{ID: id, UserID: callerID, PartnerID: partnerID})
 	if store.IsNotFound(err) {
 		return DietTemplate{}, ErrDietTemplateNotFound
 	}
@@ -202,12 +218,27 @@ func (s *DietTemplates) Delete(ctx context.Context, ownerID, id uuid.UUID) error
 	return nil
 }
 
-// List returns a page of the caller's alphabetical template list.
+// List returns a page of the caller's own templates, alphabetically. The
+// partner's shared templates are listed by ListPartner, never mixed in here.
 func (s *DietTemplates) List(ctx context.Context, ownerID uuid.UUID, in ListDietTemplatesInput) (DietTemplatePage, error) {
+	return s.list(ctx, ownerID, false, in)
+}
+
+// ListPartner returns a page of the templates callerID's active partner has
+// shared, alphabetically. Without an active partner it is ErrPartnerNotLinked.
+func (s *DietTemplates) ListPartner(ctx context.Context, callerID uuid.UUID, in ListDietTemplatesInput) (DietTemplatePage, error) {
+	partnerID, err := activePartnerID(ctx, s.st.Queries, callerID, false)
+	if err != nil {
+		return DietTemplatePage{}, err
+	}
+	return s.list(ctx, partnerID, true, in)
+}
+
+func (s *DietTemplates) list(ctx context.Context, ownerID uuid.UUID, sharedOnly bool, in ListDietTemplatesInput) (DietTemplatePage, error) {
 	if in.Limit < 1 {
 		in.Limit = 1
 	}
-	params := sqlc.ListDietTemplatesForUserParams{UserID: ownerID, RowLimit: toRowLimit(in.Limit + 1)}
+	params := sqlc.ListDietTemplatesForUserParams{UserID: ownerID, SharedOnly: sharedOnly, RowLimit: toRowLimit(in.Limit + 1)}
 	if in.Cursor != nil {
 		params.HasCursor = true
 		params.CursorName = in.Cursor.Name
@@ -314,11 +345,24 @@ func (s *DietTemplates) ReplaceSlots(ctx context.Context, ownerID, id uuid.UUID,
 
 // Copy creates a new template owned by callerID, with the same name,
 // day_count and slots as the template at id, and shared_with_partner always
-// false regardless of the original. callerID must own the original.
+// false regardless of the original. The original is one callerID owns or one
+// their active partner has shared.
+//
+// Copying an own template keeps its slots pointing at the same meals.
+// Copying a partner's template copies the meals too, since its slots
+// reference the partner's meals: each distinct meal is copied once, even when
+// it fills several slots, with the same ingredient rules as Meals.Copy (one
+// duplicate per distinct custom ingredient across the whole template, global
+// ingredients shared). The meals are read through the template, so a meal the
+// partner did not share on its own copies fine.
 func (s *DietTemplates) Copy(ctx context.Context, callerID, id uuid.UUID) (DietTemplate, error) {
 	var tpl DietTemplate
 	err := s.st.InTx(ctx, func(q *sqlc.Queries) error {
-		original, err := q.GetDietTemplateForUser(ctx, sqlc.GetDietTemplateForUserParams{ID: id, UserID: callerID})
+		partnerID, err := partnerOrNil(ctx, q, callerID, false)
+		if err != nil {
+			return err
+		}
+		original, err := q.GetDietTemplateForUser(ctx, sqlc.GetDietTemplateForUserParams{ID: id, UserID: callerID, PartnerID: partnerID})
 		if store.IsNotFound(err) {
 			return ErrDietTemplateNotFound
 		}
@@ -329,17 +373,24 @@ func (s *DietTemplates) Copy(ctx context.Context, callerID, id uuid.UUID) (DietT
 		if err != nil {
 			return fmt.Errorf("get template slots: %w", err)
 		}
+		mealFor, err := copiedMeals(ctx, q, callerID, original, originalSlots)
+		if err != nil {
+			return err
+		}
 
 		copyRow, err := q.CreateDietTemplate(ctx, sqlc.CreateDietTemplateParams{
 			OwnerID: callerID, Name: original.Name, DayCount: original.DayCount, SharedWithPartner: false,
 		})
+		if store.IsForeignKeyViolation(err, "diet_templates_owner_id_fkey") {
+			return ErrNotFound
+		}
 		if err != nil {
 			return fmt.Errorf("create diet template copy: %w", err)
 		}
 		inserted := make([]sqlc.TemplateSlot, len(originalSlots))
 		for i, sl := range originalSlots {
 			ins, err := q.InsertTemplateSlot(ctx, sqlc.InsertTemplateSlotParams{
-				TemplateID: copyRow.ID, DayIndex: sl.DayIndex, Slot: sl.Slot, MealID: sl.MealID, Portion: sl.Portion,
+				TemplateID: copyRow.ID, DayIndex: sl.DayIndex, Slot: sl.Slot, MealID: mealFor(sl.MealID), Portion: sl.Portion,
 			})
 			if err != nil {
 				return fmt.Errorf("copy template slot: %w", err)
@@ -353,6 +404,38 @@ func (s *DietTemplates) Copy(ctx context.Context, callerID, id uuid.UUID) (DietT
 		return DietTemplate{}, err
 	}
 	return tpl, nil
+}
+
+// copiedMeals returns the meal id each of a template copy's slots should
+// reference, given the original slot's meal id: the same id for an own
+// template, a fresh private copy (made here, once per distinct meal) for a
+// partner's.
+func copiedMeals(ctx context.Context, q *sqlc.Queries, callerID uuid.UUID, original sqlc.DietTemplate, slots []sqlc.TemplateSlot) (func(uuid.UUID) uuid.UUID, error) {
+	if original.OwnerID == callerID {
+		return func(id uuid.UUID) uuid.UUID { return id }, nil
+	}
+	mealIDs := uniqueUUIDs(slots, func(r sqlc.TemplateSlot) uuid.UUID { return r.MealID })
+	rows, err := q.GetMealsForUser(ctx, sqlc.GetMealsForUserParams{Ids: mealIDs, UserID: original.OwnerID})
+	if err != nil {
+		return nil, fmt.Errorf("get meals to copy: %w", err)
+	}
+	if len(rows) != len(mealIDs) {
+		return nil, ErrTemplateMealNotFound
+	}
+	byID := make(map[uuid.UUID]sqlc.Meal, len(rows))
+	for _, m := range rows {
+		byID[m.ID] = m
+	}
+	ic := newIngredientCopier(q, original.OwnerID, callerID)
+	copies := make(map[uuid.UUID]uuid.UUID, len(mealIDs))
+	for _, id := range mealIDs {
+		row, _, err := copyMeal(ctx, q, callerID, byID[id], ic)
+		if err != nil {
+			return nil, err
+		}
+		copies[id] = row.ID
+	}
+	return func(id uuid.UUID) uuid.UUID { return copies[id] }, nil
 }
 
 // Apply copies the template's slots into plan_entries starting at
@@ -472,7 +555,7 @@ func (s *DietTemplates) toTemplate(ctx context.Context, q *sqlc.Queries, row sql
 		}
 	}
 	return DietTemplate{
-		ID: row.ID, Name: row.Name, DayCount: int(row.DayCount), SharedWithPartner: row.SharedWithPartner,
+		ID: row.ID, OwnerID: row.OwnerID, Name: row.Name, DayCount: int(row.DayCount), SharedWithPartner: row.SharedWithPartner,
 		Slots: slots, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}, nil
 }
