@@ -1,6 +1,7 @@
 package httpapi_test
 
 import (
+	"bufio"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -480,7 +481,8 @@ func TestPartnerSharedShoppingListsThroughTheRoutes(t *testing.T) {
 }
 
 // TestPartnerEventStreamEndsWhenThePartnerIsUnlinked opens the partner's
-// stream on a shared list and unlinks from the other side while it is open.
+// stream on a shared list on a real server and, once the stream is
+// established, unlinks from the other side while it is open.
 func TestPartnerEventStreamEndsWhenThePartnerIsUnlinked(t *testing.T) {
 	e := newPartnerEnv(t)
 	router := e.router
@@ -488,27 +490,55 @@ func TestPartnerEventStreamEndsWhenThePartnerIsUnlinked(t *testing.T) {
 	shared := create[api.ShoppingList](t, router, "/shopping-lists", e.token1, `{"name":"Groceries","shared_with_partner":true}`)
 	eventsPath := "/shopping-lists/" + shared.Id.String() + "/events"
 
-	// contract() serves the request synchronously, so unlink from the side once
-	// the partner's stream has subscribed.
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/v1"+eventsPath, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+e.token2)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("partner stream: status = %d, content type %q, want 200 text/event-stream", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+
+	lines := make(chan string)
 	go func() {
-		deadline := time.Now().Add(5 * time.Second)
-		for e.events.Subscribers(shared.Id) == 0 && time.Now().Before(deadline) {
-			time.Sleep(5 * time.Millisecond)
-		}
-		req := httptest.NewRequest(http.MethodDelete, "/v1/partner", nil)
-		req.Header.Set("Authorization", "Bearer "+e.token1)
-		if rec := do(t, router, req); rec.Code != http.StatusNoContent {
-			t.Errorf("unlink from the side: status = %d, want 204", rec.Code)
+		defer close(lines)
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			if sc.Text() != "" {
+				lines <- sc.Text()
+			}
 		}
 	}()
-	rec := contract(t, router, http.MethodGet, eventsPath, withBearer(e.token2))
-	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/event-stream" {
-		t.Fatalf("partner stream: status = %d, content type %q, want 200 text/event-stream", rec.Code, rec.Header().Get("Content-Type"))
+	select {
+	case l, ok := <-lines:
+		if !ok || l != ": connected" {
+			t.Fatalf("first line = %q (stream open: %v), want \": connected\"", l, ok)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no connected comment within 3s")
 	}
-	if rec.Body.String() != ": connected\n\n" {
-		t.Errorf("stream body = %q, want only the connected comment before the unlink closed it", rec.Body.String())
+
+	// The handler writes the comment only once the subscription is fully set
+	// up, so the unlink cannot race the subscribe.
+	if rec := contract(t, router, http.MethodDelete, "/partner", withBearer(e.token1)); rec.Code != http.StatusNoContent {
+		t.Fatalf("unlink from the side: status = %d, want 204", rec.Code)
 	}
-	if rec = contract(t, router, http.MethodGet, eventsPath, withBearer(e.token2)); rec.Code != http.StatusNotFound {
+	select {
+	case l, ok := <-lines:
+		if ok {
+			t.Fatalf("stream sent %q after the unlink, want it to end", l)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stream still open 5s after the unlink")
+	}
+	if rec := contract(t, router, http.MethodGet, eventsPath, withBearer(e.token2)); rec.Code != http.StatusNotFound {
 		t.Errorf("partner reconnect after the unlink: status = %d, want 404", rec.Code)
 	}
 }

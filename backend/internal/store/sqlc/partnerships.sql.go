@@ -164,6 +164,8 @@ FROM partnerships
 LEFT JOIN users AS other
        ON other.id = CASE WHEN partnerships.user_a = $1 THEN partnerships.user_b ELSE partnerships.user_a END
 WHERE partnerships.user_a = $1 OR partnerships.user_b = $1
+ORDER BY (partnerships.status = 'active') DESC
+LIMIT 1
 `
 
 type GetPartnershipForUserRow struct {
@@ -175,7 +177,8 @@ type GetPartnershipForUserRow struct {
 }
 
 // The user's partnership row (pending or active) with the other side's display
-// name, which is NULL while the invite is still pending.
+// name, which is NULL while the invite is still pending. A user has one row;
+// if that invariant is ever violated, the active one wins.
 func (q *Queries) GetPartnershipForUser(ctx context.Context, userID uuid.UUID) (GetPartnershipForUserRow, error) {
 	row := q.db.QueryRow(ctx, getPartnershipForUser, userID)
 	var i GetPartnershipForUserRow

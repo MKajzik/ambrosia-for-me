@@ -27,13 +27,16 @@ FOR NO KEY UPDATE;
 
 -- name: GetPartnershipForUser :one
 -- The user's partnership row (pending or active) with the other side's display
--- name, which is NULL while the invite is still pending.
+-- name, which is NULL while the invite is still pending. A user has one row;
+-- if that invariant is ever violated, the active one wins.
 SELECT partnerships.id, partnerships.status, partnerships.invite_expires_at, partnerships.updated_at,
        other.display_name AS partner_display_name
 FROM partnerships
 LEFT JOIN users AS other
        ON other.id = CASE WHEN partnerships.user_a = sqlc.arg('user_id') THEN partnerships.user_b ELSE partnerships.user_a END
-WHERE partnerships.user_a = sqlc.arg('user_id') OR partnerships.user_b = sqlc.arg('user_id');
+WHERE partnerships.user_a = sqlc.arg('user_id') OR partnerships.user_b = sqlc.arg('user_id')
+ORDER BY (partnerships.status = 'active') DESC
+LIMIT 1;
 
 -- name: GetPendingPartnershipByCodeHash :one
 SELECT * FROM partnerships

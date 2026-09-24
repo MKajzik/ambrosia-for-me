@@ -91,6 +91,8 @@ func NewAuth(st *store.Store, hasher *auth.Hasher, tokens *auth.TokenIssuer, ref
 // of every account DeleteUser removes. cmd/api uses it to close the account's
 // shopping-list event streams (ListEventHub.CloseUser): DeleteUser removes
 // the user's lists with a raw DELETE, which publishes no list_deleted event.
+// It is not synchronized: call it before the service serves requests (cmd/api
+// does so at startup).
 func (a *Auth) OnUserDeleted(fn func(uuid.UUID)) { a.onUserDeleted = fn }
 
 // Register creates an account and signs it in.
@@ -275,12 +277,21 @@ func (a *Auth) UpdateUser(ctx context.Context, id uuid.UUID, in UpdateInput) (Us
 // no cascade order can make them fail. A future NO ACTION reference into
 // shopping_lists or shopping_items would change that.
 //
-// The user's partnership row (pending or active) needs no step of its own:
-// all three user references in partnerships cascade, which ends the
-// partner's access at once. Items the deleted user checked on a list they
-// did not own keep existing, with checked_by set to NULL.
+// The user's partnership row (pending or active) goes before everything
+// else, even though the users cascade would remove it too (it stays as the
+// safety net). A partner's in-flight shopping-item write holds that row FOR
+// SHARE and then wants list and item rows; if DeleteUser locked lists first
+// and reached the partnership row through the users cascade, the two would
+// deadlock. Deleting it first makes DeleteUser wait for such edits before it
+// holds any list or item lock, so every path locks partnership, then list,
+// then item. Deleting it also ends the partner's access at once. Items the
+// deleted user checked on a list they did not own keep existing, with
+// checked_by set to NULL.
 func (a *Auth) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	err := a.st.InTx(ctx, func(q *sqlc.Queries) error {
+		if _, err := q.DeletePartnershipsForUser(ctx, id); err != nil {
+			return fmt.Errorf("delete partnerships: %w", err)
+		}
 		if err := q.DeleteShoppingListsForUser(ctx, id); err != nil {
 			return fmt.Errorf("delete shopping lists: %w", err)
 		}

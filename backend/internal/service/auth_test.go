@@ -690,3 +690,71 @@ func TestDeleteUserRunsTheOnUserDeletedHookOnlyAfterACommittedDelete(t *testing.
 		t.Errorf("hook calls = %v, want exactly [%v]", got, s.User.ID)
 	}
 }
+
+// A partner's in-flight shopping-item write holds the partnership row FOR SHARE
+// and then wants the list and item rows. DeleteUser must therefore take the
+// partnership row before any list row, or the two deadlock: DeleteUser would
+// hold the list and wait on the partnership row, the edit would hold the
+// partnership row and wait on the list.
+func TestDeleteUserWaitsForAnInFlightPartnerEditBeforeLockingTheList(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	owner, partner, _, hub := linkedUsers(t, f, "owner-del3@example.com", "partner-del3@example.com")
+	lists := service.NewShoppingLists(f.store, hub)
+	list, err := lists.Create(ctx, owner, service.CreateShoppingListInput{Name: "Shared", SharedWithPartner: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	locked, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	releaseTx := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseTx) // an open transaction would make closing the pool wait forever
+	txDone := make(chan error, 1)
+	go func() {
+		txDone <- f.store.InTx(ctx, func(q *sqlc.Queries) error {
+			if _, err := q.GetActivePartnerIDForShare(ctx, partner); err != nil {
+				return fmt.Errorf("lock the partnership row: %w", err)
+			}
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-locked:
+	case err := <-txDone:
+		t.Fatalf("the transaction holding the partnership row failed before taking it: %v", err)
+	}
+
+	deleted := make(chan error, 1)
+	go func() { deleted <- f.svc.DeleteUser(ctx, owner) }()
+	select {
+	case err := <-deleted:
+		t.Fatalf("DeleteUser finished (err %v) while a partner edit held the partnership row, want it to wait", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// While DeleteUser waits, it must hold no lock on the owner's list.
+	touchCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if _, err := f.store.TouchShoppingListForUser(touchCtx, sqlc.TouchShoppingListForUserParams{ID: list.ID, UserID: owner}); err != nil {
+		t.Fatalf("a write to the owner's list while DeleteUser waits: %v, want it to proceed (DeleteUser must not lock the list before the partnership row)", err)
+	}
+
+	releaseTx()
+	if err := <-txDone; err != nil {
+		t.Fatalf("partner edit transaction: %v", err)
+	}
+	select {
+	case err := <-deleted:
+		if err != nil {
+			t.Fatalf("DeleteUser: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("DeleteUser did not finish after the partner edit committed")
+	}
+	if _, err := f.store.TouchShoppingListForUser(ctx, sqlc.TouchShoppingListForUserParams{ID: list.ID, UserID: owner}); !store.IsNotFound(err) {
+		t.Errorf("the owner's list after DeleteUser: err = %v, want it gone", err)
+	}
+}

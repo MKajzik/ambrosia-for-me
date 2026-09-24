@@ -36,9 +36,6 @@ const (
 	inviteAlphabet   = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 	inviteCodeLength = 8
 	inviteTTL        = 48 * time.Hour
-	// inviteCodeAttempts is how often Invite retries when a freshly generated
-	// code collides with another live invite's hash (about 1 in 10^12).
-	inviteCodeAttempts = 3
 )
 
 // Invite is a freshly created invite. Code is shown once: only its hash is
@@ -90,27 +87,25 @@ func (p *Partners) Invite(ctx context.Context, callerID uuid.UUID) (Invite, erro
 			return fmt.Errorf("replace pending invite: %w", err)
 		}
 		expires := p.now().Add(inviteTTL)
-		for range inviteCodeAttempts {
-			code, err := newInviteCode()
-			if err != nil {
-				return err
-			}
-			_, err = q.CreatePartnerInvite(ctx, sqlc.CreatePartnerInviteParams{
-				UserID: callerID, InviteCodeHash: hashInviteCode(code), InviteExpiresAt: &expires,
-			})
-			if store.IsUniqueViolation(err, "partnerships_invite_code_hash_idx") {
-				continue
-			}
-			if store.IsForeignKeyViolation(err, "partnerships_user_a_fkey") {
-				return ErrNotFound
-			}
-			if err != nil {
-				return fmt.Errorf("create invite: %w", err)
-			}
-			inv = Invite{Code: code, ExpiresAt: expires}
-			return nil
+		// One attempt only: store.InTx uses no savepoints, so after a unique
+		// violation the transaction is aborted and a retry would fail with
+		// 25P02. A hash collision (about live_invites / 8.5e11) surfaces as a
+		// wrapped error (500).
+		code, err := newInviteCode()
+		if err != nil {
+			return err
 		}
-		return errors.New("could not generate a unique invite code")
+		_, err = q.CreatePartnerInvite(ctx, sqlc.CreatePartnerInviteParams{
+			UserID: callerID, InviteCodeHash: hashInviteCode(code), InviteExpiresAt: &expires,
+		})
+		if store.IsForeignKeyViolation(err, "partnerships_user_a_fkey") {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("create invite: %w", err)
+		}
+		inv = Invite{Code: code, ExpiresAt: expires}
+		return nil
 	})
 	if err != nil {
 		return Invite{}, err
