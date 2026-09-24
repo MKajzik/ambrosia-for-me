@@ -32,6 +32,7 @@ type ShoppingListsService interface {
 	UpdateItem(ctx context.Context, ownerID, listID, itemID uuid.UUID, in service.UpdateShoppingItemInput) (service.ShoppingItem, error)
 	DeleteItem(ctx context.Context, ownerID, listID, itemID uuid.UUID) error
 	Subscribe(ctx context.Context, ownerID, listID uuid.UUID) (*service.ListSubscription, error)
+	ListPartner(ctx context.Context, callerID uuid.UUID, in service.ListShoppingListsInput) (service.ShoppingListPage, error)
 }
 
 const (
@@ -43,40 +44,51 @@ const (
 )
 
 func (s *server) ListShoppingLists(w http.ResponseWriter, r *http.Request, params api.ListShoppingListsParams) {
+	s.serveShoppingListPage(w, r, params.Cursor, params.Limit, s.shoppingLists.List)
+}
+
+func (s *server) ListPartnerShoppingLists(w http.ResponseWriter, r *http.Request, params api.ListPartnerShoppingListsParams) {
+	s.serveShoppingListPage(w, r, params.Cursor, params.Limit, s.shoppingLists.ListPartner)
+}
+
+// serveShoppingListPage answers a cursor-paginated list of shopping lists;
+// list is either the caller's own listing or the partner's.
+func (s *server) serveShoppingListPage(w http.ResponseWriter, r *http.Request, cursorParam *string, limitParam *int,
+	list func(context.Context, uuid.UUID, service.ListShoppingListsInput) (service.ShoppingListPage, error)) {
 	userID, ok := requireUser(w, r)
 	if !ok {
 		return
 	}
 	limit := defaultShoppingListLimit
-	if params.Limit != nil {
-		limit = *params.Limit
+	if limitParam != nil {
+		limit = *limitParam
 	}
 	var cursor *service.ShoppingListCursor
-	if params.Cursor != nil {
-		c, ok := decodeShoppingListCursor(*params.Cursor)
+	if cursorParam != nil {
+		c, ok := decodeShoppingListCursor(*cursorParam)
 		if !ok {
 			WriteValidationProblem(w, "cursor is invalid", []FieldError{{Field: "cursor", Code: FieldInvalidForm}})
 			return
 		}
 		cursor = &c
 	}
-	page, err := s.shoppingLists.List(r.Context(), userID, service.ListShoppingListsInput{Cursor: cursor, Limit: limit})
+	page, err := list(r.Context(), userID, service.ListShoppingListsInput{Cursor: cursor, Limit: limit})
 	if err != nil {
 		s.writeServiceError(w, r, err)
 		return
 	}
-	list := api.ShoppingListPage{Items: make([]api.ShoppingListSummary, len(page.Items)), NextCursor: nullable.NewNullNullable[string]()}
+	out := api.ShoppingListPage{Items: make([]api.ShoppingListSummary, len(page.Items)), NextCursor: nullable.NewNullNullable[string]()}
 	for i, l := range page.Items {
-		list.Items[i] = api.ShoppingListSummary{
+		out.Items[i] = api.ShoppingListSummary{
 			Id: l.ID, Name: l.Name, SharedWithPartner: l.SharedWithPartner,
 			SourceFrom: toNullableDate(l.SourceFrom), SourceTo: toNullableDate(l.SourceTo),
 			CreatedAt: l.CreatedAt, UpdatedAt: l.UpdatedAt,
 		}
 	}
 	if page.NextCursor != nil {
-		list.NextCursor = nullable.NewNullableWithValue(encodeShoppingListCursor(*page.NextCursor))
+		out.NextCursor = nullable.NewNullableWithValue(encodeShoppingListCursor(*page.NextCursor))
 	}
-	writeJSON(w, http.StatusOK, list)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *server) CreateShoppingList(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +109,7 @@ func (s *server) CreateShoppingList(w http.ResponseWriter, r *http.Request) {
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toAPIShoppingList(list))
+	writeJSON(w, http.StatusCreated, toAPIShoppingList(list, userID))
 }
 
 func (s *server) GenerateShoppingList(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +132,7 @@ func (s *server) GenerateShoppingList(w http.ResponseWriter, r *http.Request) {
 	if created {
 		status = http.StatusCreated
 	}
-	writeJSON(w, status, toAPIShoppingList(list))
+	writeJSON(w, status, toAPIShoppingList(list, userID))
 }
 
 func (s *server) GetShoppingList(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -133,7 +145,7 @@ func (s *server) GetShoppingList(w http.ResponseWriter, r *http.Request, id uuid
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIShoppingList(list))
+	writeJSON(w, http.StatusOK, toAPIShoppingList(list, userID))
 }
 
 func (s *server) UpdateShoppingList(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -152,7 +164,7 @@ func (s *server) UpdateShoppingList(w http.ResponseWriter, r *http.Request, id u
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIShoppingList(list))
+	writeJSON(w, http.StatusOK, toAPIShoppingList(list, userID))
 }
 
 func (s *server) DeleteShoppingList(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -344,13 +356,13 @@ func writeVersionConflict(w http.ResponseWriter, current service.ShoppingItem) {
 	})
 }
 
-func toAPIShoppingList(l service.ShoppingList) api.ShoppingList {
+func toAPIShoppingList(l service.ShoppingList, viewer uuid.UUID) api.ShoppingList {
 	items := make([]api.ShoppingItem, len(l.Items))
 	for i, it := range l.Items {
 		items[i] = toAPIShoppingItem(it)
 	}
 	return api.ShoppingList{
-		Id: l.ID, Name: l.Name, SharedWithPartner: l.SharedWithPartner,
+		Id: l.ID, Name: l.Name, SharedWithPartner: l.SharedWithPartner, IsOwner: l.OwnerID == viewer,
 		SourceFrom: toNullableDate(l.SourceFrom), SourceTo: toNullableDate(l.SourceTo),
 		Items: items, CreatedAt: l.CreatedAt, UpdatedAt: l.UpdatedAt,
 	}

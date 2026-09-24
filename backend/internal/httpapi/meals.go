@@ -22,29 +22,41 @@ type MealsService interface {
 	List(ctx context.Context, ownerID uuid.UUID, in service.ListMealsInput) (service.MealPage, error)
 	ReplaceIngredients(ctx context.Context, ownerID, id uuid.UUID, items []service.MealIngredientInput) (service.Meal, error)
 	Copy(ctx context.Context, callerID, id uuid.UUID) (service.Meal, error)
+	ListPartner(ctx context.Context, callerID uuid.UUID, in service.ListMealsInput) (service.MealPage, error)
 }
 
 const defaultMealLimit = 20
 
 func (s *server) ListMeals(w http.ResponseWriter, r *http.Request, params api.ListMealsParams) {
+	s.serveMealList(w, r, params.Cursor, params.Limit, s.meals.List)
+}
+
+func (s *server) ListPartnerMeals(w http.ResponseWriter, r *http.Request, params api.ListPartnerMealsParams) {
+	s.serveMealList(w, r, params.Cursor, params.Limit, s.meals.ListPartner)
+}
+
+// serveMealList answers a cursor-paginated meal listing; list is either the
+// caller's own listing or the partner's.
+func (s *server) serveMealList(w http.ResponseWriter, r *http.Request, cursorParam *string, limitParam *int,
+	list func(context.Context, uuid.UUID, service.ListMealsInput) (service.MealPage, error)) {
 	userID, ok := requireUser(w, r)
 	if !ok {
 		return
 	}
 	limit := defaultMealLimit
-	if params.Limit != nil {
-		limit = *params.Limit
+	if limitParam != nil {
+		limit = *limitParam
 	}
 	var cursor *service.MealCursor
-	if params.Cursor != nil {
-		c, ok := decodeMealCursor(*params.Cursor)
+	if cursorParam != nil {
+		c, ok := decodeMealCursor(*cursorParam)
 		if !ok {
 			WriteValidationProblem(w, "cursor is invalid", []FieldError{{Field: "cursor", Code: FieldInvalidForm}})
 			return
 		}
 		cursor = &c
 	}
-	page, err := s.meals.List(r.Context(), userID, service.ListMealsInput{Cursor: cursor, Limit: limit})
+	page, err := list(r.Context(), userID, service.ListMealsInput{Cursor: cursor, Limit: limit})
 	if err != nil {
 		s.writeServiceError(w, r, err)
 		return
@@ -76,7 +88,7 @@ func (s *server) CreateMeal(w http.ResponseWriter, r *http.Request) {
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toAPIMeal(meal))
+	writeJSON(w, http.StatusCreated, toAPIMeal(meal, userID))
 }
 
 func (s *server) GetMeal(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -89,7 +101,7 @@ func (s *server) GetMeal(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIMeal(meal))
+	writeJSON(w, http.StatusOK, toAPIMeal(meal, userID))
 }
 
 func (s *server) UpdateMeal(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -109,7 +121,7 @@ func (s *server) UpdateMeal(w http.ResponseWriter, r *http.Request, id uuid.UUID
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIMeal(meal))
+	writeJSON(w, http.StatusOK, toAPIMeal(meal, userID))
 }
 
 func (s *server) DeleteMeal(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -142,7 +154,7 @@ func (s *server) ReplaceMealIngredients(w http.ResponseWriter, r *http.Request, 
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIMeal(meal))
+	writeJSON(w, http.StatusOK, toAPIMeal(meal, userID))
 }
 
 func (s *server) CopyMeal(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -155,7 +167,7 @@ func (s *server) CopyMeal(w http.ResponseWriter, r *http.Request, id uuid.UUID) 
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toAPIMeal(meal))
+	writeJSON(w, http.StatusCreated, toAPIMeal(meal, userID))
 }
 
 func nullableStringToPtr(n nullable.Nullable[string]) *string {
@@ -205,7 +217,7 @@ func toAPIMealSummary(m service.MealSummary) api.MealSummary {
 	}
 }
 
-func toAPIMeal(m service.Meal) api.Meal {
+func toAPIMeal(m service.Meal, viewer uuid.UUID) api.Meal {
 	ingredients := make([]api.MealIngredient, len(m.Ingredients))
 	for i, mi := range m.Ingredients {
 		ingredients[i] = api.MealIngredient{
@@ -216,7 +228,7 @@ func toAPIMeal(m service.Meal) api.Meal {
 	}
 	return api.Meal{
 		Id: m.ID, Name: m.Name, Notes: toNullableString(m.Notes), Servings: m.Servings,
-		SharedWithPartner: m.SharedWithPartner, Ingredients: ingredients,
+		SharedWithPartner: m.SharedWithPartner, IsOwner: m.OwnerID == viewer, Ingredients: ingredients,
 		NutritionPerServing: nutrientsToAPI(m.NutritionPerServing),
 		CreatedAt:           m.CreatedAt, UpdatedAt: m.UpdatedAt,
 	}

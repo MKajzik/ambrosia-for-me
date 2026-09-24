@@ -24,29 +24,41 @@ type DietTemplatesService interface {
 	ReplaceSlots(ctx context.Context, ownerID, id uuid.UUID, slots []service.TemplateSlotInput) (service.DietTemplate, error)
 	Copy(ctx context.Context, callerID, id uuid.UUID) (service.DietTemplate, error)
 	Apply(ctx context.Context, ownerID, id uuid.UUID, in service.ApplyTemplateInput) (int, error)
+	ListPartner(ctx context.Context, callerID uuid.UUID, in service.ListDietTemplatesInput) (service.DietTemplatePage, error)
 }
 
 const defaultDietTemplateLimit = 20
 
 func (s *server) ListDietTemplates(w http.ResponseWriter, r *http.Request, params api.ListDietTemplatesParams) {
+	s.serveDietTemplateList(w, r, params.Cursor, params.Limit, s.dietTemplates.List)
+}
+
+func (s *server) ListPartnerDietTemplates(w http.ResponseWriter, r *http.Request, params api.ListPartnerDietTemplatesParams) {
+	s.serveDietTemplateList(w, r, params.Cursor, params.Limit, s.dietTemplates.ListPartner)
+}
+
+// serveDietTemplateList answers a cursor-paginated template listing; list is
+// either the caller's own listing or the partner's.
+func (s *server) serveDietTemplateList(w http.ResponseWriter, r *http.Request, cursorParam *string, limitParam *int,
+	list func(context.Context, uuid.UUID, service.ListDietTemplatesInput) (service.DietTemplatePage, error)) {
 	userID, ok := requireUser(w, r)
 	if !ok {
 		return
 	}
 	limit := defaultDietTemplateLimit
-	if params.Limit != nil {
-		limit = *params.Limit
+	if limitParam != nil {
+		limit = *limitParam
 	}
 	var cursor *service.DietTemplateCursor
-	if params.Cursor != nil {
-		c, ok := decodeDietTemplateCursor(*params.Cursor)
+	if cursorParam != nil {
+		c, ok := decodeDietTemplateCursor(*cursorParam)
 		if !ok {
 			WriteValidationProblem(w, "cursor is invalid", []FieldError{{Field: "cursor", Code: FieldInvalidForm}})
 			return
 		}
 		cursor = &c
 	}
-	page, err := s.dietTemplates.List(r.Context(), userID, service.ListDietTemplatesInput{Cursor: cursor, Limit: limit})
+	page, err := list(r.Context(), userID, service.ListDietTemplatesInput{Cursor: cursor, Limit: limit})
 	if err != nil {
 		s.writeServiceError(w, r, err)
 		return
@@ -76,7 +88,7 @@ func (s *server) CreateDietTemplate(w http.ResponseWriter, r *http.Request) {
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toAPIDietTemplate(tpl))
+	writeJSON(w, http.StatusCreated, toAPIDietTemplate(tpl, userID))
 }
 
 func (s *server) GetDietTemplate(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -89,7 +101,7 @@ func (s *server) GetDietTemplate(w http.ResponseWriter, r *http.Request, id uuid
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIDietTemplate(tpl))
+	writeJSON(w, http.StatusOK, toAPIDietTemplate(tpl, userID))
 }
 
 func (s *server) UpdateDietTemplate(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -106,7 +118,7 @@ func (s *server) UpdateDietTemplate(w http.ResponseWriter, r *http.Request, id u
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIDietTemplate(tpl))
+	writeJSON(w, http.StatusOK, toAPIDietTemplate(tpl, userID))
 }
 
 func (s *server) DeleteDietTemplate(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -143,7 +155,7 @@ func (s *server) ReplaceTemplateSlots(w http.ResponseWriter, r *http.Request, id
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAPIDietTemplate(tpl))
+	writeJSON(w, http.StatusOK, toAPIDietTemplate(tpl, userID))
 }
 
 func (s *server) ApplyDietTemplate(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -176,7 +188,7 @@ func (s *server) CopyDietTemplate(w http.ResponseWriter, r *http.Request, id uui
 		s.writeServiceError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toAPIDietTemplate(tpl))
+	writeJSON(w, http.StatusCreated, toAPIDietTemplate(tpl, userID))
 }
 
 func toDietTemplateList(items []service.DietTemplateSummary, nextCursor string) api.DietTemplateList {
@@ -199,7 +211,7 @@ func toAPIDietTemplateSummary(t service.DietTemplateSummary) api.DietTemplateSum
 	}
 }
 
-func toAPIDietTemplate(t service.DietTemplate) api.DietTemplate {
+func toAPIDietTemplate(t service.DietTemplate, viewer uuid.UUID) api.DietTemplate {
 	slots := make([]api.TemplateSlot, len(t.Slots))
 	for i, sl := range t.Slots {
 		slots[i] = api.TemplateSlot{
@@ -208,7 +220,7 @@ func toAPIDietTemplate(t service.DietTemplate) api.DietTemplate {
 		}
 	}
 	return api.DietTemplate{
-		Id: t.ID, Name: t.Name, DayCount: t.DayCount, SharedWithPartner: t.SharedWithPartner,
+		Id: t.ID, Name: t.Name, DayCount: t.DayCount, SharedWithPartner: t.SharedWithPartner, IsOwner: t.OwnerID == viewer,
 		Slots: slots, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 	}
 }
