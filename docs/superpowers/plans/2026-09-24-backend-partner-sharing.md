@@ -77,13 +77,13 @@ Every code block in Tasks 1 to 9 is the output of `git show` or `git diff` on ni
 
 The branch was cut before the markdown files were compressed on `master`, and Task 10 edits `backend/CLAUDE.md`. Merge `master` first so those edits apply to the current wording. The branch only adds files under `docs/superpowers/`, so the merge is clean.
 
-- [ ] **Step 1: Merge master**
+- [x] **Step 1: Merge master**
 
 Run: `git merge master`
 
 Expected: a clean merge (`AGENTS.md`, `CLAUDE.md` and `backend/CLAUDE.md` change; nothing conflicts).
 
-- [ ] **Step 2: Check the baseline**
+- [x] **Step 2: Check the baseline**
 
 Run: `make check-generated && cd backend && go build ./... && go vet ./...`
 
@@ -101,7 +101,7 @@ Expected: no output and exit 0.
 
 The schema enforces what it can: a pending row has no `user_b` and carries a code hash and an expiry; an active row has a `user_b` and neither hash nor expiry (so a spent code cannot be replayed); nobody is their own partner; each user has at most one active row per column and one pending invite; a code hash is unique. What an index cannot say, a user being `user_a` of one active row and `user_b` of another, is `Partners.Accept`'s job (Task 3).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Modify `backend/internal/db/schema_test.go` (unified diff against the current file):
 
@@ -192,7 +192,7 @@ Modify `backend/internal/db/schema_test.go` (unified diff against the current fi
 +}
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `cd backend && go test ./internal/db -count=1`
 
@@ -203,7 +203,7 @@ Expected: FAIL, for the right reason:
     schema_test.go:476: valid pending invite: ERROR: relation "partnerships" does not exist (SQLSTATE 42P01)
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `backend/migrations/00008_partnerships.sql`:
 
@@ -240,13 +240,13 @@ CREATE TRIGGER partnerships_set_updated_at
 DROP TABLE partnerships;
 ```
 
-- [ ] **Step 4: Run the tests and see them pass**
+- [x] **Step 4: Run the tests and see them pass**
 
 Run: `cd backend && go test ./internal/db -count=1`
 
 Expected: PASS (`ok  	github.com/InzKazik/mealplanner/backend/internal/db`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/internal/db/schema_test.go backend/migrations/00008_partnerships.sql
@@ -266,7 +266,7 @@ git commit -m "feat(backend): add the partnerships table"
 
 This task is pure in-memory code with no database. Task 6 changes `ShoppingLists.Subscribe` to pass the real owner; until then it passes the caller for both ids (the caller is the owner while lists are owner-only). The seven existing `hub.Subscribe(x)` calls in `shopping_events_test.go` become `hub.Subscribe(x, uuid.Nil, uuid.Nil)`: an anonymous subscription that no close method ever matches.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Modify `backend/internal/service/shopping_events_test.go` (unified diff against the current file):
 
@@ -453,7 +453,7 @@ Modify `backend/internal/service/shopping_events_test.go` (unified diff against 
 +}
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `cd backend && go test ./internal/service/ -run 'ListEventHub' -count=1`
 
@@ -465,7 +465,7 @@ internal/service/shopping_events_test.go:23:36: too many arguments in call to hu
 	want (uuid.UUID)
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Modify `backend/internal/service/shopping_events.go` (unified diff against the current file):
 
@@ -584,13 +584,13 @@ Modify `backend/internal/service/shopping_lists.go` (unified diff against the cu
  	}
 ```
 
-- [ ] **Step 4: Run the tests and see them pass**
+- [x] **Step 4: Run the tests and see them pass**
 
 Run: `cd backend && go test ./internal/service/ -run 'ListEventHub' -count=1`
 
 Expected: PASS (`ok  	github.com/InzKazik/mealplanner/backend/internal/service`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/internal/service/shopping_events.go backend/internal/service/shopping_events_test.go backend/internal/service/shopping_lists.go
@@ -612,7 +612,7 @@ git commit -m "feat(backend): let the event hub close streams by user"
 
 `Invite` and `Accept` are where the races live, so both lock the involved `users` rows (`FOR NO KEY UPDATE`, in id order, so two transactions cannot deadlock and inserts of dependent rows are not blocked) and check again under the lock. Four tests are the load-bearing ones and were each shown to fail when the code they guard is removed: `TestPartnersAcceptWaitsForTheUserLocksAndChecksAgainAfterThem` (no lock, or no re-check) and `TestPartnersConcurrentInvitesByOneUserLeaveExactlyOnePendingInvite` (no lock in `Invite`). `TestPartnersCrossedAcceptsLinkTwoUsersOnlyOnce` and `TestPartnersConcurrentAcceptsOfOneCodeHaveExactlyOneWinner` are smoke tests: they usually pass even without the locks, because the window is small.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/internal/service/partners_test.go`:
 
@@ -1118,7 +1118,7 @@ func TestPartnersConcurrentInvitesByOneUserLeaveExactlyOnePendingInvite(t *testi
 }
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `cd backend && go test ./internal/service/ -run 'Partners' -count=1`
 
@@ -1130,7 +1130,7 @@ internal/service/partners_test.go:49:43: undefined: service.NewPartners
 internal/service/partners_test.go:139:80: undefined: service.ErrInviteInvalid
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `backend/internal/store/queries/partnerships.sql`:
 
@@ -1518,17 +1518,17 @@ func hashInviteCode(code string) []byte {
 }
 ```
 
-- [ ] **Step 4: Regenerate**
+- [x] **Step 4: Regenerate**
 
 Run `make generate` from the repo root. It rewrites `backend/internal/store/sqlc/`. Commit the output and never edit it by hand. `make check-generated` fails if it is stale.
 
-- [ ] **Step 5: Run the tests and see them pass**
+- [x] **Step 5: Run the tests and see them pass**
 
 Run: `cd backend && go test ./internal/service/ -run 'Partners' -count=1`
 
 Expected: PASS (`ok  	github.com/InzKazik/mealplanner/backend/internal/service`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/internal/service/partners.go backend/internal/service/partners_edges_test.go backend/internal/service/partners_test.go backend/internal/store/queries/partnerships.sql backend/internal/store/sqlc/models.go backend/internal/store/sqlc/partnerships.sql.go
@@ -1554,7 +1554,7 @@ git commit -m "feat(backend): link two users with an invite code"
 
 `GetMealForUser` now takes a `partner_id`; passing none keeps it owner-only, which is what `Plan.SetEntry` and every write want. `Plan.GetRange` reads each meal through the new `GetOwn` so a plan range does not pay one partner lookup per meal. Deleting the original after a partner copied it changes nothing for the copy, because a copy of a partner's meal owns duplicates of its custom ingredients.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Modify `backend/internal/service/meals_test.go` (unified diff against the current file):
 
@@ -1911,7 +1911,7 @@ func TestMealsListPartnerPaginatesTheSharedMealsOnly(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `cd backend && go test ./internal/service/ -count=1`
 
@@ -1922,7 +1922,7 @@ internal/service/meals_test.go:699:9: got.OwnerID undefined (type service.Meal h
 internal/service/meals_test.go:724:28: meals.ListPartner undefined (type *service.Meals has no field or method ListPartner)
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Modify `backend/internal/store/queries/meals.sql` (unified diff against the current file):
 
@@ -2315,17 +2315,17 @@ Modify `backend/internal/service/plan.go` (unified diff against the current file
  		}
 ```
 
-- [ ] **Step 4: Regenerate**
+- [x] **Step 4: Regenerate**
 
 Run `make generate` from the repo root. It rewrites `backend/internal/store/sqlc/`. Commit the output and never edit it by hand. `make check-generated` fails if it is stale.
 
-- [ ] **Step 5: Run the tests and see them pass**
+- [x] **Step 5: Run the tests and see them pass**
 
 Run: `cd backend && go test ./internal/service/ -count=1`
 
 Expected: PASS (`ok  	github.com/InzKazik/mealplanner/backend/internal/service`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/internal/service/copy.go backend/internal/service/meals.go backend/internal/service/meals_partner_edges_test.go backend/internal/service/meals_test.go backend/internal/service/partners.go backend/internal/service/partners_test.go backend/internal/service/plan.go backend/internal/store/queries/meals.sql backend/internal/store/sqlc/meals.sql.go backend/internal/store/sqlc/partnerships.sql.go
@@ -2346,7 +2346,7 @@ git commit -m "feat(backend): let a partner read and copy shared meals"
 
 Sharing a template shares what its slots show (spec §2): a partner sees each slot's `meal_id` and meal name even when the meal itself is not shared, and `Meals.Get` on that meal stays `404`. `toTemplate` already resolves slot meals with the template owner's id, so reading needs no change. `Apply` keeps calling `GetDietTemplateForUser` without a partner, so applying a partner's template is `404`: copy it first. An own copy still points at the same meals; only a partner copy copies meals, each distinct one once.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Modify `backend/internal/service/diet_templates_test.go` (unified diff against the current file):
 
@@ -2543,7 +2543,7 @@ Modify `backend/internal/service/diet_templates_test.go` (unified diff against t
 +}
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `cd backend && go test ./internal/service/ -count=1`
 
@@ -2554,7 +2554,7 @@ internal/service/diet_templates_test.go:594:9: got.OwnerID undefined (type servi
 internal/service/diet_templates_test.go:619:20: tpls.ListPartner undefined (type *service.DietTemplates has no field or method ListPartner)
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Modify `backend/internal/store/queries/diet_templates.sql` (unified diff against the current file):
 
@@ -2793,17 +2793,17 @@ Modify `backend/internal/service/diet_templates.go` (unified diff against the cu
  }
 ```
 
-- [ ] **Step 4: Regenerate**
+- [x] **Step 4: Regenerate**
 
 Run `make generate` from the repo root. It rewrites `backend/internal/store/sqlc/`. Commit the output and never edit it by hand. `make check-generated` fails if it is stale.
 
-- [ ] **Step 5: Run the tests and see them pass**
+- [x] **Step 5: Run the tests and see them pass**
 
 Run: `cd backend && go test ./internal/service/ -count=1`
 
 Expected: PASS (`ok  	github.com/InzKazik/mealplanner/backend/internal/service`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/internal/service/diet_templates.go backend/internal/service/diet_templates_test.go backend/internal/store/queries/diet_templates.sql backend/internal/store/sqlc/diet_templates.sql.go
@@ -2826,7 +2826,7 @@ git commit -m "feat(backend): let a partner read and copy shared diet templates"
 
 Item writes (`AddItem`, `UpdateItem`, `DeleteItem`) resolve the partner with the partnership row taken `FOR SHARE`, so an unlink's `DELETE` waits for them and an edit that starts afterwards finds no partner. `Subscribe` looks the list up (to learn its owner), registers with the hub, then re-checks access under `FOR SHARE`. `SetShoppingListSourceForUser`, `UpdateShoppingList` and `DeleteShoppingList` stay owner-only, so rename, delete, sharing and regenerate are `404` for a partner, and regenerate keeps reading the owner's `plan_entries`. `TestShoppingListsItemWritesWaitForAnUnlinkInFlightAndThenFindNoPartner` and `TestShoppingListsSubscribeRegistersBeforeItsFinalAccessCheck` are deterministic (they hold the partnership row in an open transaction, as an unlink does) and were each shown to fail when the `FOR SHARE`, the re-check, or the register-first order is removed.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Modify `backend/internal/service/shopping_lists_test.go` (unified diff against the current file):
 
@@ -3285,7 +3285,7 @@ func TestShoppingListsDeletingASharedListEndsThePartnersStream(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `cd backend && go test ./internal/service/ -count=1`
 
@@ -3296,7 +3296,7 @@ internal/service/shopping_lists_test.go:563:23: got.OwnerID undefined (type serv
 internal/service/shopping_lists_test.go:654:30: f.lists.ListPartner undefined (type *service.ShoppingLists has no field or method ListPartner)
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Modify `backend/internal/store/queries/shopping_lists.sql` (unified diff against the current file):
 
@@ -3715,17 +3715,17 @@ Modify `backend/internal/service/shopping_lists.go` (unified diff against the cu
  	}
 ```
 
-- [ ] **Step 4: Regenerate**
+- [x] **Step 4: Regenerate**
 
 Run `make generate` from the repo root. It rewrites `backend/internal/store/sqlc/`. Commit the output and never edit it by hand. `make check-generated` fails if it is stale.
 
-- [ ] **Step 5: Run the tests and see them pass**
+- [x] **Step 5: Run the tests and see them pass**
 
 Run: `cd backend && go test ./internal/service/ -count=1`
 
 Expected: PASS (`ok  	github.com/InzKazik/mealplanner/backend/internal/service`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/internal/service/partners_test.go backend/internal/service/shopping_lists.go backend/internal/service/shopping_lists_partner_edges_test.go backend/internal/service/shopping_lists_test.go backend/internal/store/queries/shopping_lists.sql backend/internal/store/sqlc/shopping_lists.sql.go
@@ -3744,7 +3744,7 @@ git commit -m "feat(backend): let a partner edit the items of a shared shopping 
 
 `partnerships` needs no step in `DeleteUser`'s explicit delete chain: nothing references it `NO ACTION`, and its three user columns cascade. What the chain does not do is tell the event hub: it removes the user's lists with a raw `DELETE`, which publishes no `list_deleted`. The hook closes those streams. The tests also cover the two handoff items `backend/CLAUDE.md` carried for this plan: `checked_by` is set to NULL when a partner's account goes (the owner's list survives), and an owner's deletion ends the partner's access.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Modify `backend/internal/service/auth_test.go` (unified diff against the current file):
 
@@ -3878,7 +3878,7 @@ Modify `backend/internal/service/auth_test.go` (unified diff against the current
 +}
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `cd backend && go test ./internal/service/ -run 'TestDeleteUser' -count=1`
 
@@ -3888,7 +3888,7 @@ Expected: FAIL, for the right reason:
 internal/service/auth_test.go:633:8: f.svc.OnUserDeleted undefined (type *service.Auth has no field or method OnUserDeleted)
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Modify `backend/internal/service/auth.go` (unified diff against the current file):
 
@@ -3949,13 +3949,13 @@ Modify `backend/internal/service/auth.go` (unified diff against the current file
  func (a *Auth) newSession(ctx context.Context, q *sqlc.Queries, user sqlc.User, family uuid.UUID) (Session, error) {
 ```
 
-- [ ] **Step 4: Run the tests and see them pass**
+- [x] **Step 4: Run the tests and see them pass**
 
 Run: `cd backend && go test ./internal/service/ -run 'TestDeleteUser' -count=1`
 
 Expected: PASS (`ok  	github.com/InzKazik/mealplanner/backend/internal/service`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/internal/service/auth.go backend/internal/service/auth_test.go
@@ -3979,7 +3979,7 @@ git commit -m "feat(backend): close a deleted account's event streams"
 
 Edit `openapi.yaml` first, then run `make generate`: the build stays red until the handlers exist, so the contract and its handlers land in one task. `POST /partner/accept` has its own limiter, keyed per user and, separately, per client IP, because an invite code has about 39 bits and the general per-user limit does not stop many accounts behind one IP. The IP limiter runs before routing (like `authIPLimiter`), the user limiter after the validator; both apply only to `/v1/partner/accept`. A description in `openapi.yaml` must not contain `: ` in a plain scalar (YAML reads it as a mapping); the wording below already avoids it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Modify `backend/internal/httpapi/contract_test.go` (unified diff against the current file):
 
@@ -4303,7 +4303,7 @@ func TestPartnerAcceptIsRateLimitedPerUserAndPerIP(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `make lint-api && cd backend && go test ./internal/httpapi/ -run 'TestPartner|TestNewRouter' -count=1`
 
@@ -4315,7 +4315,7 @@ internal/httpapi/contract_test.go:121:3: unknown field Partners in struct litera
 internal/httpapi/partner_flow_test.go:89:25: undefined: api.PartnerInvite
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Modify `openapi.yaml` (unified diff against the current file):
 
@@ -4839,17 +4839,17 @@ Modify `backend/cmd/api/main.go` (unified diff against the current file):
  		}),
 ```
 
-- [ ] **Step 4: Regenerate**
+- [x] **Step 4: Regenerate**
 
 Run `make generate` from the repo root. It rewrites `backend/internal/store/sqlc/` and `backend/internal/api/api.gen.go`. Commit the output and never edit it by hand. `make check-generated` fails if it is stale.
 
-- [ ] **Step 5: Run the tests and see them pass**
+- [x] **Step 5: Run the tests and see them pass**
 
 Run: `make lint-api && cd backend && go test ./internal/httpapi/ -run 'TestPartner|TestNewRouter' -count=1`
 
 Expected: PASS (`ok  	github.com/InzKazik/mealplanner/backend/internal/httpapi`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/cmd/api/main.go backend/internal/api/api.gen.go backend/internal/httpapi/account.go backend/internal/httpapi/contract_test.go backend/internal/httpapi/partner.go backend/internal/httpapi/partner_flow_test.go backend/internal/httpapi/problem.go backend/internal/httpapi/ratelimit.go backend/internal/httpapi/router.go backend/internal/httpapi/server.go openapi.yaml
@@ -4870,7 +4870,7 @@ git commit -m "feat(api): partner invite, accept, get and unlink routes"
 
 `is_owner` is `OwnerID == viewer`, so `Create`, `Update` and every read of one's own resource say `true`, and a partner's says `false`. The three list handlers share one helper each with the own-list handlers; only the service call differs. The descriptions of `listMeals`, `getMeal`, `updateMeal`, `copyMeal`, `listDietTemplates`, `getDietTemplate`, `copyDietTemplate`, `listShoppingLists` and `getShoppingList` change so the contract says who can see and do what.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Modify `backend/internal/httpapi/partner_flow_test.go` (unified diff against the current file):
 
@@ -5130,7 +5130,7 @@ Modify `backend/internal/httpapi/partner_flow_test.go` (unified diff against the
 +}
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `make lint-api && cd backend && go test ./... -count=1`
 
@@ -5141,7 +5141,7 @@ internal/httpapi/partner_flow_test.go:317:38: got.IsOwner undefined (type api.Me
 internal/httpapi/partner_flow_test.go:420:81: got.IsOwner undefined (type api.ShoppingList has no field or method IsOwner)
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Modify `openapi.yaml` (unified diff against the current file):
 
@@ -5762,17 +5762,17 @@ Modify `backend/internal/httpapi/shopping_lists.go` (unified diff against the cu
  	}
 ```
 
-- [ ] **Step 4: Regenerate**
+- [x] **Step 4: Regenerate**
 
 Run `make generate` from the repo root. It rewrites `backend/internal/store/sqlc/` and `backend/internal/api/api.gen.go`. Commit the output and never edit it by hand. `make check-generated` fails if it is stale.
 
-- [ ] **Step 5: Run the tests and see them pass**
+- [x] **Step 5: Run the tests and see them pass**
 
 Run: `make lint-api && cd backend && go test ./... -count=1`
 
 Expected: PASS (`ok  	... (every package)`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/internal/api/api.gen.go backend/internal/httpapi/diet_templates.go backend/internal/httpapi/meals.go backend/internal/httpapi/partner_flow_test.go backend/internal/httpapi/shopping_lists.go openapi.yaml
@@ -5788,7 +5788,7 @@ git commit -m "feat(api): list what the partner shared and mark resources with i
 
 The parent spec and the partner spec disagree on the partner domain in three places (the `partnerships` columns, the endpoint list, an open item the partner spec settles); the partner spec says the parent is updated in the same change. `backend/CLAUDE.md` gets the partner domain in place of the "Not built yet" note that this work retires.
 
-- [ ] **Step 1: Apply the doc edits**
+- [x] **Step 1: Apply the doc edits**
 
 Save this as a scratch file outside the repo (for example `/tmp/partner_docs.py`) and run `python3 /tmp/partner_docs.py` from the repo root. Every replacement is guarded by an `assert` that its target text occurs exactly once, so it fails loudly if a file was not merged up in Task 0.
 
@@ -5805,7 +5805,6 @@ def edit(path, pairs):
 
 # ---------------------------------------------------------------- backend/CLAUDE.md
 p = "backend/CLAUDE.md"
-s = open(p).read()
 
 edit(p, [
     (
@@ -5833,6 +5832,7 @@ partner_bullets = """- **Partner link (`Partners`).** `POST partner/invite` crea
 - **Shared shopping lists.** The partner may add, edit, check and delete items and open the event stream; rename, delete, toggling `shared_with_partner` and regenerate are owner-only (`404` for the partner), and regenerate reads the owner's `plan_entries`. `checked_by` is the acting user (cleared on uncheck, `ON DELETE SET NULL`). Partner-added items are `manual`, so the owner's regenerate keeps them. Item writes take the partnership row `FOR SHARE`, so an unlink waits for edits in flight and any edit after it finds no partner.
 - **Unlink, unshare and account deletion close event streams.** `ListEventHub` subscriptions record watcher and list owner. `Partners.Unlink` calls `CloseAccess`, turning sharing off calls `CloseListForNonOwners`, and `Auth.OnUserDeleted(listEvents.CloseUser)` (wired in `cmd/api`) closes every stream touching a deleted account, whose lists are removed by a raw `DELETE` that publishes nothing. `Subscribe` registers with the hub first and then re-checks access under `FOR SHARE`, so an unlink cannot slip between them. Like the rest of the hub this is per process.
 """
+s = open(p).read()  # read AFTER the clause edits above wrote the file
 marker = "## Decide before the domain plans"
 assert s.count(marker) == 1
 s = s.replace(marker, partner_bullets + "\n" + marker, 1)
@@ -5867,26 +5867,26 @@ s = s[:start] + "Status: implemented by `docs/superpowers/plans/2026-09-24-backe
 open(p, "w").write(s)
 ```
 
-- [ ] **Step 2: Read the result**
+- [x] **Step 2: Read the result**
 
 Run: `git diff -- backend/CLAUDE.md docs/`
 
 Expected: `backend/CLAUDE.md` gains six bullets (partner link, visibility, template sharing, copying, shared lists, streams) before "Decide before the domain plans", one clause each in the layout, cascade and rate-limit bullets, and loses the long partner bullet and its four sub-bullets under "Not built yet" in favour of one out-of-scope bullet. The parent spec's `partnerships` bullet lists the hash and expiry columns, its Partner endpoint line gains `GET partner/shopping-lists` and `is_owner`, and the invite-code open item is gone. The partner spec's status line says it is implemented.
 
-- [ ] **Step 3: Run the whole gate**
+- [x] **Step 3: Run the whole gate**
 
 Run: `make check`
 
 Expected: `lint-api`, `test-backend`, `lint-backend` and `check-generated` all pass. This needs Docker (the tests start Postgres with testcontainers). If `check-generated` fails, run `make generate` and commit the output with the task that changed the spec or queries.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add backend/CLAUDE.md docs/superpowers/specs
 git commit -m "docs: document the partner domain and update the parent spec"
 ```
 
-- [ ] **Step 5: Mark the plan complete**
+- [x] **Step 5: Mark the plan complete**
 
 Tick every checkbox above, then commit the plan itself:
 
