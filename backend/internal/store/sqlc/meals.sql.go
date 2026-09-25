@@ -81,19 +81,25 @@ func (q *Queries) DeleteMealsForUser(ctx context.Context, userID uuid.UUID) erro
 
 const getMealForUser = `-- name: GetMealForUser :one
 SELECT id, owner_id, name, notes, servings, shared_with_partner, created_at, updated_at FROM meals
-WHERE id = $1 AND owner_id = $2
+WHERE id = $1
+  AND (
+    owner_id = $2
+    OR (owner_id = $3::uuid AND shared_with_partner)
+  )
 `
 
 type GetMealForUserParams struct {
-	ID     uuid.UUID
-	UserID uuid.UUID
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	PartnerID *uuid.UUID
 }
 
-// Owner-only visibility for now: shared_with_partner has no effect on GET
-// until the partner plan adds the partnerships table and an active-partner
-// lookup. See "Not built yet" in backend/CLAUDE.md.
+// The read predicate (spec §5): the caller's own meal, or one the caller's
+// active partner has shared. partner_id is NULL when the caller has no
+// partner (or when the caller wants owner-only access), which makes the second
+// branch match nothing. Every write keeps the strict owner-only queries.
 func (q *Queries) GetMealForUser(ctx context.Context, arg GetMealForUserParams) (Meal, error) {
-	row := q.db.QueryRow(ctx, getMealForUser, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, getMealForUser, arg.ID, arg.UserID, arg.PartnerID)
 	var i Meal
 	err := row.Scan(
 		&i.ID,
@@ -254,26 +260,31 @@ func (q *Queries) InsertMealIngredient(ctx context.Context, arg InsertMealIngred
 const listMealsForUser = `-- name: ListMealsForUser :many
 SELECT id, owner_id, name, notes, servings, shared_with_partner, created_at, updated_at FROM meals
 WHERE owner_id = $1
+  AND (NOT $2::boolean OR shared_with_partner)
   AND (
-    NOT $2::boolean
-    OR name > $3::text
-    OR (name = $3::text AND id > $4::uuid)
+    NOT $3::boolean
+    OR name > $4::text
+    OR (name = $4::text AND id > $5::uuid)
   )
 ORDER BY name, id
-LIMIT $5
+LIMIT $6
 `
 
 type ListMealsForUserParams struct {
 	UserID     uuid.UUID
+	SharedOnly bool
 	HasCursor  bool
 	CursorName string
 	CursorID   uuid.UUID
 	RowLimit   int32
 }
 
+// shared_only is for GET partner/meals: user_id is then the partner's id and
+// only what the partner has shared comes back.
 func (q *Queries) ListMealsForUser(ctx context.Context, arg ListMealsForUserParams) ([]Meal, error) {
 	rows, err := q.db.Query(ctx, listMealsForUser,
 		arg.UserID,
+		arg.SharedOnly,
 		arg.HasCursor,
 		arg.CursorName,
 		arg.CursorID,

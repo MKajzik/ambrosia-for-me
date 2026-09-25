@@ -77,12 +77,23 @@ type Auth struct {
 	tokens     *auth.TokenIssuer
 	refreshTTL time.Duration
 	now        func() time.Time
+	// onUserDeleted, when set, runs after an account is deleted. See
+	// OnUserDeleted.
+	onUserDeleted func(uuid.UUID)
 }
 
 // NewAuth returns an Auth service. now is injected so tests control time.
 func NewAuth(st *store.Store, hasher *auth.Hasher, tokens *auth.TokenIssuer, refreshTTL time.Duration, now func() time.Time) *Auth {
 	return &Auth{st: st, hasher: hasher, tokens: tokens, refreshTTL: refreshTTL, now: now}
 }
+
+// OnUserDeleted registers fn to run, after the transaction commits, with the id
+// of every account DeleteUser removes. cmd/api uses it to close the account's
+// shopping-list event streams (ListEventHub.CloseUser): DeleteUser removes
+// the user's lists with a raw DELETE, which publishes no list_deleted event.
+// It is not synchronized: call it before the service serves requests (cmd/api
+// does so at startup).
+func (a *Auth) OnUserDeleted(fn func(uuid.UUID)) { a.onUserDeleted = fn }
 
 // Register creates an account and signs it in.
 func (a *Auth) Register(ctx context.Context, in RegisterInput) (Session, error) {
@@ -265,8 +276,29 @@ func (a *Auth) UpdateUser(ctx context.Context, id uuid.UUID, in UpdateInput) (Us
 // rows (ingredient_id, checked_by) are ON DELETE SET NULL, not NO ACTION, so
 // no cascade order can make them fail. A future NO ACTION reference into
 // shopping_lists or shopping_items would change that.
+//
+// The lock order is users, then partnership, then list, then item, the same
+// order everything else uses. First the user's own users row is locked, as
+// Partners.Invite and Partners.Accept do before they write partnership rows:
+// without it, an Accept in flight would wait on the partnership row DeleteUser
+// had already deleted while DeleteUser waited on the Accept's users lock, and
+// Postgres would abort one of them. Then the user's partnership row (pending
+// or active) goes, even though the users cascade would remove it too (that
+// stays as the safety net). A partner's in-flight shopping-item write holds
+// that row FOR SHARE and then wants list and item rows; if DeleteUser locked
+// lists first and reached the partnership row through the users cascade, the
+// two would deadlock. Deleting it first makes DeleteUser wait for such edits
+// before it holds any list or item lock. Deleting it also ends the partner's
+// access at once. Items the deleted user checked on a list they did not own
+// keep existing, with checked_by set to NULL.
 func (a *Auth) DeleteUser(ctx context.Context, id uuid.UUID) error {
-	return a.st.InTx(ctx, func(q *sqlc.Queries) error {
+	err := a.st.InTx(ctx, func(q *sqlc.Queries) error {
+		if err := lockUsers(ctx, q, id); err != nil {
+			return err // ErrNotFound when the account is already gone
+		}
+		if _, err := q.DeletePartnershipsForUser(ctx, id); err != nil {
+			return fmt.Errorf("delete partnerships: %w", err)
+		}
 		if err := q.DeleteShoppingListsForUser(ctx, id); err != nil {
 			return fmt.Errorf("delete shopping lists: %w", err)
 		}
@@ -288,6 +320,13 @@ func (a *Auth) DeleteUser(ctx context.Context, id uuid.UUID) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if a.onUserDeleted != nil {
+		a.onUserDeleted(id)
+	}
+	return nil
 }
 
 func (a *Auth) newSession(ctx context.Context, q *sqlc.Queries, user sqlc.User, family uuid.UUID) (Session, error) {

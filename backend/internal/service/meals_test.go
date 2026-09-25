@@ -279,7 +279,7 @@ func TestMealsEmptyMealHasZeroNutritionForEveryKey(t *testing.T) {
 	}
 }
 
-func TestMealsAreOwnerOnlyForNow(t *testing.T) {
+func TestMealsOfOneUserAreInvisibleAndUntouchableToAStranger(t *testing.T) {
 	meals, _, st := newMealsFixture(t)
 	owner := newTestUser(t, st, "owner7@example.com")
 	other := newTestUser(t, st, "other7@example.com")
@@ -664,5 +664,228 @@ func TestMealsDeleteIsBlockedWhileInUseByAPlanEntry(t *testing.T) {
 	}
 	if err := meals.Delete(context.Background(), owner, meal.ID); err != nil {
 		t.Errorf("Delete once no longer referenced: %v", err)
+	}
+}
+
+func TestMealsPartnerReadsOnlySharedMealsAndNeverWritesThem(t *testing.T) {
+	meals, ing, st := newMealsFixture(t)
+	ctx := context.Background()
+	alice := newTestUser(t, st, "alice20@example.com")
+	bob := newTestUser(t, st, "bob20@example.com")
+	carol := newTestUser(t, st, "carol20@example.com")
+	partners := linkPartners(t, st, alice, bob)
+
+	oats := mustCreateIngredient(t, ing, alice, service.CreateIngredientInput{
+		Name: "Alice's Oats", Category: "grains_bread",
+		Nutrients: map[string]float64{service.NutrientCalories: 400},
+	})
+	shared, err := meals.Create(ctx, alice, service.CreateMealInput{Name: "Shared Porridge", Servings: 2, SharedWithPartner: true})
+	if err != nil {
+		t.Fatalf("Create shared: %v", err)
+	}
+	shared, err = meals.ReplaceIngredients(ctx, alice, shared.ID, []service.MealIngredientInput{{IngredientID: oats.ID, Quantity: 100, Unit: "g"}})
+	if err != nil {
+		t.Fatalf("ReplaceIngredients: %v", err)
+	}
+	private, err := meals.Create(ctx, alice, service.CreateMealInput{Name: "Private Snack", Servings: 1})
+	if err != nil {
+		t.Fatalf("Create private: %v", err)
+	}
+
+	got, err := meals.Get(ctx, bob, shared.ID)
+	if err != nil {
+		t.Fatalf("partner Get of a shared meal: %v", err)
+	}
+	if got.OwnerID != alice || len(got.Ingredients) != 1 || got.Ingredients[0].IngredientName != "Alice's Oats" ||
+		got.NutritionPerServing[service.NutrientCalories] != 200 {
+		t.Errorf("partner sees %+v, want Alice's meal with her custom ingredient resolved and 200 kcal per serving", got)
+	}
+	if own, err := meals.Get(ctx, alice, shared.ID); err != nil || own.OwnerID != alice {
+		t.Errorf("owner Get: %+v, %v", own, err)
+	}
+
+	name := "Hijacked"
+	for label, err := range map[string]error{
+		"Get of an unshared meal":        errOf(meals.Get(ctx, bob, private.ID)),
+		"Get by a stranger":              errOf(meals.Get(ctx, carol, shared.ID)),
+		"Update of a shared meal":        errOf(meals.Update(ctx, bob, shared.ID, service.UpdateMealInput{Name: &name})),
+		"Delete of a shared meal":        meals.Delete(ctx, bob, shared.ID),
+		"ReplaceIngredients of a shared": errOf(meals.ReplaceIngredients(ctx, bob, shared.ID, nil)),
+	} {
+		if !errors.Is(err, service.ErrMealNotFound) {
+			t.Errorf("%s: err = %v, want ErrMealNotFound", label, err)
+		}
+	}
+
+	ownList, err := meals.List(ctx, bob, service.ListMealsInput{Limit: 10})
+	if err != nil || len(ownList.Items) != 0 {
+		t.Errorf("the partner's own List = %+v (err %v), want empty: shared meals are not mixed in", ownList.Items, err)
+	}
+	partnerList, err := meals.ListPartner(ctx, bob, service.ListMealsInput{Limit: 10})
+	if err != nil || len(partnerList.Items) != 1 || partnerList.Items[0].ID != shared.ID {
+		t.Errorf("ListPartner = %+v (err %v), want only the shared meal", partnerList.Items, err)
+	}
+	if _, err := meals.ListPartner(ctx, carol, service.ListMealsInput{Limit: 10}); !errors.Is(err, service.ErrPartnerNotLinked) {
+		t.Errorf("ListPartner without a partner: err = %v, want ErrPartnerNotLinked", err)
+	}
+
+	// Unsharing hides the meal at once; so does unlinking.
+	if _, err := meals.Update(ctx, alice, shared.ID, service.UpdateMealInput{SharedWithPartner: ptr(false)}); err != nil {
+		t.Fatalf("unshare: %v", err)
+	}
+	if _, err := meals.Get(ctx, bob, shared.ID); !errors.Is(err, service.ErrMealNotFound) {
+		t.Errorf("partner Get after unsharing: err = %v, want ErrMealNotFound", err)
+	}
+	if _, err := meals.Update(ctx, alice, shared.ID, service.UpdateMealInput{SharedWithPartner: ptr(true)}); err != nil {
+		t.Fatalf("share again: %v", err)
+	}
+	if err := partners.Unlink(ctx, alice); err != nil {
+		t.Fatalf("Unlink: %v", err)
+	}
+	if _, err := meals.Get(ctx, bob, shared.ID); !errors.Is(err, service.ErrMealNotFound) {
+		t.Errorf("partner Get after unlinking: err = %v, want ErrMealNotFound", err)
+	}
+	if _, err := meals.ListPartner(ctx, bob, service.ListMealsInput{Limit: 10}); !errors.Is(err, service.ErrPartnerNotLinked) {
+		t.Errorf("ListPartner after unlinking: err = %v, want ErrPartnerNotLinked", err)
+	}
+}
+
+// errOf drops a call's value, keeping its error, so a table of calls with
+// different return types can be checked the same way.
+func errOf[T any](_ T, err error) error { return err }
+
+func TestMealsCopyOfAPartnersMealDuplicatesCustomIngredientsOnceAndSharesGlobalOnes(t *testing.T) {
+	meals, ing, st := newMealsFixture(t)
+	ctx := context.Background()
+	alice := newTestUser(t, st, "alice21@example.com")
+	bob := newTestUser(t, st, "bob21@example.com")
+	carol := newTestUser(t, st, "carol21@example.com")
+	partners := linkPartners(t, st, alice, bob)
+
+	fdc := int32(170000)
+	salt, err := st.UpsertUSDAIngredient(ctx, sqlc.UpsertUSDAIngredientParams{Name: "Salt", Category: "spices_herbs", UsdaFdcID: &fdc})
+	if err != nil {
+		t.Fatalf("UpsertUSDAIngredient: %v", err)
+	}
+	flour := mustCreateIngredient(t, ing, alice, service.CreateIngredientInput{
+		Name: "Alice's Flour", Category: "grains_bread", GramsPerPiece: ptr(30.0),
+		Nutrients: map[string]float64{service.NutrientCalories: 360, service.NutrientProtein: 10},
+	})
+	original, err := meals.Create(ctx, alice, service.CreateMealInput{Name: "Flatbread", Notes: strPtr("thin"), Servings: 2, SharedWithPartner: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// The custom ingredient is on two lines, in two units; the global one on a third.
+	original, err = meals.ReplaceIngredients(ctx, alice, original.ID, []service.MealIngredientInput{
+		{IngredientID: flour.ID, Quantity: 200, Unit: "g"},
+		{IngredientID: salt.ID, Quantity: 5, Unit: "g"},
+		{IngredientID: flour.ID, Quantity: 2, Unit: "piece"},
+	})
+	if err != nil {
+		t.Fatalf("ReplaceIngredients: %v", err)
+	}
+
+	cp, err := meals.Copy(ctx, bob, original.ID)
+	if err != nil {
+		t.Fatalf("partner Copy: %v", err)
+	}
+	if cp.OwnerID != bob || cp.SharedWithPartner || cp.Name != "Flatbread" || cp.Notes == nil || *cp.Notes != "thin" || cp.Servings != 2 {
+		t.Errorf("copy = %+v, want Bob's private copy of the meal", cp)
+	}
+	if len(cp.Ingredients) != 3 {
+		t.Fatalf("copy has %d lines, want 3", len(cp.Ingredients))
+	}
+	copiedFlour := cp.Ingredients[0].IngredientID
+	if copiedFlour == flour.ID || cp.Ingredients[2].IngredientID != copiedFlour {
+		t.Errorf("flour ids on the copy = %v and %v, want one new id (not %v) on both lines", copiedFlour, cp.Ingredients[2].IngredientID, flour.ID)
+	}
+	if cp.Ingredients[1].IngredientID != salt.ID {
+		t.Errorf("the global ingredient on the copy = %v, want the shared %v", cp.Ingredients[1].IngredientID, salt.ID)
+	}
+	for k, want := range original.NutritionPerServing {
+		if got := cp.NutritionPerServing[k]; !almostEqual(got, want) {
+			t.Errorf("copy nutrition[%s] = %v, want the original's %v", k, got, want)
+		}
+	}
+
+	// The duplicate is a real custom ingredient in Bob's library, invisible to Alice.
+	dup, err := st.GetIngredientForUser(ctx, sqlc.GetIngredientForUserParams{ID: copiedFlour, UserID: &bob})
+	if err != nil || dup.OwnerID == nil || *dup.OwnerID != bob || dup.GramsPerPiece == nil || *dup.GramsPerPiece != 30 {
+		t.Errorf("duplicate ingredient = %+v (err %v), want Bob's custom flour with grams_per_piece 30", dup, err)
+	}
+	if _, err := st.GetIngredientForUser(ctx, sqlc.GetIngredientForUserParams{ID: copiedFlour, UserID: &alice}); !store.IsNotFound(err) {
+		t.Errorf("Alice sees Bob's duplicate ingredient: err = %v, want not found", err)
+	}
+
+	// The copy is independent of the original: rename the ingredient, delete
+	// the meal, delete the ingredient's owner's ingredient.
+	if _, err := ing.Update(ctx, alice, flour.ID, service.UpdateIngredientInput{Name: strPtr("Renamed")}); err != nil {
+		t.Fatalf("rename original ingredient: %v", err)
+	}
+	if err := meals.Delete(ctx, alice, original.ID); err != nil {
+		t.Fatalf("delete original meal: %v", err)
+	}
+	if err := ing.Delete(ctx, alice, flour.ID); err != nil {
+		t.Fatalf("delete original ingredient: %v", err)
+	}
+	after, err := meals.Get(ctx, bob, cp.ID)
+	if err != nil || after.Ingredients[0].IngredientName != "Alice's Flour" {
+		t.Errorf("copy after the original changed = %+v (err %v), want it untouched", after.Ingredients, err)
+	}
+
+	// Bob now owns the ingredient, so copying his own copy keeps referencing it.
+	again, err := meals.Copy(ctx, bob, cp.ID)
+	if err != nil || again.Ingredients[0].IngredientID != copiedFlour {
+		t.Errorf("copy of Bob's own copy: %+v (err %v), want it to keep Bob's own ingredient", again.Ingredients, err)
+	}
+
+	// Not shared, or not a partner: not copyable.
+	hidden, err := meals.Create(ctx, alice, service.CreateMealInput{Name: "Hidden", Servings: 1})
+	if err != nil {
+		t.Fatalf("Create hidden: %v", err)
+	}
+	if _, err := meals.Copy(ctx, bob, hidden.ID); !errors.Is(err, service.ErrMealNotFound) {
+		t.Errorf("Copy of an unshared partner meal: err = %v, want ErrMealNotFound", err)
+	}
+	visible, err := meals.Create(ctx, alice, service.CreateMealInput{Name: "Visible", Servings: 1, SharedWithPartner: true})
+	if err != nil {
+		t.Fatalf("Create visible: %v", err)
+	}
+	if _, err := meals.Copy(ctx, carol, visible.ID); !errors.Is(err, service.ErrMealNotFound) {
+		t.Errorf("Copy by a stranger: err = %v, want ErrMealNotFound", err)
+	}
+	if err := partners.Unlink(ctx, bob); err != nil {
+		t.Fatalf("Unlink: %v", err)
+	}
+	if _, err := meals.Copy(ctx, bob, visible.ID); !errors.Is(err, service.ErrMealNotFound) {
+		t.Errorf("Copy after unlinking: err = %v, want ErrMealNotFound", err)
+	}
+}
+
+func TestMealsEachCopyOfAPartnersMealDuplicatesItsCustomIngredientsAgain(t *testing.T) {
+	meals, ing, st := newMealsFixture(t)
+	ctx := context.Background()
+	alice := newTestUser(t, st, "alice22@example.com")
+	bob := newTestUser(t, st, "bob22@example.com")
+	linkPartners(t, st, alice, bob)
+
+	milk := mustCreateIngredient(t, ing, alice, service.CreateIngredientInput{Name: "Alice's Milk", Category: "dairy_eggs"})
+	m, err := meals.Create(ctx, alice, service.CreateMealInput{Name: "Latte", Servings: 1, SharedWithPartner: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := meals.ReplaceIngredients(ctx, alice, m.ID, []service.MealIngredientInput{{IngredientID: milk.ID, Quantity: 100, Unit: "g"}}); err != nil {
+		t.Fatalf("ReplaceIngredients: %v", err)
+	}
+	first, err := meals.Copy(ctx, bob, m.ID)
+	if err != nil {
+		t.Fatalf("first Copy: %v", err)
+	}
+	again, err := meals.Copy(ctx, bob, m.ID)
+	if err != nil {
+		t.Fatalf("second Copy: %v", err)
+	}
+	if first.Ingredients[0].IngredientID == again.Ingredients[0].IngredientID {
+		t.Error("two copies share one duplicated ingredient, want one duplicate per copy operation")
 	}
 }

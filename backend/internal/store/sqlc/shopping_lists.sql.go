@@ -64,14 +64,18 @@ USING shopping_lists
 WHERE shopping_items.id = $1
   AND shopping_items.list_id = $2
   AND shopping_lists.id = shopping_items.list_id
-  AND shopping_lists.owner_id = $3
+  AND (
+    shopping_lists.owner_id = $3
+    OR (shopping_lists.owner_id = $4::uuid AND shopping_lists.shared_with_partner)
+  )
 RETURNING shopping_items.id, shopping_items.version
 `
 
 type DeleteShoppingItemForUserParams struct {
-	ID     uuid.UUID
-	ListID uuid.UUID
-	UserID uuid.UUID
+	ID        uuid.UUID
+	ListID    uuid.UUID
+	UserID    uuid.UUID
+	PartnerID *uuid.UUID
 }
 
 type DeleteShoppingItemForUserRow struct {
@@ -80,9 +84,15 @@ type DeleteShoppingItemForUserRow struct {
 }
 
 // :one, not :execrows: the deleted item's last version goes into the
-// item_deleted event.
+// item_deleted event. Uses the read predicate: a partner may delete items
+// from a list the owner shared.
 func (q *Queries) DeleteShoppingItemForUser(ctx context.Context, arg DeleteShoppingItemForUserParams) (DeleteShoppingItemForUserRow, error) {
-	row := q.db.QueryRow(ctx, deleteShoppingItemForUser, arg.ID, arg.ListID, arg.UserID)
+	row := q.db.QueryRow(ctx, deleteShoppingItemForUser,
+		arg.ID,
+		arg.ListID,
+		arg.UserID,
+		arg.PartnerID,
+	)
 	var i DeleteShoppingItemForUserRow
 	err := row.Scan(&i.ID, &i.Version)
 	return i, err
@@ -122,20 +132,31 @@ SELECT shopping_items.id, shopping_items.list_id, shopping_items.ingredient_id, 
 JOIN shopping_lists ON shopping_lists.id = shopping_items.list_id
 WHERE shopping_items.id = $1
   AND shopping_items.list_id = $2
-  AND shopping_lists.owner_id = $3
+  AND (
+    shopping_lists.owner_id = $3
+    OR (shopping_lists.owner_id = $4::uuid AND shopping_lists.shared_with_partner)
+  )
 FOR UPDATE OF shopping_items
 `
 
 type GetShoppingItemForUserForUpdateParams struct {
-	ID     uuid.UUID
-	ListID uuid.UUID
-	UserID uuid.UUID
+	ID        uuid.UUID
+	ListID    uuid.UUID
+	UserID    uuid.UUID
+	PartnerID *uuid.UUID
 }
 
 // Locks the one item row for UpdateItem's version check and the UPDATE after
-// it. The join is the ownership check; only the item row is locked.
+// it. The join is the visibility check (the read predicate: the caller's own
+// list, or a list the caller's active partner has shared); only the item row
+// is locked.
 func (q *Queries) GetShoppingItemForUserForUpdate(ctx context.Context, arg GetShoppingItemForUserForUpdateParams) (ShoppingItem, error) {
-	row := q.db.QueryRow(ctx, getShoppingItemForUserForUpdate, arg.ID, arg.ListID, arg.UserID)
+	row := q.db.QueryRow(ctx, getShoppingItemForUserForUpdate,
+		arg.ID,
+		arg.ListID,
+		arg.UserID,
+		arg.PartnerID,
+	)
 	var i ShoppingItem
 	err := row.Scan(
 		&i.ID,
@@ -197,19 +218,24 @@ func (q *Queries) GetShoppingItems(ctx context.Context, listID uuid.UUID) ([]Sho
 
 const getShoppingListForUser = `-- name: GetShoppingListForUser :one
 SELECT id, owner_id, name, shared_with_partner, source_from, source_to, created_at, updated_at FROM shopping_lists
-WHERE id = $1 AND owner_id = $2
+WHERE id = $1
+  AND (
+    owner_id = $2
+    OR (owner_id = $3::uuid AND shared_with_partner)
+  )
 `
 
 type GetShoppingListForUserParams struct {
-	ID     uuid.UUID
-	UserID uuid.UUID
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	PartnerID *uuid.UUID
 }
 
-// Owner-only visibility for now: shared_with_partner has no effect until the
-// partner plan adds the partnerships table and an active-partner lookup. See
-// "Not built yet" in backend/CLAUDE.md.
+// The read predicate (spec §5): the caller's own list, or one the caller's
+// active partner has shared. partner_id is NULL when the caller has no
+// partner, which makes the second branch match nothing.
 func (q *Queries) GetShoppingListForUser(ctx context.Context, arg GetShoppingListForUserParams) (ShoppingList, error) {
-	row := q.db.QueryRow(ctx, getShoppingListForUser, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, getShoppingListForUser, arg.ID, arg.UserID, arg.PartnerID)
 	var i ShoppingList
 	err := row.Scan(
 		&i.ID,
@@ -275,16 +301,18 @@ func (q *Queries) InsertShoppingItem(ctx context.Context, arg InsertShoppingItem
 const listShoppingListsForUser = `-- name: ListShoppingListsForUser :many
 SELECT id, owner_id, name, shared_with_partner, source_from, source_to, created_at, updated_at FROM shopping_lists
 WHERE owner_id = $1
+  AND (NOT $2::boolean OR shared_with_partner)
   AND (
-    NOT $2::boolean
-    OR (created_at, id) < ($3::timestamptz, $4::uuid)
+    NOT $3::boolean
+    OR (created_at, id) < ($4::timestamptz, $5::uuid)
   )
 ORDER BY created_at DESC, id DESC
-LIMIT $5
+LIMIT $6
 `
 
 type ListShoppingListsForUserParams struct {
 	UserID          uuid.UUID
+	SharedOnly      bool
 	HasCursor       bool
 	CursorCreatedAt time.Time
 	CursorID        uuid.UUID
@@ -292,10 +320,13 @@ type ListShoppingListsForUserParams struct {
 }
 
 // Newest first. The row comparison is the keyset cursor over
-// (created_at DESC, id DESC).
+// (created_at DESC, id DESC). shared_only is for GET partner/shopping-lists:
+// user_id is then the partner's id and only what the partner has shared comes
+// back.
 func (q *Queries) ListShoppingListsForUser(ctx context.Context, arg ListShoppingListsForUserParams) ([]ShoppingList, error) {
 	rows, err := q.db.Query(ctx, listShoppingListsForUser,
 		arg.UserID,
+		arg.SharedOnly,
 		arg.HasCursor,
 		arg.CursorCreatedAt,
 		arg.CursorID,
@@ -380,22 +411,28 @@ func (q *Queries) SetShoppingListSourceForUser(ctx context.Context, arg SetShopp
 
 const touchShoppingListForUser = `-- name: TouchShoppingListForUser :one
 UPDATE shopping_lists SET updated_at = now()
-WHERE id = $1 AND owner_id = $2
+WHERE id = $1
+  AND (
+    owner_id = $2
+    OR (owner_id = $3::uuid AND shared_with_partner)
+  )
 RETURNING id, owner_id, name, shared_with_partner, source_from, source_to, created_at, updated_at
 `
 
 type TouchShoppingListForUserParams struct {
-	ID     uuid.UUID
-	UserID uuid.UUID
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	PartnerID *uuid.UUID
 }
 
 // Bumps updated_at (via the shopping_lists_set_updated_at trigger) and, just
 // as importantly, takes the list row's write lock: AddItem uses this instead
 // of a plain SELECT so two concurrent adds cannot read the same
 // NextShoppingItemPosition. See TouchMealForUser in meals.sql for the same
-// pattern in the meals domain.
+// pattern in the meals domain. Uses the read predicate, because a partner may
+// add items to a shared list.
 func (q *Queries) TouchShoppingListForUser(ctx context.Context, arg TouchShoppingListForUserParams) (ShoppingList, error) {
-	row := q.db.QueryRow(ctx, touchShoppingListForUser, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, touchShoppingListForUser, arg.ID, arg.UserID, arg.PartnerID)
 	var i ShoppingList
 	err := row.Scan(
 		&i.ID,

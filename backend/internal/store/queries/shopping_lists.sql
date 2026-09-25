@@ -4,27 +4,39 @@ VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- name: GetShoppingListForUser :one
--- Owner-only visibility for now: shared_with_partner has no effect until the
--- partner plan adds the partnerships table and an active-partner lookup. See
--- "Not built yet" in backend/CLAUDE.md.
+-- The read predicate (spec §5): the caller's own list, or one the caller's
+-- active partner has shared. partner_id is NULL when the caller has no
+-- partner, which makes the second branch match nothing.
 SELECT * FROM shopping_lists
-WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id');
+WHERE id = sqlc.arg('id')
+  AND (
+    owner_id = sqlc.arg('user_id')
+    OR (owner_id = sqlc.narg('partner_id')::uuid AND shared_with_partner)
+  );
 
 -- name: TouchShoppingListForUser :one
 -- Bumps updated_at (via the shopping_lists_set_updated_at trigger) and, just
 -- as importantly, takes the list row's write lock: AddItem uses this instead
 -- of a plain SELECT so two concurrent adds cannot read the same
 -- NextShoppingItemPosition. See TouchMealForUser in meals.sql for the same
--- pattern in the meals domain.
+-- pattern in the meals domain. Uses the read predicate, because a partner may
+-- add items to a shared list.
 UPDATE shopping_lists SET updated_at = now()
-WHERE id = sqlc.arg('id') AND owner_id = sqlc.arg('user_id')
+WHERE id = sqlc.arg('id')
+  AND (
+    owner_id = sqlc.arg('user_id')
+    OR (owner_id = sqlc.narg('partner_id')::uuid AND shared_with_partner)
+  )
 RETURNING *;
 
 -- name: ListShoppingListsForUser :many
 -- Newest first. The row comparison is the keyset cursor over
--- (created_at DESC, id DESC).
+-- (created_at DESC, id DESC). shared_only is for GET partner/shopping-lists:
+-- user_id is then the partner's id and only what the partner has shared comes
+-- back.
 SELECT * FROM shopping_lists
 WHERE owner_id = sqlc.arg('user_id')
+  AND (NOT sqlc.arg('shared_only')::boolean OR shared_with_partner)
   AND (
     NOT sqlc.arg('has_cursor')::boolean
     OR (created_at, id) < (sqlc.arg('cursor_created_at')::timestamptz, sqlc.arg('cursor_id')::uuid)
@@ -62,12 +74,17 @@ SELECT * FROM shopping_items WHERE list_id = sqlc.arg('list_id') ORDER BY positi
 
 -- name: GetShoppingItemForUserForUpdate :one
 -- Locks the one item row for UpdateItem's version check and the UPDATE after
--- it. The join is the ownership check; only the item row is locked.
+-- it. The join is the visibility check (the read predicate: the caller's own
+-- list, or a list the caller's active partner has shared); only the item row
+-- is locked.
 SELECT shopping_items.* FROM shopping_items
 JOIN shopping_lists ON shopping_lists.id = shopping_items.list_id
 WHERE shopping_items.id = sqlc.arg('id')
   AND shopping_items.list_id = sqlc.arg('list_id')
-  AND shopping_lists.owner_id = sqlc.arg('user_id')
+  AND (
+    shopping_lists.owner_id = sqlc.arg('user_id')
+    OR (shopping_lists.owner_id = sqlc.narg('partner_id')::uuid AND shopping_lists.shared_with_partner)
+  )
 FOR UPDATE OF shopping_items;
 
 -- name: NextShoppingItemPosition :one
@@ -101,13 +118,17 @@ RETURNING *;
 
 -- name: DeleteShoppingItemForUser :one
 -- :one, not :execrows: the deleted item's last version goes into the
--- item_deleted event.
+-- item_deleted event. Uses the read predicate: a partner may delete items
+-- from a list the owner shared.
 DELETE FROM shopping_items
 USING shopping_lists
 WHERE shopping_items.id = sqlc.arg('id')
   AND shopping_items.list_id = sqlc.arg('list_id')
   AND shopping_lists.id = shopping_items.list_id
-  AND shopping_lists.owner_id = sqlc.arg('user_id')
+  AND (
+    shopping_lists.owner_id = sqlc.arg('user_id')
+    OR (shopping_lists.owner_id = sqlc.narg('partner_id')::uuid AND shopping_lists.shared_with_partner)
+  )
 RETURNING shopping_items.id, shopping_items.version;
 
 -- name: DeleteGeneratedShoppingItems :exec

@@ -22,6 +22,7 @@ type server struct {
 	dietTemplates DietTemplatesService
 	plan          PlanService
 	shoppingLists ShoppingListsService
+	partners      PartnerService
 }
 
 var _ api.ServerInterface = (*server)(nil)

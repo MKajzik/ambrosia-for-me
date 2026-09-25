@@ -554,3 +554,187 @@ func TestDietTemplatesApplySnackSlotsNeverConflictAndAlwaysAccumulate(t *testing
 		t.Errorf("snack entries after overwrite apply = %d, want 3 (overwrite must not remove existing snacks)", got)
 	}
 }
+
+// sharedTemplate creates a template owned by owner with the given slots and
+// shared_with_partner set to shared.
+func sharedTemplate(t *testing.T, tpls *service.DietTemplates, owner uuid.UUID, name string, shared bool, slots []service.TemplateSlotInput) service.DietTemplate {
+	t.Helper()
+	ctx := context.Background()
+	tpl, err := tpls.Create(ctx, owner, service.CreateDietTemplateInput{Name: name, DayCount: 2, SharedWithPartner: shared})
+	if err != nil {
+		t.Fatalf("Create template %q: %v", name, err)
+	}
+	tpl, err = tpls.ReplaceSlots(ctx, owner, tpl.ID, slots)
+	if err != nil {
+		t.Fatalf("ReplaceSlots %q: %v", name, err)
+	}
+	return tpl
+}
+
+func TestDietTemplatesPartnerReadsOnlySharedTemplatesAndNeverWritesThem(t *testing.T) {
+	tpls, meals, _, st := newDietTemplatesFixture(t)
+	ctx := context.Background()
+	alice := newTestUser(t, st, "alice30@example.com")
+	bob := newTestUser(t, st, "bob30@example.com")
+	carol := newTestUser(t, st, "carol30@example.com")
+	partners := linkPartners(t, st, alice, bob)
+
+	toast := mustCreateMeal(t, meals, alice, "Toast") // not shared on its own
+	shared := sharedTemplate(t, tpls, alice, "Shared Week", true, []service.TemplateSlotInput{
+		{DayIndex: 0, Slot: "breakfast", MealID: toast.ID, Portion: 1},
+	})
+	private := sharedTemplate(t, tpls, alice, "Private Week", false, []service.TemplateSlotInput{
+		{DayIndex: 0, Slot: "breakfast", MealID: toast.ID, Portion: 1},
+	})
+
+	got, err := tpls.Get(ctx, bob, shared.ID)
+	if err != nil {
+		t.Fatalf("partner Get of a shared template: %v", err)
+	}
+	if got.OwnerID != alice || len(got.Slots) != 1 || got.Slots[0].MealID != toast.ID || got.Slots[0].MealName != "Toast" {
+		t.Errorf("partner sees %+v, want Alice's template whose slot shows the meal id and name", got)
+	}
+	// Sharing the template shares what its slots show, not the meal itself.
+	if _, err := meals.Get(ctx, bob, toast.ID); !errors.Is(err, service.ErrMealNotFound) {
+		t.Errorf("partner Get of the unshared meal in a shared template: err = %v, want ErrMealNotFound", err)
+	}
+
+	newName := "Hijacked"
+	for label, err := range map[string]error{
+		"Get of an unshared template": errOf(tpls.Get(ctx, bob, private.ID)),
+		"Get by a stranger":           errOf(tpls.Get(ctx, carol, shared.ID)),
+		"Update":                      errOf(tpls.Update(ctx, bob, shared.ID, service.UpdateDietTemplateInput{Name: &newName})),
+		"Delete":                      tpls.Delete(ctx, bob, shared.ID),
+		"ReplaceSlots":                errOf(tpls.ReplaceSlots(ctx, bob, shared.ID, nil)),
+		"Apply":                       errOf(tpls.Apply(ctx, bob, shared.ID, service.ApplyTemplateInput{StartDate: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)})),
+	} {
+		if !errors.Is(err, service.ErrDietTemplateNotFound) {
+			t.Errorf("%s: err = %v, want ErrDietTemplateNotFound", label, err)
+		}
+	}
+
+	if own, err := tpls.List(ctx, bob, service.ListDietTemplatesInput{Limit: 10}); err != nil || len(own.Items) != 0 {
+		t.Errorf("the partner's own List = %+v (err %v), want empty: shared templates are not mixed in", own.Items, err)
+	}
+	page, err := tpls.ListPartner(ctx, bob, service.ListDietTemplatesInput{Limit: 10})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != shared.ID {
+		t.Errorf("ListPartner = %+v (err %v), want only the shared template", page.Items, err)
+	}
+	if _, err := tpls.ListPartner(ctx, carol, service.ListDietTemplatesInput{Limit: 10}); !errors.Is(err, service.ErrPartnerNotLinked) {
+		t.Errorf("ListPartner without a partner: err = %v, want ErrPartnerNotLinked", err)
+	}
+
+	if err := partners.Unlink(ctx, bob); err != nil {
+		t.Fatalf("Unlink: %v", err)
+	}
+	if _, err := tpls.Get(ctx, bob, shared.ID); !errors.Is(err, service.ErrDietTemplateNotFound) {
+		t.Errorf("partner Get after unlinking: err = %v, want ErrDietTemplateNotFound", err)
+	}
+}
+
+func TestDietTemplatesCopyOfAPartnersTemplateCopiesItsMealsOnce(t *testing.T) {
+	tpls, meals, ing, st := newDietTemplatesFixture(t)
+	ctx := context.Background()
+	alice := newTestUser(t, st, "alice31@example.com")
+	bob := newTestUser(t, st, "bob31@example.com")
+	partners := linkPartners(t, st, alice, bob)
+
+	flour := mustCreateIngredient(t, ing, alice, service.CreateIngredientInput{
+		Name: "Alice's Flour", Category: "grains_bread", Nutrients: map[string]float64{service.NutrientCalories: 360},
+	})
+	makeMeal := func(name string) service.Meal {
+		t.Helper()
+		m := mustCreateMeal(t, meals, alice, name)
+		m, err := meals.ReplaceIngredients(ctx, alice, m.ID, []service.MealIngredientInput{{IngredientID: flour.ID, Quantity: 100, Unit: "g"}})
+		if err != nil {
+			t.Fatalf("ReplaceIngredients %q: %v", name, err)
+		}
+		return m
+	}
+	pancakes, bread := makeMeal("Pancakes"), makeMeal("Bread")
+	original := sharedTemplate(t, tpls, alice, "Baking Week", true, []service.TemplateSlotInput{
+		{DayIndex: 0, Slot: "breakfast", MealID: pancakes.ID, Portion: 1},
+		{DayIndex: 0, Slot: "dinner", MealID: bread.ID, Portion: 1.5},
+		{DayIndex: 1, Slot: "breakfast", MealID: pancakes.ID, Portion: 2},
+	})
+
+	cp, err := tpls.Copy(ctx, bob, original.ID)
+	if err != nil {
+		t.Fatalf("partner Copy: %v", err)
+	}
+	if cp.OwnerID != bob || cp.SharedWithPartner || cp.Name != "Baking Week" || cp.DayCount != 2 || len(cp.Slots) != 3 {
+		t.Fatalf("copy = %+v, want Bob's private 2-day copy with 3 slots", cp)
+	}
+	// Slots come back ordered by day, then meal time: breakfast d0, dinner d0, breakfast d1.
+	first, second, third := cp.Slots[0], cp.Slots[1], cp.Slots[2]
+	if first.MealID == pancakes.ID || second.MealID == bread.ID {
+		t.Errorf("copy slots still point at Alice's meals: %+v", cp.Slots)
+	}
+	if first.MealID != third.MealID {
+		t.Errorf("the pancakes fill two slots but were copied to %v and %v, want one copy", first.MealID, third.MealID)
+	}
+	if first.MealName != "Pancakes" || second.MealName != "Bread" || second.Portion != 1.5 || third.Portion != 2 {
+		t.Errorf("copy slots = %+v, want names and portions carried over", cp.Slots)
+	}
+
+	// Bob owns exactly two new private meals, sharing one duplicated ingredient.
+	page, err := meals.List(ctx, bob, service.ListMealsInput{Limit: 10})
+	if err != nil || len(page.Items) != 2 {
+		t.Fatalf("Bob's meals = %+v (err %v), want exactly the 2 copies", page.Items, err)
+	}
+	var flourIDs []uuid.UUID
+	for _, item := range page.Items {
+		if item.SharedWithPartner {
+			t.Errorf("copied meal %q is shared, want private", item.Name)
+		}
+		m, err := meals.Get(ctx, bob, item.ID)
+		if err != nil || len(m.Ingredients) != 1 || m.Ingredients[0].IngredientID == flour.ID {
+			t.Fatalf("copied meal %q = %+v (err %v), want one line on a duplicated flour", item.Name, m.Ingredients, err)
+		}
+		flourIDs = append(flourIDs, m.Ingredients[0].IngredientID)
+	}
+	if flourIDs[0] != flourIDs[1] {
+		t.Errorf("the two copied meals use flour %v and %v, want one duplicate shared across the template copy", flourIDs[0], flourIDs[1])
+	}
+
+	// Bob can plan with it: Apply needs meals Bob owns.
+	written, err := tpls.Apply(ctx, bob, cp.ID, service.ApplyTemplateInput{StartDate: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)})
+	if err != nil || written != 3 {
+		t.Errorf("Apply of the copy = %d entries (err %v), want 3", written, err)
+	}
+
+	// Independent of the original: Alice can delete her template and meals.
+	if err := partners.Unlink(ctx, alice); err != nil {
+		t.Fatalf("Unlink: %v", err)
+	}
+	if err := tpls.Delete(ctx, alice, original.ID); err != nil {
+		t.Fatalf("delete original template: %v", err)
+	}
+	if err := meals.Delete(ctx, alice, pancakes.ID); err != nil {
+		t.Fatalf("delete original meal: %v", err)
+	}
+	if again, err := tpls.Get(ctx, bob, cp.ID); err != nil || len(again.Slots) != 3 {
+		t.Errorf("copy after the original was deleted = %+v (err %v), want it untouched", again.Slots, err)
+	}
+}
+
+func TestDietTemplatesCopyOfAnOwnTemplateKeepsItsMeals(t *testing.T) {
+	tpls, meals, _, st := newDietTemplatesFixture(t)
+	ctx := context.Background()
+	owner := newTestUser(t, st, "owner32@example.com")
+	meal := mustCreateMeal(t, meals, owner, "Toast")
+	original := sharedTemplate(t, tpls, owner, "Mine", true, []service.TemplateSlotInput{
+		{DayIndex: 0, Slot: "breakfast", MealID: meal.ID, Portion: 1},
+	})
+
+	cp, err := tpls.Copy(ctx, owner, original.ID)
+	if err != nil {
+		t.Fatalf("Copy: %v", err)
+	}
+	if len(cp.Slots) != 1 || cp.Slots[0].MealID != meal.ID {
+		t.Errorf("own copy slots = %+v, want the same meal %v", cp.Slots, meal.ID)
+	}
+	if page, err := meals.List(ctx, owner, service.ListMealsInput{Limit: 10}); err != nil || len(page.Items) != 1 {
+		t.Errorf("meals after an own copy = %+v (err %v), want still 1", page.Items, err)
+	}
+}

@@ -37,6 +37,8 @@ type Deps struct {
 	// ShoppingLists implements the shopping-list endpoints and their event
 	// streams.
 	ShoppingLists ShoppingListsService
+	// Partners implements the partner link endpoints.
+	Partners PartnerService
 	// Tokens validates access tokens for secured operations.
 	Tokens TokenParser
 	// Limits are the rate limits; zero values use the defaults.
@@ -49,8 +51,8 @@ type Deps struct {
 // NewRouter returns the root handler with every /v1 route and all middleware.
 func NewRouter(d Deps) http.Handler {
 	if d.Logger == nil || d.Ready == nil || d.Auth == nil || d.Ingredients == nil || d.Meals == nil || d.DietTemplates == nil || d.Plan == nil ||
-		d.ShoppingLists == nil || d.Tokens == nil || d.WebOrigin == "" || d.WebOrigin == "*" {
-		panic("httpapi: Deps.Logger, Ready, Auth, Ingredients, Meals, DietTemplates, Plan, ShoppingLists and Tokens are required, and WebOrigin must be a single origin (not empty or *)")
+		d.ShoppingLists == nil || d.Partners == nil || d.Tokens == nil || d.WebOrigin == "" || d.WebOrigin == "*" {
+		panic("httpapi: Deps.Logger, Ready, Auth, Ingredients, Meals, DietTemplates, Plan, ShoppingLists, Partners and Tokens are required, and WebOrigin must be a single origin (not empty or *)")
 	}
 	limits := d.Limits.withDefaults()
 	spec, err := api.GetSpec()
@@ -76,6 +78,7 @@ func NewRouter(d Deps) http.Handler {
 		MaxAge:         300,
 	}))
 	r.Use(authIPLimiter(limits.AuthPerMinute))
+	r.Use(acceptIPLimiter(limits.AcceptPerHour))
 
 	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 		WriteProblem(w, http.StatusNotFound, CodeNotFound, "")
@@ -89,15 +92,16 @@ func NewRouter(d Deps) http.Handler {
 
 	srv := &server{
 		logger: d.Logger, ready: d.Ready, auth: d.Auth, ingredients: d.Ingredients, meals: d.Meals,
-		dietTemplates: d.DietTemplates, plan: d.Plan, shoppingLists: d.ShoppingLists,
+		dietTemplates: d.DietTemplates, plan: d.Plan, shoppingLists: d.ShoppingLists, partners: d.Partners,
 	}
 	api.HandlerWithOptions(srv, api.ChiServerOptions{
 		BaseURL:    "/v1",
 		BaseRouter: r,
 		// The generated wrapper applies these in order, so the last one is the
 		// outermost: the validator (which authenticates) runs first, then the
-		// per-user rate limit, then the handler.
+		// per-user rate limits, then the handler.
 		Middlewares: []api.MiddlewareFunc{
+			acceptUserLimiter(limits.AcceptPerHour),
 			userLimiter(limits.UserPerMinute),
 			openAPIValidator(spec, d.Tokens, d.Logger),
 		},

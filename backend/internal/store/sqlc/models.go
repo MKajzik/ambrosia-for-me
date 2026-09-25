@@ -119,6 +119,18 @@ type MealIngredient struct {
 	Position     int32
 }
 
+type Partnership struct {
+	ID              uuid.UUID
+	UserA           uuid.UUID
+	UserB           *uuid.UUID
+	Status          string
+	InviteCodeHash  []byte
+	InviteExpiresAt *time.Time
+	CreatedBy       uuid.UUID
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
 type PlanEntry struct {
 	ID             uuid.UUID
 	OwnerID        uuid.UUID

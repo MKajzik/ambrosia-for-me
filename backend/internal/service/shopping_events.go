@@ -61,11 +61,15 @@ func NewListEventHub() *ListEventHub {
 	return &ListEventHub{subs: make(map[uuid.UUID]map[*ListSubscription]struct{})}
 }
 
-// ListSubscription is one open event stream for one list.
+// ListSubscription is one open event stream for one list. It remembers who
+// watches it and who owns the list, so the hub can end the streams of a
+// partner whose access ended (see CloseAccess).
 type ListSubscription struct {
-	hub    *ListEventHub
-	listID uuid.UUID
-	events chan ListEvent
+	hub     *ListEventHub
+	listID  uuid.UUID
+	watcher uuid.UUID
+	owner   uuid.UUID
+	events  chan ListEvent
 }
 
 // Events delivers the list's events in publish order. It is closed when the
@@ -81,15 +85,19 @@ func (s *ListSubscription) Close() {
 	s.hub.removeLocked(s)
 }
 
-// Subscribe opens a subscription to listID's events. It does not check who
-// may see the list: callers go through ShoppingLists.Subscribe, which does.
-func (h *ListEventHub) Subscribe(listID uuid.UUID) (*ListSubscription, error) {
+// Subscribe opens a subscription to listID's events for watcherID, the user
+// reading the stream, on a list owned by ownerID. It does not check who may
+// see the list: callers go through ShoppingLists.Subscribe, which does.
+func (h *ListEventHub) Subscribe(listID, watcherID, ownerID uuid.UUID) (*ListSubscription, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed {
 		return nil, ErrEventStreamsClosed
 	}
-	sub := &ListSubscription{hub: h, listID: listID, events: make(chan ListEvent, listSubscriptionBuffer)}
+	sub := &ListSubscription{
+		hub: h, listID: listID, watcher: watcherID, owner: ownerID,
+		events: make(chan ListEvent, listSubscriptionBuffer),
+	}
 	if h.subs[listID] == nil {
 		h.subs[listID] = make(map[*ListSubscription]struct{})
 	}
@@ -137,6 +145,49 @@ func (h *ListEventHub) Close() {
 	for _, set := range h.subs {
 		for sub := range set {
 			h.removeLocked(sub)
+		}
+	}
+}
+
+// CloseAccess disconnects every stream where userA watches a list userB owns,
+// or userB watches a list userA owns. Partners.Unlink calls it after the
+// partnership row is deleted, so a partner's open streams end instead of
+// outliving their access. Clients reconnect, refetch and get 404.
+func (h *ListEventHub) CloseAccess(userA, userB uuid.UUID) {
+	h.closeMatching(func(s *ListSubscription) bool {
+		return (s.watcher == userA && s.owner == userB) || (s.watcher == userB && s.owner == userA)
+	})
+}
+
+// CloseListForNonOwners disconnects every stream of listID whose watcher is
+// not the list's owner. Called when the owner turns sharing off.
+func (h *ListEventHub) CloseListForNonOwners(listID uuid.UUID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for sub := range h.subs[listID] {
+		if sub.watcher != sub.owner {
+			h.removeLocked(sub)
+		}
+	}
+}
+
+// CloseUser disconnects every stream that touches userID: one they watch, or
+// one on a list they own. Called on account deletion, which removes the
+// user's lists with a raw DELETE and so publishes nothing.
+func (h *ListEventHub) CloseUser(userID uuid.UUID) {
+	h.closeMatching(func(s *ListSubscription) bool {
+		return s.watcher == userID || s.owner == userID
+	})
+}
+
+func (h *ListEventHub) closeMatching(match func(*ListSubscription) bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, set := range h.subs {
+		for sub := range set {
+			if match(sub) {
+				h.removeLocked(sub)
+			}
 		}
 	}
 }

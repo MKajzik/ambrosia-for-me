@@ -17,12 +17,15 @@ import (
 
 // Errors returned by ShoppingLists. Handlers map them to problem responses.
 var (
-	// ErrShoppingListNotFound means the list does not exist or is not owned
-	// by the caller. Partner visibility is not implemented yet (see the
-	// ShoppingLists doc comment).
+	// ErrShoppingListNotFound means the list does not exist, or the caller may
+	// not see it: it belongs to someone other than the caller and the
+	// caller's active partner, or to the partner but is not shared. A
+	// partner's attempt at an owner-only action (rename, delete, share,
+	// regenerate) is also ErrShoppingListNotFound.
 	ErrShoppingListNotFound = errors.New("shopping list not found")
 	// ErrShoppingItemNotFound means the item does not exist, is not on the
-	// given list, or the list is not visible to the caller.
+	// given list, or the list is not visible to the caller (including a
+	// partner's list after an unlink).
 	ErrShoppingItemNotFound = errors.New("shopping item not found")
 	// ErrShoppingItemIngredientNotFound means a new item's ingredient_id does
 	// not exist or is not visible to the caller.
@@ -67,6 +70,7 @@ type ShoppingItem struct {
 // ShoppingList is a list with its items, ordered by position.
 type ShoppingList struct {
 	ID                uuid.UUID
+	OwnerID           uuid.UUID
 	Name              string
 	SharedWithPartner bool
 	SourceFrom        *time.Time
@@ -150,12 +154,13 @@ type UpdateShoppingItemInput struct {
 	Checked  *bool
 }
 
-// ShoppingLists implements shopping lists owned by a single user, their
-// generation from the plan, item edits with optimistic concurrency, and the
-// live event streams. Partner sharing is not implemented: shared_with_partner
-// is stored, but every read and write here checks owner_id only, and only
-// the owner's own edits reach a list's event streams. See the "Not built
-// yet" note in backend/CLAUDE.md.
+// ShoppingLists implements shopping lists, their generation from the plan,
+// item edits with optimistic concurrency, and the live event streams. A list
+// is owned by one user. When shared_with_partner is true the owner's active
+// partner may read it, add, edit, check and delete items, and watch its event
+// stream (spec §3.6: editable by both). List-level actions (rename, delete,
+// toggling sharing, regenerating) stay owner-only, and regenerating reads the
+// owner's own plan entries.
 type ShoppingLists struct {
 	st     *store.Store
 	events *ListEventHub
@@ -182,9 +187,14 @@ func (s *ShoppingLists) Create(ctx context.Context, ownerID uuid.UUID, in Create
 	return toShoppingList(row, nil), nil
 }
 
-// Get returns a list owned by ownerID, with its items.
-func (s *ShoppingLists) Get(ctx context.Context, ownerID, id uuid.UUID) (ShoppingList, error) {
-	row, err := s.st.GetShoppingListForUser(ctx, sqlc.GetShoppingListForUserParams{ID: id, UserID: ownerID})
+// Get returns a list with its items: one owned by callerID, or one their
+// active partner has shared.
+func (s *ShoppingLists) Get(ctx context.Context, callerID, id uuid.UUID) (ShoppingList, error) {
+	partnerID, err := partnerOrNil(ctx, s.st.Queries, callerID, false)
+	if err != nil {
+		return ShoppingList{}, err
+	}
+	row, err := s.st.GetShoppingListForUser(ctx, sqlc.GetShoppingListForUserParams{ID: id, UserID: callerID, PartnerID: partnerID})
 	if store.IsNotFound(err) {
 		return ShoppingList{}, ErrShoppingListNotFound
 	}
@@ -198,12 +208,27 @@ func (s *ShoppingLists) Get(ctx context.Context, ownerID, id uuid.UUID) (Shoppin
 	return toShoppingList(row, items), nil
 }
 
-// List returns a page of the caller's lists, newest first.
+// List returns a page of the caller's own lists, newest first. The partner's
+// shared lists are listed by ListPartner, never mixed in here.
 func (s *ShoppingLists) List(ctx context.Context, ownerID uuid.UUID, in ListShoppingListsInput) (ShoppingListPage, error) {
+	return s.list(ctx, ownerID, false, in)
+}
+
+// ListPartner returns a page of the lists callerID's active partner has
+// shared, newest first. Without an active partner it is ErrPartnerNotLinked.
+func (s *ShoppingLists) ListPartner(ctx context.Context, callerID uuid.UUID, in ListShoppingListsInput) (ShoppingListPage, error) {
+	partnerID, err := activePartnerID(ctx, s.st.Queries, callerID, false)
+	if err != nil {
+		return ShoppingListPage{}, err
+	}
+	return s.list(ctx, partnerID, true, in)
+}
+
+func (s *ShoppingLists) list(ctx context.Context, ownerID uuid.UUID, sharedOnly bool, in ListShoppingListsInput) (ShoppingListPage, error) {
 	if in.Limit < 1 {
 		in.Limit = 1
 	}
-	params := sqlc.ListShoppingListsForUserParams{UserID: ownerID, RowLimit: toRowLimit(in.Limit + 1)}
+	params := sqlc.ListShoppingListsForUserParams{UserID: ownerID, SharedOnly: sharedOnly, RowLimit: toRowLimit(in.Limit + 1)}
 	if in.Cursor != nil {
 		params.HasCursor = true
 		params.CursorCreatedAt = in.Cursor.CreatedAt
@@ -231,7 +256,8 @@ func (s *ShoppingLists) List(ctx context.Context, ownerID uuid.UUID, in ListShop
 }
 
 // Update applies a partial update to a list owned by ownerID and tells its
-// event streams the list changed.
+// event streams the list changed. Turning sharing off ends the partner's open
+// streams: they reconnect, refetch and get 404.
 func (s *ShoppingLists) Update(ctx context.Context, ownerID, id uuid.UUID, in UpdateShoppingListInput) (ShoppingList, error) {
 	var list ShoppingList
 	err := s.st.InTx(ctx, func(q *sqlc.Queries) error {
@@ -255,6 +281,9 @@ func (s *ShoppingLists) Update(ctx context.Context, ownerID, id uuid.UUID, in Up
 		return ShoppingList{}, err
 	}
 	s.events.Publish(ListEvent{Type: ListEventListChanged, ListID: id})
+	if in.SharedWithPartner != nil && !*in.SharedWithPartner {
+		s.events.CloseListForNonOwners(id)
+	}
 	return list, nil
 }
 
@@ -359,14 +388,23 @@ func (s *ShoppingLists) Generate(ctx context.Context, ownerID uuid.UUID, in Gene
 	return list, created, nil
 }
 
-// AddItem appends a manual item to a list owned by ownerID.
-func (s *ShoppingLists) AddItem(ctx context.Context, ownerID, listID uuid.UUID, in CreateShoppingItemInput) (ShoppingItem, error) {
+// AddItem appends a manual item to a list callerID owns or their active
+// partner has shared. A partner's items are manual too, so the owner's
+// regenerate keeps them.
+func (s *ShoppingLists) AddItem(ctx context.Context, callerID, listID uuid.UUID, in CreateShoppingItemInput) (ShoppingItem, error) {
 	var item ShoppingItem
 	err := s.st.InTx(ctx, func(q *sqlc.Queries) error {
-		// TouchShoppingListForUser checks ownership and takes the list row's
+		// FOR SHARE on the partnership row: an unlink waits for this
+		// transaction, and an add that starts after the unlink finds no
+		// partner and gets a 404 (spec §6).
+		partnerID, err := partnerOrNil(ctx, q, callerID, true)
+		if err != nil {
+			return err
+		}
+		// TouchShoppingListForUser checks visibility and takes the list row's
 		// write lock, so two concurrent adds (or an add racing a
 		// regeneration) cannot both read the same next position.
-		if _, err := q.TouchShoppingListForUser(ctx, sqlc.TouchShoppingListForUserParams{ID: listID, UserID: ownerID}); err != nil {
+		if _, err := q.TouchShoppingListForUser(ctx, sqlc.TouchShoppingListForUserParams{ID: listID, UserID: callerID, PartnerID: partnerID}); err != nil {
 			if store.IsNotFound(err) {
 				return ErrShoppingListNotFound
 			}
@@ -374,7 +412,7 @@ func (s *ShoppingLists) AddItem(ctx context.Context, ownerID, listID uuid.UUID, 
 		}
 		category := "other"
 		if in.IngredientID != nil {
-			rows, err := q.GetIngredientsForUser(ctx, sqlc.GetIngredientsForUserParams{Ids: []uuid.UUID{*in.IngredientID}, UserID: &ownerID})
+			rows, err := q.GetIngredientsForUser(ctx, sqlc.GetIngredientsForUserParams{Ids: []uuid.UUID{*in.IngredientID}, UserID: &callerID})
 			if err != nil {
 				return fmt.Errorf("get ingredient: %w", err)
 			}
@@ -413,7 +451,8 @@ func (s *ShoppingLists) AddItem(ctx context.Context, ownerID, listID uuid.UUID, 
 	return item, nil
 }
 
-// UpdateItem edits or checks off an item on a list owned by ownerID.
+// UpdateItem edits or checks off an item on a list callerID owns or their
+// active partner has shared. CheckedBy records callerID, the acting user.
 //
 // An edit (Name, Quantity, Unit or Category present) needs in.Version and
 // fails with *ShoppingItemVersionConflictError, carrying the current item,
@@ -422,7 +461,7 @@ func (s *ShoppingLists) AddItem(ctx context.Context, ownerID, listID uuid.UUID, 
 // it already has changes nothing (no version bump, no event), so retries
 // and offline replays are safe. Every real change bumps the version by one
 // and returns the item with its new version for the client to chain on.
-func (s *ShoppingLists) UpdateItem(ctx context.Context, ownerID, listID, itemID uuid.UUID, in UpdateShoppingItemInput) (ShoppingItem, error) {
+func (s *ShoppingLists) UpdateItem(ctx context.Context, callerID, listID, itemID uuid.UUID, in UpdateShoppingItemInput) (ShoppingItem, error) {
 	isEdit := in.Name != nil || in.Quantity.Specified || in.Unit.Specified || in.Category != nil
 	if isEdit && in.Version == nil {
 		return ShoppingItem{}, ErrShoppingItemVersionRequired
@@ -432,11 +471,16 @@ func (s *ShoppingLists) UpdateItem(ctx context.Context, ownerID, listID, itemID 
 		changed bool
 	)
 	err := s.st.InTx(ctx, func(q *sqlc.Queries) error {
+		// FOR SHARE on the partnership row: see AddItem.
+		partnerID, err := partnerOrNil(ctx, q, callerID, true)
+		if err != nil {
+			return err
+		}
 		// FOR UPDATE: the version check below and the UPDATE after it must
 		// see the same row, so a concurrent edit waits here instead of
 		// slipping in between them.
 		cur, err := q.GetShoppingItemForUserForUpdate(ctx, sqlc.GetShoppingItemForUserForUpdateParams{
-			ID: itemID, ListID: listID, UserID: ownerID,
+			ID: itemID, ListID: listID, UserID: callerID, PartnerID: partnerID,
 		})
 		if store.IsNotFound(err) {
 			return ErrShoppingItemNotFound
@@ -455,7 +499,7 @@ func (s *ShoppingLists) UpdateItem(ctx context.Context, ownerID, listID, itemID 
 			ID: itemID, Name: in.Name,
 			SetQuantity: in.Quantity.Specified, Quantity: in.Quantity.Value,
 			SetUnit: in.Unit.Specified, Unit: in.Unit.Value,
-			Category: in.Category, Checked: in.Checked, CheckedBy: &ownerID,
+			Category: in.Category, Checked: in.Checked, CheckedBy: &callerID,
 		})
 		if err != nil {
 			return fmt.Errorf("update shopping item: %w", err)
@@ -472,40 +516,83 @@ func (s *ShoppingLists) UpdateItem(ctx context.Context, ownerID, listID, itemID 
 	return item, nil
 }
 
-// DeleteItem removes an item from a list owned by ownerID, whatever its
-// version: removes merge (spec §4.3), so a remove is never a conflict.
-func (s *ShoppingLists) DeleteItem(ctx context.Context, ownerID, listID, itemID uuid.UUID) error {
-	row, err := s.st.DeleteShoppingItemForUser(ctx, sqlc.DeleteShoppingItemForUserParams{
-		ID: itemID, ListID: listID, UserID: ownerID,
+// DeleteItem removes an item from a list callerID owns or their active partner
+// has shared, whatever its version: removes merge (spec §4.3), so a remove is
+// never a conflict.
+func (s *ShoppingLists) DeleteItem(ctx context.Context, callerID, listID, itemID uuid.UUID) error {
+	var deleted struct {
+		id      uuid.UUID
+		version int
+	}
+	err := s.st.InTx(ctx, func(q *sqlc.Queries) error {
+		// FOR SHARE on the partnership row: see AddItem.
+		partnerID, err := partnerOrNil(ctx, q, callerID, true)
+		if err != nil {
+			return err
+		}
+		row, err := q.DeleteShoppingItemForUser(ctx, sqlc.DeleteShoppingItemForUserParams{
+			ID: itemID, ListID: listID, UserID: callerID, PartnerID: partnerID,
+		})
+		if store.IsNotFound(err) {
+			return ErrShoppingItemNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("delete shopping item: %w", err)
+		}
+		deleted.id, deleted.version = row.ID, int(row.Version)
+		return nil
 	})
-	if store.IsNotFound(err) {
-		return ErrShoppingItemNotFound
-	}
 	if err != nil {
-		return fmt.Errorf("delete shopping item: %w", err)
+		return err
 	}
-	s.publishItem(ListEventItemDeleted, listID, row.ID, int(row.Version))
+	s.publishItem(ListEventItemDeleted, listID, deleted.id, deleted.version)
 	return nil
 }
 
-// Subscribe opens an event stream for a list owned by ownerID. It subscribes
-// before checking ownership, so a delete that commits between the two can
-// never be missed: either the check sees the list gone (404), or the
-// subscription is already registered when the list_deleted event is
-// published.
-func (s *ShoppingLists) Subscribe(ctx context.Context, ownerID, listID uuid.UUID) (*ListSubscription, error) {
-	sub, err := s.events.Subscribe(listID)
+// Subscribe opens an event stream for a list callerID owns or their active
+// partner has shared. It registers with the hub before its final access
+// check, and that check takes the partnership row FOR SHARE, so neither a
+// delete nor an unlink can slip in unnoticed: either the check sees the list
+// or the partnership gone (404), or the subscription is already registered
+// when list_deleted is published or CloseAccess runs after the unlink commits.
+func (s *ShoppingLists) Subscribe(ctx context.Context, callerID, listID uuid.UUID) (*ListSubscription, error) {
+	// The first lookup tells the hub who owns the list, which CloseAccess
+	// needs; it is not the check that counts.
+	list, err := s.visibleList(ctx, callerID, listID, false)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.st.GetShoppingListForUser(ctx, sqlc.GetShoppingListForUserParams{ID: listID, UserID: ownerID}); err != nil {
+	sub, err := s.events.Subscribe(listID, callerID, list.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.visibleList(ctx, callerID, listID, true); err != nil {
 		sub.Close()
-		if store.IsNotFound(err) {
-			return nil, ErrShoppingListNotFound
-		}
-		return nil, fmt.Errorf("get shopping list: %w", err)
+		return nil, err
 	}
 	return sub, nil
+}
+
+// visibleList reads a list under the read predicate, in one transaction with
+// the partner lookup. With forShare the partnership row is locked FOR SHARE
+// until the read is done.
+func (s *ShoppingLists) visibleList(ctx context.Context, callerID, listID uuid.UUID, forShare bool) (sqlc.ShoppingList, error) {
+	var row sqlc.ShoppingList
+	err := s.st.InTx(ctx, func(q *sqlc.Queries) error {
+		partnerID, err := partnerOrNil(ctx, q, callerID, forShare)
+		if err != nil {
+			return err
+		}
+		row, err = q.GetShoppingListForUser(ctx, sqlc.GetShoppingListForUserParams{ID: listID, UserID: callerID, PartnerID: partnerID})
+		if store.IsNotFound(err) {
+			return ErrShoppingListNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("get shopping list: %w", err)
+		}
+		return nil
+	})
+	return row, err
 }
 
 func (s *ShoppingLists) publishItem(typ string, listID, itemID uuid.UUID, version int) {
@@ -662,7 +749,7 @@ func toShoppingList(row sqlc.ShoppingList, itemRows []sqlc.ShoppingItem) Shoppin
 		items[i] = toShoppingItem(r)
 	}
 	return ShoppingList{
-		ID: row.ID, Name: row.Name, SharedWithPartner: row.SharedWithPartner,
+		ID: row.ID, OwnerID: row.OwnerID, Name: row.Name, SharedWithPartner: row.SharedWithPartner,
 		SourceFrom: fromPgDatePtr(row.SourceFrom), SourceTo: fromPgDatePtr(row.SourceTo),
 		Items: items, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}

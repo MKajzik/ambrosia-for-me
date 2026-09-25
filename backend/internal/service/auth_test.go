@@ -569,3 +569,265 @@ func TestRefreshWaitsForTheTokenRowLock(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// linkedUsers registers two users through Auth and links them as partners.
+func linkedUsers(t *testing.T, f *fixture, ownerEmail, partnerEmail string) (owner, partner uuid.UUID, partners *service.Partners, hub *service.ListEventHub) {
+	t.Helper()
+	owner, partner = register(t, f, ownerEmail).User.ID, register(t, f, partnerEmail).User.ID
+	hub = service.NewListEventHub()
+	partners = service.NewPartners(f.store, hub, time.Now)
+	linkWith(t, partners, owner, partner)
+	return owner, partner, partners, hub
+}
+
+func TestDeleteUserAPartnerWhoCheckedItemsLeavesTheOwnersListIntact(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	owner, partner, partners, hub := linkedUsers(t, f, "owner-del1@example.com", "partner-del1@example.com")
+	lists := service.NewShoppingLists(f.store, hub)
+
+	list, err := lists.Create(ctx, owner, service.CreateShoppingListInput{Name: "Shared", SharedWithPartner: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	item, err := lists.AddItem(ctx, owner, list.ID, service.CreateShoppingItemInput{Name: "Milk"})
+	if err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+	if _, err := lists.UpdateItem(ctx, partner, list.ID, item.ID, service.UpdateShoppingItemInput{Checked: ptr(true)}); err != nil {
+		t.Fatalf("partner check: %v", err)
+	}
+	added, err := lists.AddItem(ctx, partner, list.ID, service.CreateShoppingItemInput{Name: "Eggs"})
+	if err != nil {
+		t.Fatalf("partner AddItem: %v", err)
+	}
+
+	if err := f.svc.DeleteUser(ctx, partner); err != nil {
+		t.Fatalf("DeleteUser of the partner: %v", err)
+	}
+
+	got, err := lists.Get(ctx, owner, list.ID)
+	if err != nil {
+		t.Fatalf("the owner's list did not survive its partner's account deletion: %v", err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("items after the partner's deletion = %+v, want both (the partner's added item stays too)", got.Items)
+	}
+	for _, it := range got.Items {
+		if it.ID == item.ID && (!it.Checked || it.CheckedBy != nil) {
+			t.Errorf("item the partner checked = %+v, want it still checked with checked_by NULL (ON DELETE SET NULL)", it)
+		}
+		if it.ID == added.ID && it.Origin != "manual" {
+			t.Errorf("item the partner added = %+v, want origin manual", it)
+		}
+	}
+	if _, err := partners.Get(ctx, owner); !errors.Is(err, service.ErrPartnerNotLinked) {
+		t.Errorf("owner's partnership after the partner's deletion: err = %v, want ErrPartnerNotLinked", err)
+	}
+}
+
+func TestDeleteUserAnOwnerEndsThePartnersAccessAndClosesTheirStreams(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	owner, partner, partners, hub := linkedUsers(t, f, "owner-del2@example.com", "partner-del2@example.com")
+	f.svc.OnUserDeleted(hub.CloseUser)
+	lists := service.NewShoppingLists(f.store, hub)
+	list, err := lists.Create(ctx, owner, service.CreateShoppingListInput{Name: "Shared", SharedWithPartner: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	partnerSub, err := lists.Subscribe(ctx, partner, list.ID)
+	if err != nil {
+		t.Fatalf("partner Subscribe: %v", err)
+	}
+	defer partnerSub.Close()
+	other := register(t, f, "other-del2@example.com").User.ID
+	otherList, err := lists.Create(ctx, other, service.CreateShoppingListInput{Name: "Unrelated"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	otherSub, err := lists.Subscribe(ctx, other, otherList.ID)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer otherSub.Close()
+
+	if err := f.svc.DeleteUser(ctx, owner); err != nil {
+		t.Fatalf("DeleteUser of the owner: %v", err)
+	}
+
+	if !closedWithin(partnerSub) {
+		t.Error("the partner's stream on the deleted owner's list stayed open, want it closed (no list_deleted event is published for an account deletion)")
+	}
+	if !stillOpen(otherSub) {
+		t.Error("an unrelated user's stream was closed")
+	}
+	if _, err := lists.Get(ctx, partner, list.ID); !errors.Is(err, service.ErrShoppingListNotFound) {
+		t.Errorf("partner Get of the deleted owner's list: err = %v, want ErrShoppingListNotFound", err)
+	}
+	if _, err := partners.Get(ctx, partner); !errors.Is(err, service.ErrPartnerNotLinked) {
+		t.Errorf("partner's partnership after the owner's deletion: err = %v, want ErrPartnerNotLinked", err)
+	}
+}
+
+func TestDeleteUserRunsTheOnUserDeletedHookOnlyAfterACommittedDelete(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	var got []uuid.UUID
+	f.svc.OnUserDeleted(func(id uuid.UUID) { got = append(got, id) })
+	s := register(t, f, "hook@example.com")
+
+	if err := f.svc.DeleteUser(ctx, uuid.New()); !errors.Is(err, service.ErrNotFound) {
+		t.Fatalf("DeleteUser of a missing user: err = %v, want ErrNotFound", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("hook ran for a delete that failed: %v", got)
+	}
+	if err := f.svc.DeleteUser(ctx, s.User.ID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	if len(got) != 1 || got[0] != s.User.ID {
+		t.Errorf("hook calls = %v, want exactly [%v]", got, s.User.ID)
+	}
+}
+
+// A partner's in-flight shopping-item write holds the partnership row FOR SHARE
+// and then wants the list and item rows. DeleteUser must therefore take the
+// partnership row before any list row, or the two deadlock: DeleteUser would
+// hold the list and wait on the partnership row, the edit would hold the
+// partnership row and wait on the list.
+func TestDeleteUserWaitsForAnInFlightPartnerEditBeforeLockingTheList(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	owner, partner, _, hub := linkedUsers(t, f, "owner-del3@example.com", "partner-del3@example.com")
+	lists := service.NewShoppingLists(f.store, hub)
+	list, err := lists.Create(ctx, owner, service.CreateShoppingListInput{Name: "Shared", SharedWithPartner: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	locked, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	releaseTx := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseTx) // an open transaction would make closing the pool wait forever
+	txDone := make(chan error, 1)
+	go func() {
+		txDone <- f.store.InTx(ctx, func(q *sqlc.Queries) error {
+			if _, err := q.GetActivePartnerIDForShare(ctx, partner); err != nil {
+				return fmt.Errorf("lock the partnership row: %w", err)
+			}
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-locked:
+	case err := <-txDone:
+		t.Fatalf("the transaction holding the partnership row failed before taking it: %v", err)
+	}
+
+	deleted := make(chan error, 1)
+	go func() { deleted <- f.svc.DeleteUser(ctx, owner) }()
+	select {
+	case err := <-deleted:
+		t.Fatalf("DeleteUser finished (err %v) while a partner edit held the partnership row, want it to wait", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// While DeleteUser waits, it must hold no lock on the owner's list.
+	touchCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if _, err := f.store.TouchShoppingListForUser(touchCtx, sqlc.TouchShoppingListForUserParams{ID: list.ID, UserID: owner}); err != nil {
+		t.Fatalf("a write to the owner's list while DeleteUser waits: %v, want it to proceed (DeleteUser must not lock the list before the partnership row)", err)
+	}
+
+	releaseTx()
+	if err := <-txDone; err != nil {
+		t.Fatalf("partner edit transaction: %v", err)
+	}
+	select {
+	case err := <-deleted:
+		if err != nil {
+			t.Fatalf("DeleteUser: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("DeleteUser did not finish after the partner edit committed")
+	}
+	if _, err := f.store.TouchShoppingListForUser(ctx, sqlc.TouchShoppingListForUserParams{ID: list.ID, UserID: owner}); !store.IsNotFound(err) {
+		t.Errorf("the owner's list after DeleteUser: err = %v, want it gone", err)
+	}
+}
+
+// Accept and Invite lock the users rows first and only then write partnership
+// rows. DeleteUser must take the same order (users, then partnership, list,
+// item): if it deleted the inviter's pending invite before locking the users
+// row, an Accept in flight would wait on that row while DeleteUser waited on
+// the Accept's users lock, and Postgres would abort one of them.
+func TestDeleteUserDoesNotDeadlockWithAnAcceptInFlight(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	inviter := register(t, f, "inviter-del4@example.com").User.ID
+	accepter := register(t, f, "accepter-del4@example.com").User.ID
+	partners := service.NewPartners(f.store, service.NewListEventHub(), time.Now)
+	if _, err := partners.Invite(ctx, inviter); err != nil {
+		t.Fatalf("Invite: %v", err)
+	}
+	pending, err := f.store.GetPartnershipForUser(ctx, inviter)
+	if err != nil {
+		t.Fatalf("read the pending invite: %v", err)
+	}
+
+	// The transaction plays an Accept: it holds both users rows, then activates
+	// the invite once released.
+	locked, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	releaseTx := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseTx) // an open transaction would make closing the pool wait forever
+	txDone := make(chan error, 1)
+	go func() {
+		txDone <- f.store.InTx(ctx, func(q *sqlc.Queries) error {
+			if _, err := q.LockUsersForUpdate(ctx, []uuid.UUID{accepter, inviter}); err != nil {
+				return fmt.Errorf("lock the users: %w", err)
+			}
+			close(locked)
+			<-release
+			_, err := q.ActivatePartnership(ctx, sqlc.ActivatePartnershipParams{ID: pending.ID, UserB: &accepter})
+			return err
+		})
+	}()
+	select {
+	case <-locked:
+	case err := <-txDone:
+		t.Fatalf("the transaction playing Accept failed before locking the users: %v", err)
+	}
+
+	deleted := make(chan error, 1)
+	go func() { deleted <- f.svc.DeleteUser(ctx, inviter) }()
+	select {
+	case err := <-deleted:
+		t.Fatalf("DeleteUser finished (err %v) while an Accept held the inviter's users row, want it to wait", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	releaseTx()
+	select {
+	case err := <-txDone:
+		if err != nil {
+			t.Fatalf("the transaction playing Accept: %v, want it to commit (DeleteUser must not hold the pending row while it waits for the users lock)", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the transaction playing Accept did not finish: deadlock with DeleteUser")
+	}
+	select {
+	case err := <-deleted:
+		if err != nil {
+			t.Fatalf("DeleteUser: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("DeleteUser did not finish after the Accept committed")
+	}
+	if _, err := partners.Get(ctx, accepter); !errors.Is(err, service.ErrPartnerNotLinked) {
+		t.Errorf("the accepter's partnership after the inviter was deleted: err = %v, want ErrPartnerNotLinked", err)
+	}
+}

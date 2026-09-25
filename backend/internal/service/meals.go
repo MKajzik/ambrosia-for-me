@@ -15,9 +15,10 @@ import (
 
 // Errors returned by Meals. Handlers map them to problem responses.
 var (
-	// ErrMealNotFound means the meal does not exist, or is not owned by the
-	// caller. Partner visibility is not implemented yet (see the package doc
-	// comment on Meals below), so a meal is visible only to its owner.
+	// ErrMealNotFound means the meal does not exist, or the caller may not
+	// see it: it belongs to someone other than the caller and the caller's
+	// active partner, or to the partner but is not shared. Writes to a
+	// partner's meal, shared or not, are also ErrMealNotFound.
 	ErrMealNotFound = errors.New("meal not found")
 	// ErrMealIngredientNotFound means a meal_ingredients row references an
 	// ingredient that no longer exists or is no longer visible to the meal's
@@ -67,6 +68,7 @@ type MealIngredient struct {
 // ingredients has every key present at 0.
 type Meal struct {
 	ID                  uuid.UUID
+	OwnerID             uuid.UUID
 	Name                string
 	Notes               *string
 	Servings            float64
@@ -143,10 +145,9 @@ type ingredientReader interface {
 	GetIngredientNutrients(ctx context.Context, ingredientIds []uuid.UUID) ([]sqlc.IngredientNutrient, error)
 }
 
-// Meals implements meals built from ingredients, owned by a single user.
-// Partner sharing is not implemented: shared_with_partner is stored (it is
-// part of the data model), but every read here checks owner_id only. See the
-// "Not built yet" note in backend/CLAUDE.md.
+// Meals implements meals built from ingredients. A meal is owned by one user;
+// the owner's active partner may read it, and copy it, when shared_with_partner
+// is true (spec §3.6). Every write is owner-only.
 type Meals struct {
 	st *store.Store
 }
@@ -180,10 +181,27 @@ func (s *Meals) Create(ctx context.Context, ownerID uuid.UUID, in CreateMealInpu
 	return meal, nil
 }
 
-// Get returns a meal owned by ownerID, with its ingredients and computed
-// nutrition.
-func (s *Meals) Get(ctx context.Context, ownerID, id uuid.UUID) (Meal, error) {
-	row, err := s.st.GetMealForUser(ctx, sqlc.GetMealForUserParams{ID: id, UserID: ownerID})
+// Get returns a meal with its ingredients and computed nutrition: one owned
+// by callerID, or one their active partner has shared. Nutrition and
+// ingredient names are resolved with the meal owner's visibility, so a shared
+// meal that uses the partner's custom ingredients reads fine.
+func (s *Meals) Get(ctx context.Context, callerID, id uuid.UUID) (Meal, error) {
+	partnerID, err := partnerOrNil(ctx, s.st.Queries, callerID, false)
+	if err != nil {
+		return Meal{}, err
+	}
+	return s.get(ctx, callerID, partnerID, id)
+}
+
+// GetOwn is Get restricted to meals owned by ownerID. Plan uses it: an entry's
+// meal is always its owner's, so resolving a partner for every meal in a
+// plan range would only add queries.
+func (s *Meals) GetOwn(ctx context.Context, ownerID, id uuid.UUID) (Meal, error) {
+	return s.get(ctx, ownerID, nil, id)
+}
+
+func (s *Meals) get(ctx context.Context, callerID uuid.UUID, partnerID *uuid.UUID, id uuid.UUID) (Meal, error) {
+	row, err := s.st.GetMealForUser(ctx, sqlc.GetMealForUserParams{ID: id, UserID: callerID, PartnerID: partnerID})
 	if store.IsNotFound(err) {
 		return Meal{}, ErrMealNotFound
 	}
@@ -242,14 +260,27 @@ func (s *Meals) Delete(ctx context.Context, ownerID, id uuid.UUID) error {
 	return nil
 }
 
-// List returns a page of the caller's alphabetical meal list. It never
-// includes another user's meals, even ones shared_with_partner: true (no
-// partner visibility yet, see the Meals doc comment).
+// List returns a page of the caller's own meals, alphabetically. The
+// partner's shared meals are listed by ListPartner, never mixed in here.
 func (s *Meals) List(ctx context.Context, ownerID uuid.UUID, in ListMealsInput) (MealPage, error) {
+	return s.list(ctx, ownerID, false, in)
+}
+
+// ListPartner returns a page of the meals callerID's active partner has
+// shared, alphabetically. Without an active partner it is ErrPartnerNotLinked.
+func (s *Meals) ListPartner(ctx context.Context, callerID uuid.UUID, in ListMealsInput) (MealPage, error) {
+	partnerID, err := activePartnerID(ctx, s.st.Queries, callerID, false)
+	if err != nil {
+		return MealPage{}, err
+	}
+	return s.list(ctx, partnerID, true, in)
+}
+
+func (s *Meals) list(ctx context.Context, ownerID uuid.UUID, sharedOnly bool, in ListMealsInput) (MealPage, error) {
 	if in.Limit < 1 {
 		in.Limit = 1
 	}
-	params := sqlc.ListMealsForUserParams{UserID: ownerID, RowLimit: toRowLimit(in.Limit + 1)}
+	params := sqlc.ListMealsForUserParams{UserID: ownerID, SharedOnly: sharedOnly, RowLimit: toRowLimit(in.Limit + 1)}
 	if in.Cursor != nil {
 		params.HasCursor = true
 		params.CursorName = in.Cursor.Name
@@ -335,41 +366,27 @@ func (s *Meals) ReplaceIngredients(ctx context.Context, ownerID, id uuid.UUID, i
 
 // Copy creates a new meal owned by callerID, with the same name, notes,
 // servings and ingredients as the meal at id, and shared_with_partner always
-// false regardless of the original. callerID must own the original (partner
-// copy access is not implemented yet, see the Meals doc comment).
+// false regardless of the original. The original is one callerID owns or one
+// their active partner has shared. Copying a partner's meal duplicates each
+// distinct custom ingredient it uses into callerID's library (with its
+// nutrient rows) and leaves global ingredients as shared references.
 func (s *Meals) Copy(ctx context.Context, callerID, id uuid.UUID) (Meal, error) {
 	var meal Meal
 	err := s.st.InTx(ctx, func(q *sqlc.Queries) error {
-		original, err := q.GetMealForUser(ctx, sqlc.GetMealForUserParams{ID: id, UserID: callerID})
+		partnerID, err := partnerOrNil(ctx, q, callerID, false)
+		if err != nil {
+			return err
+		}
+		original, err := q.GetMealForUser(ctx, sqlc.GetMealForUserParams{ID: id, UserID: callerID, PartnerID: partnerID})
 		if store.IsNotFound(err) {
 			return ErrMealNotFound
 		}
 		if err != nil {
 			return fmt.Errorf("get meal: %w", err)
 		}
-		originalLines, err := q.GetMealIngredients(ctx, id)
+		copyRow, inserted, err := copyMeal(ctx, q, callerID, original, newIngredientCopier(q, original.OwnerID, callerID))
 		if err != nil {
-			return fmt.Errorf("get meal ingredients: %w", err)
-		}
-
-		copyRow, err := q.CreateMeal(ctx, sqlc.CreateMealParams{
-			OwnerID: callerID, Name: original.Name, Notes: original.Notes,
-			Servings: original.Servings, SharedWithPartner: false,
-		})
-		if err != nil {
-			return fmt.Errorf("create meal copy: %w", err)
-		}
-
-		inserted := make([]sqlc.MealIngredient, len(originalLines))
-		for i, line := range originalLines {
-			ins, err := q.InsertMealIngredient(ctx, sqlc.InsertMealIngredientParams{
-				MealID: copyRow.ID, IngredientID: line.IngredientID, Quantity: line.Quantity,
-				Unit: line.Unit, Position: line.Position,
-			})
-			if err != nil {
-				return fmt.Errorf("copy meal ingredient: %w", err)
-			}
-			inserted[i] = ins
+			return err
 		}
 		meal, err = s.toMeal(ctx, q, copyRow, inserted)
 		return err
@@ -454,7 +471,7 @@ func (s *Meals) toMeal(ctx context.Context, r ingredientReader, row sqlc.Meal, m
 	}
 
 	return Meal{
-		ID: row.ID, Name: row.Name, Notes: row.Notes, Servings: row.Servings, SharedWithPartner: row.SharedWithPartner,
+		ID: row.ID, OwnerID: row.OwnerID, Name: row.Name, Notes: row.Notes, Servings: row.Servings, SharedWithPartner: row.SharedWithPartner,
 		Ingredients: items, NutritionPerServing: perServing, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}, nil
 }
