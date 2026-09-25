@@ -98,6 +98,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, ln net.L
 			Partners:       partners,
 			Tokens:         tokens,
 			TrustedProxies: cfg.TrustedProxies,
+			Limits:         httpapi.RateLimits{AuthPerMinute: cfg.AuthRateLimitPerMinute},
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

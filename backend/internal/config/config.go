@@ -13,6 +13,9 @@ import (
 // maxTrustedProxies bounds TRUSTED_PROXY_COUNT: more hops than this is a typo.
 const maxTrustedProxies = 10
 
+// maxAuthRateLimit bounds AUTH_RATE_LIMIT_PER_MINUTE: it is a local-stack override, not a way to turn the limiter off.
+const maxAuthRateLimit = 10000
+
 // DevJWTSecret is the public secret `make run-api` uses; Load refuses it unless
 // ALLOW_DEV_JWT_SECRET=1.
 const DevJWTSecret = "dev-only-secret-change-me-0123456789" //nolint:gosec // public development value, refused unless ALLOW_DEV_JWT_SECRET=1
@@ -30,6 +33,10 @@ type Config struct {
 	// TrustedProxies is how many reverse proxies in front of the API append to
 	// X-Forwarded-For. 0 means clients connect directly.
 	TrustedProxies int
+	// AuthRateLimitPerMinute overrides how many /v1/auth/* requests one client IP
+	// may make per minute. 0 keeps the built-in default; it exists so a local
+	// stack where every browser shares one IP (tests, Compose) is not throttled.
+	AuthRateLimitPerMinute int
 }
 
 // Load reads configuration through getenv (normally os.Getenv). It returns an
@@ -63,6 +70,14 @@ func Load(getenv func(string) string) (Config, error) {
 			errs = append(errs, fmt.Errorf("TRUSTED_PROXY_COUNT must be an integer from 0 to %d, got %q", maxTrustedProxies, raw))
 		} else {
 			cfg.TrustedProxies = n
+		}
+	}
+	if raw := getenv("AUTH_RATE_LIMIT_PER_MINUTE"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > maxAuthRateLimit {
+			errs = append(errs, fmt.Errorf("AUTH_RATE_LIMIT_PER_MINUTE must be an integer from 1 to %d, got %q", maxAuthRateLimit, raw))
+		} else {
+			cfg.AuthRateLimitPerMinute = n
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
