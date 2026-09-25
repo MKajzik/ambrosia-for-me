@@ -20,6 +20,35 @@ function unsafeSegment(segment: string): boolean {
   return segment === "" || segment === "." || segment === ".." || /[/\\\0]/.test(segment);
 }
 
+/**
+ * Reads a request body, giving up (and cancelling the rest of it) as soon as it
+ * passes `limit` bytes, so an oversized or endless chunked body is never buffered.
+ * Returns null when the body is too large.
+ */
+async function readBounded(req: Request, limit: number): Promise<ArrayBuffer | null> {
+  if (!req.body) return new ArrayBuffer(0);
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out.buffer;
+}
+
 function sessionOver(): NextResponse {
   const res = new NextResponse(problem(401, "unauthorized", "Your session has ended").body, {
     status: 401,
@@ -49,8 +78,8 @@ export function createForwarder({ refresh }: { refresh: Refresher }) {
     if (req.method !== "GET" && req.method !== "HEAD") {
       const declared = Number(req.headers.get("content-length") ?? 0);
       if (declared > MAX_BODY_BYTES) return problem(413, "payload_too_large", "Request body too large");
-      body = await req.arrayBuffer();
-      if (body.byteLength > MAX_BODY_BYTES) return problem(413, "payload_too_large", "Request body too large");
+      body = await readBounded(req, MAX_BODY_BYTES);
+      if (!body) return problem(413, "payload_too_large", "Request body too large");
     }
 
     const headers = new Headers();
@@ -75,8 +104,10 @@ export function createForwarder({ refresh }: { refresh: Refresher }) {
 
       let up = await send(bearer);
 
-      if (up.status === 401 && refreshToken && !issued) {
+      if (up.status === 401 && refreshToken) {
+        // A token that is still refused after a refresh (this request's own, or the one just made) ends the session.
         await up.body?.cancel();
+        if (issued) return sessionOver();
         issued = await refresh(refreshToken);
         if (!issued) return sessionOver();
         up = await send(issued.accessToken);

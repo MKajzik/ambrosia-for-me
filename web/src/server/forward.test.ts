@@ -157,6 +157,86 @@ describe("forward", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("ends the session when a token refreshed up front is refused on the first call", async () => {
+    const fetch = stubFetch(async () => Response.json({ code: "unauthorized" }, { status: 401 }));
+    const refresh = vi.fn(async () => newTokens);
+    const res = await createForwarder({ refresh })(request("/me", { cookies: { mp_refresh: "r-old" } }), ["me"]);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ code: "unauthorized" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(setCookies(res).join("\n")).toMatch(/mp_access=;.*Max-Age=0/);
+    expect(setCookies(res).join("\n")).toMatch(/mp_refresh=;.*Max-Age=0/);
+    expect(setCookies(res).join("\n")).not.toContain("r-new");
+  });
+
+  describe("body limit", () => {
+    const CHUNK = 16 * 1024;
+    /** A chunked request body: no Content-Length, and it counts how much of it was pulled. */
+    function streamedRequest(chunks: number, chunkSize = CHUNK) {
+      const state = { pulled: 0, cancelled: false };
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (state.pulled >= chunks) return controller.close();
+          state.pulled++;
+          controller.enqueue(new Uint8Array(chunkSize).fill(120));
+        },
+        cancel() {
+          state.cancelled = true;
+        },
+      });
+      const req = new NextRequest("http://app.test/api/meals", {
+        method: "POST",
+        headers: { host: "app.test", origin: "http://app.test", cookie: "mp_access=a", "content-type": "application/json" },
+        body: stream,
+        duplex: "half",
+      } as ConstructorParameters<typeof NextRequest>[1]);
+      expect(req.headers.get("content-length")).toBeNull();
+      return { req, state };
+    }
+
+    it("stops reading a chunked body once it passes the limit, and answers 413", async () => {
+      const fetch = stubFetch(async () => ok());
+      const { req, state } = streamedRequest(200);
+      const res = await createForwarder({ refresh: vi.fn() })(req, ["meals"]);
+      expect(res.status).toBe(413);
+      expect(await res.json()).toMatchObject({ code: "payload_too_large" });
+      expect(fetch).not.toHaveBeenCalled();
+      // The limit is 4 chunks; reading must stop within a few chunks of it, not consume all 200.
+      expect(state.pulled).toBeLessThan(10);
+      expect(state.cancelled).toBe(true);
+    });
+
+    it("refuses on the declared Content-Length without reading the body", async () => {
+      const fetch = stubFetch(async () => ok());
+      const req = request("/meals", { method: "POST", body: "{}", headers: { "content-length": String(64 * 1024 + 1) }, cookies: { mp_access: "a" } });
+      const res = await createForwarder({ refresh: vi.fn() })(req, ["meals"]);
+      expect(res.status).toBe(413);
+      expect(req.bodyUsed).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("forwards a chunked body of exactly the limit, intact and in order", async () => {
+      const fetch = stubFetch(async () => ok());
+      const { req } = streamedRequest(4);
+      const res = await createForwarder({ refresh: vi.fn() })(req, ["meals"]);
+      expect(res.status).toBe(200);
+      const sent = fetch.mock.calls[0]![1].body as ArrayBuffer;
+      expect(sent.byteLength).toBe(64 * 1024);
+      expect(new Uint8Array(sent).every((b) => b === 120)).toBe(true);
+    });
+
+    it("forwards a chunked body of one byte over the limit as a refusal, but one byte under as a success", async () => {
+      const fetch = stubFetch(async () => ok());
+      const under = streamedRequest(1, 64 * 1024 - 1);
+      expect((await createForwarder({ refresh: vi.fn() })(under.req, ["meals"])).status).toBe(200);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const over = streamedRequest(1, 64 * 1024 + 1);
+      expect((await createForwarder({ refresh: vi.fn() })(over.req, ["meals"])).status).toBe(413);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("streams an event stream through without buffering it", async () => {
     let push!: (chunk: string) => void;
     const upstream = new ReadableStream<Uint8Array>({
