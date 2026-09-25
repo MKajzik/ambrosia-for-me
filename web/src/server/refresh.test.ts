@@ -67,4 +67,18 @@ describe("createRefresher", () => {
     await expect(refresh("t")).rejects.toBeInstanceOf(RefreshUnavailableError);
     expect(await refresh("t")).toEqual(tokens(1));
   });
+
+  it("rejects with RefreshUnavailableError when a 200 response body is not JSON", async () => {
+    const call = vi.fn(async () => new Response("<html>", { status: 200 }));
+    const refresh = createRefresher({ call });
+    await expect(refresh("t")).rejects.toBeInstanceOf(RefreshUnavailableError);
+  });
+
+  it("rejects with RefreshUnavailableError when a 200 JSON response has missing or wrong-typed fields", async () => {
+    const missingFields = createRefresher({ call: async () => Response.json({ access_token: "a" }, { status: 200 }) });
+    await expect(missingFields("t")).rejects.toBeInstanceOf(RefreshUnavailableError);
+
+    const wrongTypes = createRefresher({ call: async () => Response.json({ access_token: 1, refresh_token: "r", expires_in: 900 }, { status: 200 }) });
+    await expect(wrongTypes("t")).rejects.toBeInstanceOf(RefreshUnavailableError);
+  });
 });

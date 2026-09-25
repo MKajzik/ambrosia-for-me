@@ -43,8 +43,27 @@ export function createRefresher({ call, now = Date.now, ttlMs = 30_000 }: Deps):
     }
     if (res.status === 400 || res.status === 401) return null;
     if (!res.ok) throw new RefreshUnavailableError(`refresh answered ${res.status}`);
-    const body = (await res.json()) as { access_token: string; refresh_token: string; expires_in: number };
-    return { accessToken: body.access_token, refreshToken: body.refresh_token, expiresIn: body.expires_in };
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      throw new RefreshUnavailableError("refresh answered with an unusable body");
+    }
+    if (
+      typeof body !== "object" ||
+      body === null ||
+      typeof (body as Record<string, unknown>).access_token !== "string" ||
+      !(body as Record<string, unknown>).access_token ||
+      typeof (body as Record<string, unknown>).refresh_token !== "string" ||
+      !(body as Record<string, unknown>).refresh_token ||
+      typeof (body as Record<string, unknown>).expires_in !== "number" ||
+      !(body as Record<string, unknown>).expires_in ||
+      !isFinite((body as Record<string, unknown>).expires_in as number)
+    ) {
+      throw new RefreshUnavailableError("refresh answered with an unusable body");
+    }
+    const parsed = body as { access_token: string; refresh_token: string; expires_in: number };
+    return { accessToken: parsed.access_token, refreshToken: parsed.refresh_token, expiresIn: parsed.expires_in };
   }
 
   return async (refreshToken) => {
