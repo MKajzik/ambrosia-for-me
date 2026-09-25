@@ -277,18 +277,25 @@ func (a *Auth) UpdateUser(ctx context.Context, id uuid.UUID, in UpdateInput) (Us
 // no cascade order can make them fail. A future NO ACTION reference into
 // shopping_lists or shopping_items would change that.
 //
-// The user's partnership row (pending or active) goes before everything
-// else, even though the users cascade would remove it too (it stays as the
-// safety net). A partner's in-flight shopping-item write holds that row FOR
-// SHARE and then wants list and item rows; if DeleteUser locked lists first
-// and reached the partnership row through the users cascade, the two would
-// deadlock. Deleting it first makes DeleteUser wait for such edits before it
-// holds any list or item lock, so every path locks partnership, then list,
-// then item. Deleting it also ends the partner's access at once. Items the
-// deleted user checked on a list they did not own keep existing, with
-// checked_by set to NULL.
+// The lock order is users, then partnership, then list, then item, the same
+// order everything else uses. First the user's own users row is locked, as
+// Partners.Invite and Partners.Accept do before they write partnership rows:
+// without it, an Accept in flight would wait on the partnership row DeleteUser
+// had already deleted while DeleteUser waited on the Accept's users lock, and
+// Postgres would abort one of them. Then the user's partnership row (pending
+// or active) goes, even though the users cascade would remove it too (that
+// stays as the safety net). A partner's in-flight shopping-item write holds
+// that row FOR SHARE and then wants list and item rows; if DeleteUser locked
+// lists first and reached the partnership row through the users cascade, the
+// two would deadlock. Deleting it first makes DeleteUser wait for such edits
+// before it holds any list or item lock. Deleting it also ends the partner's
+// access at once. Items the deleted user checked on a list they did not own
+// keep existing, with checked_by set to NULL.
 func (a *Auth) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	err := a.st.InTx(ctx, func(q *sqlc.Queries) error {
+		if err := lockUsers(ctx, q, id); err != nil {
+			return err // ErrNotFound when the account is already gone
+		}
 		if _, err := q.DeletePartnershipsForUser(ctx, id); err != nil {
 			return fmt.Errorf("delete partnerships: %w", err)
 		}

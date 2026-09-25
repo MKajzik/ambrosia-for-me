@@ -758,3 +758,76 @@ func TestDeleteUserWaitsForAnInFlightPartnerEditBeforeLockingTheList(t *testing.
 		t.Errorf("the owner's list after DeleteUser: err = %v, want it gone", err)
 	}
 }
+
+// Accept and Invite lock the users rows first and only then write partnership
+// rows. DeleteUser must take the same order (users, then partnership, list,
+// item): if it deleted the inviter's pending invite before locking the users
+// row, an Accept in flight would wait on that row while DeleteUser waited on
+// the Accept's users lock, and Postgres would abort one of them.
+func TestDeleteUserDoesNotDeadlockWithAnAcceptInFlight(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	inviter := register(t, f, "inviter-del4@example.com").User.ID
+	accepter := register(t, f, "accepter-del4@example.com").User.ID
+	partners := service.NewPartners(f.store, service.NewListEventHub(), time.Now)
+	if _, err := partners.Invite(ctx, inviter); err != nil {
+		t.Fatalf("Invite: %v", err)
+	}
+	pending, err := f.store.GetPartnershipForUser(ctx, inviter)
+	if err != nil {
+		t.Fatalf("read the pending invite: %v", err)
+	}
+
+	// The transaction plays an Accept: it holds both users rows, then activates
+	// the invite once released.
+	locked, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	releaseTx := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseTx) // an open transaction would make closing the pool wait forever
+	txDone := make(chan error, 1)
+	go func() {
+		txDone <- f.store.InTx(ctx, func(q *sqlc.Queries) error {
+			if _, err := q.LockUsersForUpdate(ctx, []uuid.UUID{accepter, inviter}); err != nil {
+				return fmt.Errorf("lock the users: %w", err)
+			}
+			close(locked)
+			<-release
+			_, err := q.ActivatePartnership(ctx, sqlc.ActivatePartnershipParams{ID: pending.ID, UserB: &accepter})
+			return err
+		})
+	}()
+	select {
+	case <-locked:
+	case err := <-txDone:
+		t.Fatalf("the transaction playing Accept failed before locking the users: %v", err)
+	}
+
+	deleted := make(chan error, 1)
+	go func() { deleted <- f.svc.DeleteUser(ctx, inviter) }()
+	select {
+	case err := <-deleted:
+		t.Fatalf("DeleteUser finished (err %v) while an Accept held the inviter's users row, want it to wait", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	releaseTx()
+	select {
+	case err := <-txDone:
+		if err != nil {
+			t.Fatalf("the transaction playing Accept: %v, want it to commit (DeleteUser must not hold the pending row while it waits for the users lock)", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the transaction playing Accept did not finish: deadlock with DeleteUser")
+	}
+	select {
+	case err := <-deleted:
+		if err != nil {
+			t.Fatalf("DeleteUser: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("DeleteUser did not finish after the Accept committed")
+	}
+	if _, err := partners.Get(ctx, accepter); !errors.Is(err, service.ErrPartnerNotLinked) {
+		t.Errorf("the accepter's partnership after the inviter was deleted: err = %v, want ErrPartnerNotLinked", err)
+	}
+}
