@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { RefreshUnavailableError, createRefresher } from "./refresh";
 
 function pair(n: number) {
-  return Response.json({ access_token: `a${n}`, refresh_token: `r${n}`, token_type: "Bearer", expires_in: 900 });
+  return Response.json({ access_token: `a${n}`, refresh_token: `r${n}`, token_type: "Bearer", expires_in: 900, user: { id: "u1" } });
 }
 const tokens = (n: number) => ({ accessToken: `a${n}`, refreshToken: `r${n}`, expiresIn: 900 });
 

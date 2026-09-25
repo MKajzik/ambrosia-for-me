@@ -71,6 +71,18 @@ describe("login and register", () => {
     expect(res.headers.get("retry-after")).toBe("30");
   });
 
+  it.each([
+    ["a body that is not JSON", () => new Response("<html>Bad gateway</html>", { status: 200 })],
+    ["JSON without tokens", () => Response.json({ user: authBody.user })],
+  ])("answers 502 and sets no cookies when the API answers 200 with %s", async (_name, answer) => {
+    stubFetch(async () => answer());
+    const res = await login(post("login", '{"email":"a@b.test","password":"pw"}'));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ code: "upstream_unavailable" });
+    expect(res.headers.getSetCookie()).toEqual([]);
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
   it("refuses a cross-origin attempt without calling the API", async () => {
     const fetch = stubFetch(async () => Response.json(authBody));
     const res = await login(post("login", "{}", { origin: "http://evil.test" }));

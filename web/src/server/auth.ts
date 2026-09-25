@@ -1,5 +1,6 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
+import { parseAuthResponse } from "./auth-response";
 import { MAX_BODY_BYTES, readBounded } from "./body";
 import { forwardedClientIp } from "./client-ip";
 import { REFRESH_COOKIE, clearSessionCookies, setSessionCookies } from "./cookies";
@@ -8,8 +9,6 @@ import { originGuard } from "./origin";
 import { problem } from "./problem";
 import { relay } from "./relay";
 import { callApi } from "./upstream";
-
-type AuthResponse = { access_token: string; refresh_token: string; expires_in: number; user: unknown };
 
 /**
  * Signs in or registers through the API. On success the tokens become httpOnly
@@ -37,9 +36,10 @@ async function authenticate(req: NextRequest, path: "/auth/login" | "/auth/regis
   }
   if (!up.ok) return relay(up);
 
-  const auth = (await up.json()) as AuthResponse;
+  const auth = await parseAuthResponse(up);
+  if (!auth) return problem(502, "upstream_unavailable", "The API returned an unusable response");
   const res = NextResponse.json({ user: auth.user }, { status: up.status, headers: { "Cache-Control": "no-store" } });
-  setSessionCookies(res.cookies, { accessToken: auth.access_token, refreshToken: auth.refresh_token, expiresIn: auth.expires_in });
+  setSessionCookies(res.cookies, auth.tokens);
   return res;
 }
 
