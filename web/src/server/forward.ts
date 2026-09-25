@@ -1,5 +1,6 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
+import { MAX_BODY_BYTES, readBounded } from "./body";
 import { ACCESS_COOKIE, REFRESH_COOKIE, clearSessionCookies, type Tokens } from "./cookies";
 import { forwardedClientIp } from "./client-ip";
 import { trustedProxyCount } from "./env";
@@ -9,44 +10,12 @@ import { refreshSession, type Refresher } from "./refresh";
 import { relay } from "./relay";
 import { callApi } from "./upstream";
 
-/** The API rejects larger bodies itself; refusing here spares buffering them. */
-const MAX_BODY_BYTES = 64 * 1024;
-
 const REQUEST_HEADERS = ["accept", "accept-language", "content-type", "if-match", "if-none-match", "last-event-id"];
 
 
 /** A path segment that must never reach the API: it could climb out of `/v1` or hit another route. */
 function unsafeSegment(segment: string): boolean {
   return segment === "" || segment === "." || segment === ".." || /[/\\\0]/.test(segment);
-}
-
-/**
- * Reads a request body, giving up (and cancelling the rest of it) as soon as it
- * passes `limit` bytes, so an oversized or endless chunked body is never buffered.
- * Returns null when the body is too large.
- */
-async function readBounded(req: Request, limit: number): Promise<ArrayBuffer | null> {
-  if (!req.body) return new ArrayBuffer(0);
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > limit) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return out.buffer;
 }
 
 function sessionOver(): NextResponse {
