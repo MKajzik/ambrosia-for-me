@@ -7,6 +7,10 @@ OPENAPI_TS := npx --yes openapi-typescript@7.13.0
 WEB_GENERATED := web/src/lib/api/schema.gen.ts
 GENERATED := backend/internal/api backend/internal/store/sqlc $(WEB_GENERATED)
 
+# The Playwright flows run against their own Compose project on their own ports, so they neither
+# collide with a running dev stack nor touch its database volume.
+E2E_COMPOSE := POSTGRES_PORT=55432 API_PORT=58080 WEB_PORT=53000 docker compose -p mealplanner-e2e
+
 # Local development database; matches the docker-compose.yml defaults.
 migrate run-api: export DATABASE_URL ?= postgres://mealplanner:mealplanner@localhost:5432/mealplanner?sslmode=disable
 
@@ -54,6 +58,11 @@ lint-web: web/node_modules ## Typecheck and lint the web app
 
 test-web: web/node_modules ## Run the web unit and component tests
 	cd web && npm test
+
+e2e-web: web/node_modules ## Run the Playwright flows against the full Compose stack (needs Docker)
+	$(E2E_COMPOSE) up -d --build --wait; rc=$$?; \
+	if [ $$rc -eq 0 ]; then (cd web && npx playwright install chromium && E2E_BASE_URL=http://localhost:53000 npx playwright test); rc=$$?; fi; \
+	$(E2E_COMPOSE) down -v; exit $$rc
 
 run-web: web/node_modules ## Run the web app on :3000 (start the API with `make run-api` first)
 	cd web && npm run dev
