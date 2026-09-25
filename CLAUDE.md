@@ -13,6 +13,7 @@ Design spec: `docs/superpowers/specs/2026-09-21-meal-planner-design.md`. Read be
 - **Sharing:** 1:1 partnership. Partner access to meals + diets read-only + copy; shopping lists editable by both. Unseen resources return `404`, never `403`. Rules in service layer only.
 - **Diets:** templates copy into per-date `plan_entries`; after apply, entries independent of template.
 - **Web:** Next.js App Router, Tailwind, shadcn/ui. **iOS:** SwiftUI, iOS 26+, online-first, SwiftData cache.
+- **Web auth:** BFF. Browser talks only to own origin `/api/*`; Next.js route handlers keep tokens in httpOnly cookies and proxy to Go API. Single web instance until shared refresh store. See `web/CLAUDE.md`.
 - **Auth:** email/password (built) + Sign in with Apple (own plan). HS256 JWT access tokens (15 min) + opaque rotating refresh tokens (30 days, stored hashed; replaying used one revokes session family). Enforcement from `security` blocks in `openapi.yaml`: global `bearerAuth`, `security: []` opts route out, so new route protected by default.
 - **Errors:** RFC 9457 `application/problem+json` with stable `code`.
 - **Migrations:** goose, forward-only in production, applied by `cmd/migrate` before new API starts. API never migrates.
@@ -22,8 +23,9 @@ Design spec: `docs/superpowers/specs/2026-09-21-meal-planner-design.md`. Read be
 - `openapi.yaml`, `redocly.yaml`: API contract + lint rules
 - `.redocly.lint-ignore.yaml`: only lint exemption (`/healthz` and `/readyz` exempt from "every operation declares a 4XX response" rule; all other operations must declare one)
 - `backend/`: Go API (see `backend/CLAUDE.md`)
-- `web/`, `ios/`: added by own plans
-- `docker-compose.yml`: local Postgres (API + web services added later)
+- `web/`: Next.js web app (see `web/CLAUDE.md`)
+- `ios/`: added by own plan
+- `docker-compose.yml`: local Postgres, one-shot migrate, API, web (`backend/Dockerfile`, `web/Dockerfile`)
 - `.github/workflows/`: path-filtered CI
 
 ## Commands
@@ -32,12 +34,15 @@ Run `make help` for list. Most used:
 
 | Command | What it does |
 |---|---|
-| `make check` | All CI runs, except compose workflow (tests need Docker) |
+| `make check` | All CI runs, except compose workflow and web E2E (tests need Docker) |
 | `make lint-api` | Lint `openapi.yaml` |
 | `make test-backend` | `go vet` + `go test` for backend (needs Docker) |
 | `make lint-backend` | `golangci-lint` for backend |
-| `make generate` | Regenerate backend code: oapi-codegen from `openapi.yaml`, sqlc from migrations + queries |
-| `make check-generated` | Fail if committed generated code stale |
+| `make lint-web` / `make test-web` | Typecheck + eslint / Vitest for `web/` |
+| `make e2e-web` | Playwright flows against full Compose stack (needs Docker, own project + ports, removed after) |
+| `make run-web` | Run web app on `:3000` (API on `:8080` first) |
+| `make generate` | Regenerate generated code: oapi-codegen + sqlc for backend, TS API types for web (`generate-web`) |
+| `make check-generated` | Fail if committed generated code stale (`check-generated-web` for web types only) |
 | `make db-up` / `make db-down` | Start / stop local Postgres |
 | `make migrate` | Apply migrations to local DB |
 | `make run-api` | Run API on `:8080` |
@@ -47,7 +52,7 @@ Copy `.env.example` to `.env` for Docker Compose (`make db-up`). API reads vars 
 ## Conventions
 
 - Tests first for service logic + bug fixes.
-- Never hand-edit generated code (`backend/internal/api`, `backend/internal/store/sqlc`). Regenerate with `make generate`.
+- Never hand-edit generated code (`backend/internal/api`, `backend/internal/store/sqlc`, `web/src/lib/api/schema.gen.ts`). Regenerate with `make generate`.
 - Small commits; one logical change each.
 - New env var → add to `.env.example` in same commit.
 

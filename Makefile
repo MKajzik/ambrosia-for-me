@@ -82,4 +82,4 @@ db-up: ## Start local Postgres and wait until healthy
 db-down: ## Stop local Postgres (data is kept)
 	docker compose down
 
-check: lint-api test-backend lint-backend check-generated ## Everything CI runs, except the compose workflow
+check: lint-api test-backend lint-backend check-generated lint-web test-web ## Everything CI runs, except the compose workflow and the web E2E flows
