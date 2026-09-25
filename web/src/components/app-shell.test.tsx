@@ -24,4 +24,16 @@ describe("AppShell", () => {
     expect(screen.getByRole("main")).toHaveTextContent("page body");
     expect(screen.getByRole("link", { name: "Skip to content" })).toHaveAttribute("href", "#content");
   });
+
+  it("gives every link a visible focus ring", () => {
+    render(<AppShell>content</AppShell>);
+    const links = [
+      screen.getByRole("link", { name: "Skip to content" }),
+      ...screen.getAllByRole("navigation", { name: "Main" }).flatMap((nav) => within(nav).getAllByRole("link")),
+    ];
+    expect(links).toHaveLength(11);
+    for (const link of links) {
+      expect(link.className).toContain("focus-visible:ring-");
+    }
+  });
 });

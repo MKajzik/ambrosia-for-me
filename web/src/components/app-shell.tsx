@@ -16,7 +16,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-dvh md:grid md:grid-cols-[15rem_1fr]">
       <a
         href="#content"
-        className="bg-primary text-primary-foreground sr-only rounded-lg px-3 py-2 focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50"
+        className="bg-primary text-primary-foreground sr-only rounded-lg px-3 py-2 focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring"
       >
         Skip to content
       </a>
@@ -33,6 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring",
                   active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
@@ -61,6 +62,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               aria-current={active ? "page" : undefined}
               className={cn(
                 "flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs font-medium transition-colors",
+                "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring",
                 active ? "text-primary" : "text-muted-foreground",
               )}
             >
