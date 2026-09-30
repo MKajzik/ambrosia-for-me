@@ -2268,7 +2268,7 @@ describe("PlanView", () => {
     expect(await screen.findByText("Sep 28 – Oct 4")).toBeInTheDocument();
     expect(fake.calls[0]?.search.get("from")).toBe("2026-09-28");
     expect(fake.calls[0]?.search.get("to")).toBe("2026-10-04");
-    const wednesday = screen.getByRole("region", { name: "Wednesday, September 30" });
+    const wednesday = await screen.findByRole("region", { name: "Wednesday, September 30" });
     expect(within(wednesday).getByText("Today")).toBeInTheDocument();
     expect(screen.getAllByText("Today")).toHaveLength(1);
     expect(screen.getByRole("region", { name: "Monday, September 28" })).toBeInTheDocument();
