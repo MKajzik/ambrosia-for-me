@@ -66,6 +66,10 @@ Under `web/src`:
 
 **Plan and Today.** Dates are the person's local calendar day (`YYYY-MM-DD`), never UTC, and weeks start on Monday. Swaps, portion changes and slot clears are optimistic on the entries only: totals come from `GET /plan` and refetch when the write settles. The API addresses a snack only by date and slot (`PUT` adds, `DELETE` clears every snack of the day), so the plan offers "Add snack" and a confirmed "Clear snacks" and never edits one snack; template slots are replaced as a whole, so a template's snacks are editable. A partner's template is read-only; it is copied to change it or to apply it. Applying over days that already have meals asks before replacing (`409 plan_conflict`, then `overwrite: true`).
 
+**Shopping and live lists.** A list is one query; check-off and quick-add are optimistic on it, and nothing else is. Shared lists stay live through a same-origin `EventSource`: the stream carries ids and versions, so the client refetches when an event is newer than what it holds or names an unknown item, and ignores an event at or below the cached version (its own changes echo back). A `404` on a list (unlinked, unshared, deleted) replaces it with "not available" even while items are cached. An item edit is saved against the version the form was opened on, so a concurrent change is a `409 version_conflict` (the other version comes back and the form restarts on it), never an overwrite, and a live update never wipes what is being typed. A checked item is attributed to the partner only when the partner checked it.
+
+**Profile.** Targets are four optional numbers (a blank clears one; `0` calories is refused, `0` for a macro is allowed) and refresh Today and the plan's totals. The partner card shows an invite code once, when it is made, keeps it for the session while the invite is pending, and ends the link only after saying what ends. Custom ingredients are edited with all 18 nutrients sent, because the API replaces the whole set. Deleting the account needs the email typed and ends with a full page load.
+
 **Shared resources.** `is_owner: false` renders read-only with a "Copy to my library" action. The partner's meals and templates come from `GET partner/*`. The Meals page has "Mine" and "Partner's" tabs; the partner tab is hidden while there is no partner (`404 partner_not_linked`).
 
 **Errors.** Field validation errors show inline; everything else is a toast. Both are driven by the problem `code`. Loading is a skeleton; empty states carry a call to action.
@@ -123,3 +127,5 @@ Plans 2 to 4 are written after the previous plan merges.
 ## 11. Out of scope
 
 Hosting, server-component data fetching, offline support, i18n, personalised reference values, multi-instance web deployment, and the iOS client.
+
+API gaps worked around in v1, to fix spec-first when they bite: no "mine only" filter on `GET /ingredients` (the custom ingredients page filters in the browser), and no entry-addressed plan endpoint (a single snack cannot be edited, only added or cleared).
