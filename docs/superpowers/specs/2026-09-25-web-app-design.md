@@ -62,7 +62,9 @@ Under `web/src`:
 
 **Optimistic updates** only where the parent spec asks for them: shopping check-off and quick-add, and plan swaps and portion changes. Each snapshots, applies, rolls back on error and refetches. A version conflict or an SSE version gap triggers a refetch, never a guess.
 
-**Autosave.** The meal editor has no Save button: it saves 700 ms after the last edit (fields with `PATCH`, the ingredient list with `PUT`) and shows the API's nutrition from the last save. The browser does not compute nutrition: a loaded meal carries only each ingredient's name and category, not its per-100 g data, and the API stays the one place the math lives.
+**Autosave.** The meal editor and the template editor have no Save button: they save 700 ms after the last edit (fields with `PATCH`, the ingredient or slot list with `PUT`). The meal editor shows the API's nutrition from the last save. The browser does not compute nutrition: a loaded meal carries only each ingredient's name and category, not its per-100 g data, and the API stays the one place the math lives.
+
+**Plan and Today.** Dates are the person's local calendar day (`YYYY-MM-DD`), never UTC, and weeks start on Monday. Swaps, portion changes and slot clears are optimistic on the entries only: totals come from `GET /plan` and refetch when the write settles. The API addresses a snack only by date and slot (`PUT` adds, `DELETE` clears every snack of the day), so the plan offers "Add snack" and a confirmed "Clear snacks" and never edits one snack; template slots are replaced as a whole, so a template's snacks are editable. A partner's template is read-only; it is copied to change it or to apply it. Applying over days that already have meals asks before replacing (`409 plan_conflict`, then `overwrite: true`).
 
 **Shared resources.** `is_owner: false` renders read-only with a "Copy to my library" action. The partner's meals and templates come from `GET partner/*`. The Meals page has "Mine" and "Partner's" tabs; the partner tab is hidden while there is no partner (`404 partner_not_linked`).
 
@@ -72,7 +74,7 @@ Under `web/src`:
 
 ## 6. Nutrition UI
 
-- **Summary tier:** kcal, protein, carbs and fat against the profile targets. Each macro keeps one colour across the product. Until the profile targets exist (Shopping and Profile plan), the Meals screens show the four as tiles; the rings arrive with Today.
+- **Summary tier:** kcal, protein, carbs and fat against the profile targets. Each macro keeps one colour across the product. The Meals screens show the four as tiles (a meal has no target); the rings are on Today, against the targets `GET /plan` returns. The targets are set with `PATCH /me`; their Profile screen arrives with the Shopping and Profile plan.
 - **Full tier:** an expandable panel with the 18 nutrients. Micronutrients show a percentage of the FDA Daily Value.
 - **Unknown values.** The API returns `null` for a nutrient when any ingredient lacks it, and a meal with no ingredients reports 0. The UI shows "—" with a "some ingredients lack data" hint for `null`, and never renders it as 0.
 - Meal nutrition is per serving; the client multiplies by `servings` for a meal total (backend contract).
