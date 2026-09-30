@@ -1306,7 +1306,6 @@ export class FakeEventSource {
   static install() {
     FakeEventSource.instances = [];
     vi.stubGlobal("EventSource", FakeEventSource);
-    return FakeEventSource;
   }
 
   static get last(): FakeEventSource | undefined {
