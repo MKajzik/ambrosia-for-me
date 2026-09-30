@@ -5165,7 +5165,8 @@ test("generate a list from the plan, see it by aisle, check an item off, quick-a
   await expect(grains.getByText("200 g")).toBeVisible();
   await expect(page.getByText("0 of 1 checked")).toBeVisible();
 
-  await grains.getByRole("checkbox", { name: /Rolled oats/ }).check();
+  await grains.getByRole("checkbox", { name: /Rolled oats/ }).click();
+  await expect(grains.getByRole("checkbox", { name: /Rolled oats/ })).toBeChecked();
   await expect(page.getByText("1 of 1 checked")).toBeVisible();
 
   await page.getByLabel("Add an item").fill("Milk");
@@ -5203,12 +5204,14 @@ test("a shared list updates live in the partner's browser, and is gone for them 
     await expect(partnerPage.getByRole("button", { name: "List settings" })).toHaveCount(0);
 
     // One person ticks, the other sees it without reloading: the event stream reaches the browser unbuffered.
-    await page.getByRole("checkbox", { name: /Sausages/ }).check();
+    await page.getByRole("checkbox", { name: /Sausages/ }).click();
+    await expect(page.getByRole("checkbox", { name: /Sausages/ })).toBeChecked();
     await expect(partnerPage.getByRole("checkbox", { name: /Sausages/ })).toBeChecked({ timeout: 10_000 });
     await expect(partnerPage.getByText(/^Checked by /)).toBeVisible();
 
     // And the other way round: the partner may tick too.
-    await partnerPage.getByRole("checkbox", { name: /Buns/ }).check();
+    await partnerPage.getByRole("checkbox", { name: /Buns/ }).click();
+    await expect(partnerPage.getByRole("checkbox", { name: /Buns/ })).toBeChecked();
     await expect(page.getByRole("checkbox", { name: /Buns/ })).toBeChecked({ timeout: 10_000 });
 
     // The owner ends the link while the partner still has the list open: the stream closes and the page says so.
