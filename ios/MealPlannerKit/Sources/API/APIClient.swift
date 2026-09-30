@@ -16,6 +16,11 @@ public func makeAuthlessClient(baseURL: URL = APIEnvironment.baseURL) -> Client 
     Client(serverURL: baseURL, transport: URLSessionTransport())
 }
 
+/// Test-only seam: build a client against an arbitrary transport instead of `URLSessionTransport`.
+public func makeAuthlessClient(baseURL: URL = APIEnvironment.baseURL, transport: any ClientTransport) -> Client {
+    Client(serverURL: baseURL, transport: transport)
+}
+
 /// Builds a `Client` with the given middlewares (Task 3 supplies the bearer-auth middleware).
 public func makeClient(baseURL: URL = APIEnvironment.baseURL, middlewares: [any ClientMiddleware]) -> Client {
     Client(serverURL: baseURL, transport: URLSessionTransport(), middlewares: middlewares)

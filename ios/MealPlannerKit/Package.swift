@@ -23,6 +23,18 @@ let package = Package(
                 .product(name: "OpenAPIURLSession", package: "swift-openapi-urlsession"),
             ]
         ),
-        .target(name: "AppCore")
+        .target(
+            name: "Auth",
+            dependencies: [
+                "API",
+                .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
+            ]
+        ),
+        .target(name: "AppCore"),
+        .testTarget(
+            name: "MealPlannerKitTests",
+            dependencies: ["API", "Auth"]
+        )
     ]
 )
