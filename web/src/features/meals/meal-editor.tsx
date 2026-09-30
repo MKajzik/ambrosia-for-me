@@ -18,7 +18,7 @@ import { problemMessage } from "@/lib/api/problem";
 import { categoryLabel } from "@/lib/ingredient-categories";
 import { UNITS, diffDraft, draftFromMeal, hasChanges, newRow, savedFromMeal, validateDraft, type Draft, type DraftRow, type ValidDraft } from "./draft";
 import { useDeleteMeal, useMealActions, usePartnerLink, type Meal } from "./queries";
-import { useAutosave } from "./use-autosave";
+import { useAutosave } from "@/lib/use-autosave";
 
 /**
  * The owner's editor. The draft is copied from `meal` once; after that only its nutrition follows the `meal` prop, which the
