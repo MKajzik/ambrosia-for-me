@@ -724,7 +724,7 @@ describe("useEditItem", () => {
       await result.current.edit.mutateAsync({ item, changes: { name: "Oat milk", quantity: 2, unit: "piece" } });
     });
     expect(fake.callsTo("PATCH", "/shopping-lists/l1/items/i1")[0]?.body).toEqual({ version: 1, name: "Oat milk", quantity: 2, unit: "piece" });
-    expect(result.current.list.data?.items[0]).toMatchObject({ name: "Oat milk", version: 2 });
+    await waitFor(() => expect(result.current.list.data?.items[0]).toMatchObject({ name: "Oat milk", version: 2 }));
   });
 
   it("stores the other person's version when the edit is stale, and rejects with the conflict", async () => {
@@ -739,7 +739,7 @@ describe("useEditItem", () => {
     });
     expect(caught).toBeInstanceOf(ApiError);
     expect(caught).toMatchObject({ status: 409, code: "version_conflict" });
-    expect(result.current.list.data?.items[0]).toMatchObject({ name: "Bananas", version: 3 });
+    await waitFor(() => expect(result.current.list.data?.items[0]).toMatchObject({ name: "Bananas", version: 3 }));
   });
 
   it("does not store anything for a conflict that carries no item", async () => {
@@ -762,7 +762,7 @@ describe("useDeleteItem", () => {
       await result.current.remove.mutateAsync("i1");
     });
     expect(fake.callsTo("DELETE", "/shopping-lists/l1/items/i1")).toHaveLength(1);
-    expect(result.current.list.data?.items.map((i) => i.name)).toEqual(["Eggs"]);
+    await waitFor(() => expect(result.current.list.data?.items.map((i) => i.name)).toEqual(["Eggs"]));
   });
 });
 ```
