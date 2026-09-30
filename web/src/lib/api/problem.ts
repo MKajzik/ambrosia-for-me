@@ -11,14 +11,17 @@ export class ApiError extends Error {
   readonly fieldErrors: Record<string, string>;
   /** Seconds to wait before retrying, from `Retry-After`, when the server said so. */
   readonly retryAfter: number | null;
+  /** The whole problem document as the API sent it, so members the UI does not model (a conflict's `current` item) stay reachable. */
+  readonly body: Record<string, unknown>;
 
-  constructor(init: { status: number; code: string; title?: string; fieldErrors?: Record<string, string>; retryAfter?: number | null }) {
+  constructor(init: { status: number; code: string; title?: string; fieldErrors?: Record<string, string>; retryAfter?: number | null; body?: Record<string, unknown> }) {
     super(init.title ?? init.code);
     this.name = "ApiError";
     this.status = init.status;
     this.code = init.code;
     this.fieldErrors = init.fieldErrors ?? {};
     this.retryAfter = init.retryAfter ?? null;
+    this.body = init.body ?? {};
   }
 }
 
@@ -54,6 +57,7 @@ export function toApiError(status: number, body: unknown, headers: Headers): Api
     title: typeof problem?.title === "string" ? problem.title : undefined,
     fieldErrors,
     retryAfter: Number.isFinite(retry) && retry > 0 ? retry : null,
+    body: problem ? { ...problem } : {},
   });
 }
 
@@ -101,6 +105,14 @@ export function problemMessage(err: unknown): string {
       return "This ingredient can't be measured in that unit. Pick grams, or give the ingredient a weight per piece or a density.";
     case "invalid_ingredient":
       return "One of the ingredients can't be used in a meal.";
+    case "version_conflict":
+      return "Someone else changed this item. Review it and save again.";
+    case "version_required":
+      return "Reload the list and try again.";
+    case "invite_invalid":
+      return "That invite code isn't valid. It may have expired or already been used.";
+    case "partner_already_linked":
+      return "You're already linked with a partner.";
     case "plan_conflict":
       return "Some of those days already have meals.";
     case "plan_range_too_long":
