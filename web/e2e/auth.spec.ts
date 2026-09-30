@@ -1,20 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-
-const PASSWORD = "correct-horse-battery";
-
-function newAccount() {
-  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  return { name: "E2E Tester", email: `e2e-${id}@example.test` };
-}
-
-async function register(page: Page, account: { name: string; email: string }) {
-  await page.goto("/register");
-  await page.getByLabel("Your name").fill(account.name);
-  await page.getByLabel("Email").fill(account.email);
-  await page.getByLabel("Password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page).toHaveURL(/\/today$/);
-}
+import { expect, test } from "@playwright/test";
+import { PASSWORD, newAccount, register } from "./support";
 
 test("register, sign out, then sign in again and land where you were headed", async ({ page }) => {
   const account = newAccount();

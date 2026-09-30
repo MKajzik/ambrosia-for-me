@@ -33,6 +33,10 @@ export function fieldMessage(field: string, code: string): string {
       return "This is too long.";
     case "invalid_format":
       return field === "email" ? "Enter a valid email address." : "This is not in the expected format.";
+    case "out_of_range":
+      return "That number is out of range.";
+    case "invalid_type":
+      return "Enter a number.";
     default:
       return "This value is not valid.";
   }
@@ -85,6 +89,18 @@ export function problemMessage(err: unknown): string {
       return "Can't reach the server. Try again in a moment.";
     case "csrf_rejected":
       return "That request was blocked. Reload the page and try again.";
+    case "not_found":
+      return "That isn't available. It may have been removed, or it isn't shared with you.";
+    case "partner_not_linked":
+      return "You aren't linked with a partner.";
+    case "meal_in_use":
+      return "This meal is scheduled in your plan or in a diet template. Remove it there first.";
+    case "ingredient_in_use":
+      return "A meal still uses this ingredient, so it can't be deleted.";
+    case "unit_not_convertible":
+      return "This ingredient can't be measured in that unit. Pick grams, or give the ingredient a weight per piece or a density.";
+    case "invalid_ingredient":
+      return "One of the ingredients can't be used in a meal.";
     default:
       return "Something went wrong. Try again.";
   }
