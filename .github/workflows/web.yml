@@ -1,0 +1,68 @@
+name: web
+
+on:
+  pull_request:
+    paths:
+      - web/**
+      - backend/**
+      - openapi.yaml
+      - docker-compose.yml
+      - Makefile
+      - .github/workflows/web.yml
+  push:
+    branches: [master]
+    paths:
+      - web/**
+      - backend/**
+      - openapi.yaml
+      - docker-compose.yml
+      - Makefile
+      - .github/workflows/web.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: make lint-web
+      - run: make test-web
+      - run: make check-generated-web
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - run: make e2e-web
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          if-no-files-found: ignore

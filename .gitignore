@@ -18,8 +18,11 @@ coverage.out
 node_modules/
 .next/
 web/coverage/
+web/next-env.d.ts
+web/tsconfig.tsbuildinfo
 web/playwright-report/
 web/test-results/
+web/.vitest/
 
 # iOS
 ios/build/

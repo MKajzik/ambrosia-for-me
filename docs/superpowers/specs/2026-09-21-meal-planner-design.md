@@ -172,6 +172,7 @@ Ingredient search is one shared component (type-ahead, category filter, "create 
 - TanStack Query owns server state with optimistic updates on check-off and swaps, and subscribes to SSE on an open shared list.
 - Responsive: desktop has a sidebar and split-pane meal editor; phone has a bottom tab bar.
 - Accessibility: keyboard navigable, WCAG AA contrast, labelled controls.
+- Auth and API access go through a Next.js backend-for-frontend: the browser only calls its own origin (`/api/*`); route handlers keep the tokens in httpOnly cookies and proxy to the Go API (see `2026-09-25-web-app-design.md` §3).
 
 ### 5.4 iOS specifics
 
@@ -215,5 +216,4 @@ Each step gets its own implementation plan.
 
 ## 10. Open items to resolve during planning
 
-- Daily reference values used for micronutrient percentages (source and whether they vary by user).
 - Production hosting choice (post-API).

@@ -17,5 +17,60 @@ services:
       retries: 10
       start_period: 10s
 
+  migrate:
+    build: ./backend
+    entrypoint: ["/migrate"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-mealplanner}:${POSTGRES_PASSWORD:-mealplanner}@postgres:5432/${POSTGRES_DB:-mealplanner}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: ./backend
+    environment:
+      API_ADDR: ":8080"
+      DATABASE_URL: postgres://${POSTGRES_USER:-mealplanner}:${POSTGRES_PASSWORD:-mealplanner}@postgres:5432/${POSTGRES_DB:-mealplanner}?sslmode=disable
+      WEB_ORIGIN: http://localhost:${WEB_PORT:-3000}
+      # Public development-only secret, accepted only because of ALLOW_DEV_JWT_SECRET. Never reuse either outside local development.
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-0123456789}
+      ALLOW_DEV_JWT_SECRET: ${ALLOW_DEV_JWT_SECRET:-1}
+      # The web container is the only hop in front of the API.
+      TRUSTED_PROXY_COUNT: "1"
+      # Every browser reaches the API through the one web container, and the web container does not
+      # forward client addresses (WEB_TRUSTED_PROXY_COUNT=0), so all users share one auth bucket.
+      AUTH_RATE_LIMIT_PER_MINUTE: ${AUTH_RATE_LIMIT_PER_MINUTE:-600}
+    ports:
+      - "127.0.0.1:${API_PORT:-8080}:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/v1/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build: ./web
+    environment:
+      API_BASE_URL: http://api:8080/v1
+      # Plain-http local stack: browsers drop Secure cookies on non-localhost hosts.
+      COOKIE_SECURE: "false"
+      # No reverse proxy in front of the web container, so X-Forwarded-For is not trusted.
+      WEB_TRUSTED_PROXY_COUNT: "0"
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # Goes through the proxy to the API, so a green web container can reach its API.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   pgdata:

@@ -1,0 +1,137 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+    --font-heading: var(--font-sans);
+    --color-macro-kcal: var(--macro-kcal);
+    --color-macro-protein: var(--macro-protein);
+    --color-macro-carbs: var(--macro-carbs);
+    --color-macro-fat: var(--macro-fat);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Design tokens: warm neutral surfaces, one herb-green accent, one colour per macro.
+   Everything visual reads these variables; change the look here and nowhere else. */
+:root {
+    --background: oklch(0.985 0.006 85);
+    --foreground: oklch(0.24 0.02 60);
+    --card: oklch(1 0.003 85);
+    --card-foreground: oklch(0.24 0.02 60);
+    --popover: oklch(1 0.003 85);
+    --popover-foreground: oklch(0.24 0.02 60);
+    --primary: oklch(0.5 0.12 152);
+    --primary-foreground: oklch(0.985 0.01 150);
+    --secondary: oklch(0.955 0.012 85);
+    --secondary-foreground: oklch(0.3 0.02 60);
+    --muted: oklch(0.96 0.01 85);
+    --muted-foreground: oklch(0.48 0.02 70);
+    --accent: oklch(0.94 0.04 150);
+    --accent-foreground: oklch(0.32 0.08 152);
+    --destructive: oklch(0.55 0.22 27);
+    --border: oklch(0.91 0.012 85);
+    --input: oklch(0.89 0.014 85);
+    --ring: oklch(0.6 0.12 152);
+    --radius: 0.875rem;
+    --macro-kcal: oklch(0.55 0.11 175);
+    --macro-protein: oklch(0.6 0.16 25);
+    --macro-carbs: oklch(0.62 0.13 80);
+    --macro-fat: oklch(0.58 0.13 250);
+    --sidebar: oklch(0.975 0.008 85);
+    --sidebar-foreground: oklch(0.24 0.02 60);
+    --sidebar-primary: oklch(0.5 0.12 152);
+    --sidebar-primary-foreground: oklch(0.985 0.01 150);
+    --sidebar-accent: oklch(0.94 0.04 150);
+    --sidebar-accent-foreground: oklch(0.32 0.08 152);
+    --sidebar-border: oklch(0.91 0.012 85);
+    --sidebar-ring: oklch(0.6 0.12 152);
+}
+
+.dark {
+    --background: oklch(0.19 0.01 70);
+    --foreground: oklch(0.95 0.008 85);
+    --card: oklch(0.23 0.012 70);
+    --card-foreground: oklch(0.95 0.008 85);
+    --popover: oklch(0.23 0.012 70);
+    --popover-foreground: oklch(0.95 0.008 85);
+    --primary: oklch(0.72 0.13 152);
+    --primary-foreground: oklch(0.2 0.03 152);
+    --secondary: oklch(0.28 0.012 70);
+    --secondary-foreground: oklch(0.95 0.008 85);
+    --muted: oklch(0.28 0.012 70);
+    --muted-foreground: oklch(0.72 0.015 80);
+    --accent: oklch(0.3 0.05 152);
+    --accent-foreground: oklch(0.92 0.05 150);
+    --destructive: oklch(0.7 0.19 22);
+    --border: oklch(1 0 0 / 11%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.66 0.12 152);
+    --macro-kcal: oklch(0.74 0.11 175);
+    --macro-protein: oklch(0.72 0.15 25);
+    --macro-carbs: oklch(0.82 0.13 80);
+    --macro-fat: oklch(0.72 0.12 250);
+    --sidebar: oklch(0.21 0.011 70);
+    --sidebar-foreground: oklch(0.95 0.008 85);
+    --sidebar-primary: oklch(0.72 0.13 152);
+    --sidebar-primary-foreground: oklch(0.2 0.03 152);
+    --sidebar-accent: oklch(0.3 0.05 152);
+    --sidebar-accent-foreground: oklch(0.92 0.05 150);
+    --sidebar-border: oklch(1 0 0 / 11%);
+    --sidebar-ring: oklch(0.66 0.12 152);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
