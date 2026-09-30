@@ -10,6 +10,10 @@ Next.js 16 App Router, TypeScript strict, Tailwind 4, shadcn/ui (radix base), Ta
 - `src/proxy.ts`: page guard (Next 16 renamed `middleware.ts` to `proxy.ts`). Redirects on refresh-cookie presence only.
 - `src/lib/api/`: `schema.gen.ts` (generated, never hand-edit), typed client `api` + `unwrap`, `ApiError` + `problemMessage`.
 - `src/features/<area>/`: hooks + components per area. `src/components/`: shell, providers, `ui/` (shadcn).
+- `src/features/meals/`: `queries.ts` (hooks, keys `mealKeys`), `meal-list`/`meals-page` (library, Mine and Partner's tabs), `meal-editor` (autosave), `draft.ts` (pure validate + diff of the editor's draft), `use-autosave.ts`, `meal-view` (read-only partner meal), `meal-detail`, `new-meal-form`.
+- `src/components/ingredient-search/`: the one shared ingredient search (type-ahead, category filter, custom-ingredient dialog). `src/components/nutrition-panel.tsx`: macro tiles + expandable 18-nutrient tier.
+- `src/lib/nutrition/`: nutrient catalog, FDA Daily Values, formatters. `null` renders "—", never 0. `src/lib/parse-number.ts`: the one decimal parser (comma = decimal point, blank = nothing).
+- `src/test/`: `fake-api.ts` (stubs `fetch`; routes like `"GET /meals/:id"`, throws on an unrouted call), `render.tsx`, `fixtures.ts`.
 - `e2e/`: Playwright flows, run against the full Compose stack.
 
 ## BFF rules
@@ -35,3 +39,8 @@ From repo root: `make lint-web` (typecheck + eslint), `make test-web` (Vitest), 
 - Next route announcer is a `role="alert"` on every page: narrow Playwright `getByRole("alert")` with text.
 - shadcn: `npx shadcn@4.21.0 add <component>`. It imports `cn` from the `cn` package.
 - Tokens (palette, radius, macro colours) live in `src/app/globals.css` only.
+- The meal editor has no Save button: it autosaves 700 ms after the last edit (`PATCH` for fields, `PUT` for the ingredient list) and shows the API's `nutrition_per_serving` from the last save. Nutrition is not computed in the browser: a loaded meal carries no per-100 g data. The draft is copied from the meal once; background refetches only feed the nutrition panel.
+- `Field` uses its `name` as the DOM id. Give fields in a dialog their own prefix (`ci-*` in the custom-ingredient form) so ids and `getByLabel` never collide with the page behind it.
+- A native `<select>`'s `<option>`s have role `option` too: scope combobox tests to the listbox (`within(screen.getByRole("listbox"))`).
+- Radix Dialog and Tabs need real pointer events in jsdom: open and switch them with `userEvent.click`, not `fireEvent`. Use `fireEvent.change` for text edits that must arrive as one change.
+- E2E setup calls the API with `page.evaluate(fetch)` (`e2e/support.ts` `api`): the browser adds `Origin`, which the proxy's CSRF check requires and `page.request` does not, and a JSON body needs `content-type: application/json`.

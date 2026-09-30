@@ -62,6 +62,8 @@ Under `web/src`:
 
 **Optimistic updates** only where the parent spec asks for them: shopping check-off and quick-add, and plan swaps and portion changes. Each snapshots, applies, rolls back on error and refetches. A version conflict or an SSE version gap triggers a refetch, never a guess.
 
+**Autosave.** The meal editor has no Save button: it saves 700 ms after the last edit (fields with `PATCH`, the ingredient list with `PUT`) and shows the API's nutrition from the last save. The browser does not compute nutrition: a loaded meal carries only each ingredient's name and category, not its per-100 g data, and the API stays the one place the math lives.
+
 **Shared resources.** `is_owner: false` renders read-only with a "Copy to my library" action. The partner's meals and templates come from `GET partner/*`. The Meals page has "Mine" and "Partner's" tabs; the partner tab is hidden while there is no partner (`404 partner_not_linked`).
 
 **Errors.** Field validation errors show inline; everything else is a toast. Both are driven by the problem `code`. Loading is a skeleton; empty states carry a call to action.
@@ -70,7 +72,7 @@ Under `web/src`:
 
 ## 6. Nutrition UI
 
-- **Summary tier:** kcal, protein, carbs and fat as rings against the profile targets. Each macro keeps one colour across the product.
+- **Summary tier:** kcal, protein, carbs and fat against the profile targets. Each macro keeps one colour across the product. Until the profile targets exist (Shopping and Profile plan), the Meals screens show the four as tiles; the rings arrive with Today.
 - **Full tier:** an expandable panel with the 18 nutrients. Micronutrients show a percentage of the FDA Daily Value.
 - **Unknown values.** The API returns `null` for a nutrient when any ingredient lacks it, and a meal with no ingredients reports 0. The UI shows "—" with a "some ingredients lack data" hint for `null`, and never renders it as 0.
 - Meal nutrition is per serving; the client multiplies by `servings` for a meal total (backend contract).
