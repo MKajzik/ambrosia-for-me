@@ -101,6 +101,17 @@ export function problemMessage(err: unknown): string {
       return "This ingredient can't be measured in that unit. Pick grams, or give the ingredient a weight per piece or a density.";
     case "invalid_ingredient":
       return "One of the ingredients can't be used in a meal.";
+    case "plan_conflict":
+      return "Some of those days already have meals.";
+    case "plan_range_too_long":
+    case "plan_range_invalid":
+      return "That isn't a valid date range. Pick a shorter range that ends on or after it starts.";
+    case "day_index_out_of_range":
+      return "One of the meals is on a day outside the template's days.";
+    case "duplicate_slot":
+      return "That day already has a meal for that slot.";
+    case "invalid_meal":
+      return "That meal isn't available. It may have been deleted.";
     default:
       return "Something went wrong. Try again.";
   }
