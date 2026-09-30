@@ -1,0 +1,50 @@
+name: MealPlanner
+options:
+  bundleIdPrefix: dev.ambrosiaforme
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+packages:
+  MealPlannerKit:
+    path: MealPlannerKit
+targets:
+  MealPlanner:
+    type: application
+    platform: iOS
+    sources:
+      - MealPlanner
+    dependencies:
+      - package: MealPlannerKit
+    info:
+      path: Generated/MealPlanner-Info.plist
+      properties:
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.ambrosiaforme.mealplanner
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "6.0"
+  MealPlannerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - MealPlannerUITests
+    dependencies:
+      - target: MealPlanner
+    settings:
+      base:
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+schemes:
+  MealPlanner:
+    build:
+      targets:
+        MealPlanner: all
+        MealPlannerUITests: [test]
+    test:
+      targets:
+        - MealPlannerUITests
+    run:
+      config: Debug
