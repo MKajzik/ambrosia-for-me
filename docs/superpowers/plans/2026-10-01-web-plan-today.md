@@ -716,7 +716,14 @@ describe("useClearPlanSlot", () => {
 
   it("clears every snack of the day, so the cache must too", async () => {
     const snacks = makePlan(D, D, [makeDay(D, [makeEntry({ id: "s1", slot: "snack", meal_name: "Apple" }), makeEntry({ id: "s2", slot: "snack", meal_name: "Nuts" })])]);
-    fakeApi({ "GET /plan": () => json(snacks), "DELETE /plan/:date/:slot": () => noContent() });
+    let server = snacks;
+    fakeApi({
+      "GET /plan": () => json(server),
+      "DELETE /plan/:date/:slot": () => {
+        server = makePlan(D, D, [makeDay(D, [])]);
+        return noContent();
+      },
+    });
     const { result } = renderHook(() => ({ plan: usePlan(D, D), clear: useClearPlanSlot() }), { wrapper: clientWrapper() });
     await waitFor(() => expect(mealNames(result.current.plan.data)).toEqual(["Apple", "Nuts"]));
     act(() => result.current.clear.mutate({ date: D, slot: "snack" }));
