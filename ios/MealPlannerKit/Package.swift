@@ -31,10 +31,11 @@ let package = Package(
                 .product(name: "HTTPTypes", package: "swift-http-types"),
             ]
         ),
-        .target(name: "AppCore"),
+        .target(name: "Features", dependencies: ["Auth"]),
+        .target(name: "AppCore", dependencies: ["API", "Auth", "Features"]),
         .testTarget(
             name: "MealPlannerKitTests",
-            dependencies: ["API", "Auth"]
+            dependencies: ["API", "Auth", "Features"]
         )
     ]
 )
