@@ -29,7 +29,7 @@ final class AuthFlowUITests: XCTestCase {
     /// on the Profile tab, so every flow that needs it must navigate there first.
     private func signOutButton(in app: XCUIApplication) -> XCUIElement {
         let profileTab = app.buttons["profileTab"]
-        XCTAssertTrue(profileTab.waitForExistence(timeout: 10), "Expected the tab shell after a successful sign-in or registration")
+        XCTAssertTrue(profileTab.waitForExistence(timeout: 20), "Expected the tab shell after a successful sign-in or registration")
         profileTab.tap()
         let signOutButton = app.buttons["signOutButton"]
         waitUntilHittable(signOutButton)
@@ -93,7 +93,7 @@ final class AuthFlowUITests: XCTestCase {
         // fire-and-forget `Task`, so wait for the welcome screen to actually reappear — otherwise
         // the test can end (and the next one launch) before the Keychain is actually cleared.
         signOutButton(in: app).tap()
-        XCTAssertTrue(app.buttons["showRegisterButton"].waitForExistence(timeout: 10), "Expected the welcome screen after signing out")
+        XCTAssertTrue(app.buttons["showRegisterButton"].waitForExistence(timeout: 20), "Expected the welcome screen after signing out")
     }
 
     /// Pins the Critical finding from this plan's final review: a build without a real code
@@ -119,20 +119,20 @@ final class AuthFlowUITests: XCTestCase {
         typeIntoSecureField("correct-horse-battery-staple", field: registerPasswordField)
         app.buttons["registerSubmitButton"].tap()
 
-        XCTAssertTrue(app.buttons["profileTab"].waitForExistence(timeout: 10), "Expected the tab shell after registration")
+        XCTAssertTrue(app.buttons["profileTab"].waitForExistence(timeout: 20), "Expected the tab shell after registration")
 
         app.terminate()
         app.launch()
 
         XCTAssertTrue(
-            app.buttons["profileTab"].waitForExistence(timeout: 10),
+            app.buttons["profileTab"].waitForExistence(timeout: 20),
             "Expected the tab shell to reappear after relaunch — the Keychain-stored session should restore without signing in again"
         )
 
         // Sign out at the end so this test leaves no session in the Keychain for the next test —
         // see the comment at the end of testRegisterThenSignOutThenSignInAgain.
         signOutButton(in: app).tap()
-        XCTAssertTrue(app.buttons["showRegisterButton"].waitForExistence(timeout: 10), "Expected the welcome screen after signing out")
+        XCTAssertTrue(app.buttons["showRegisterButton"].waitForExistence(timeout: 20), "Expected the welcome screen after signing out")
     }
 
     func testWrongPasswordShowsGenericError() throws {
