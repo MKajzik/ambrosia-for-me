@@ -48,21 +48,31 @@ final class AuthFlowUITests: XCTestCase {
         return signOutButton
     }
 
-    /// A `SecureField`'s accessibility `value` is privacy-masked to a fixed placeholder (confirmed
-    /// live: it reads `"•"` whether 3 or 8 characters were actually typed), so a test can never
-    /// verify how much text landed by reading it back.
+    /// A `SecureField`'s accessibility `value` is privacy-masked to a fixed `"•"` regardless of
+    /// how many characters were actually entered, so a test can never verify the *exact* text
+    /// landed — but an empty field reports no `value` at all (confirmed by inspecting a live CI
+    /// failure's accessibility snapshot: an empty `SecureField` shows no `value:` line, a
+    /// non-empty one shows `value: •`), which is enough to detect the specific failure mode seen
+    /// here: a *complete* paste failure, not truncation.
     ///
     /// `typeText` into a `SecureField` is unreliable once the app carries a real code signature:
     /// Password AutoFill intercepts XCUITest's synthesized keystrokes and the password sometimes
     /// arrives truncated (see `.superpowers/sdd/2026-09-30-ios-foundation/progress.md`). Writing
-    /// to the pasteboard and sending the hardware-keyboard Cmd+V shortcut sidesteps AutoFill
-    /// entirely, without the long-press system edit-menu callout — that callout's overlay was
-    /// found to linger past the paste itself and swallow unrelated taps for a few seconds
-    /// afterwards (e.g. on the Profile tab's "Sign Out" button right after registering).
+    /// to the pasteboard and sending the hardware-keyboard Cmd+V shortcut sidesteps AutoFill and
+    /// fixes the truncation, but the paste itself is sometimes a complete no-op (confirmed live:
+    /// a CI failure's accessibility snapshot showed the password field completely empty and the
+    /// submit button still disabled, right after this exact paste sequence ran) — so verify it
+    /// landed and retry a few times before giving up.
     private func typeIntoSecureField(_ text: String, field: XCUIElement) {
-        field.tap()
         UIPasteboard.general.string = text
-        field.typeKey("v", modifierFlags: .command)
+        for _ in 0..<5 {
+            field.tap()
+            field.typeKey("v", modifierFlags: .command)
+            if let value = field.value as? String, !value.isEmpty {
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.3)
+        }
     }
 
     func testRegisterThenSignOutThenSignInAgain() throws {
@@ -131,8 +141,7 @@ final class AuthFlowUITests: XCTestCase {
         typeIntoSecureField("correct-horse-battery-staple", field: registerPasswordField)
         app.buttons["registerSubmitButton"].tap()
 
-        let tabShellAppeared = profileTabButton(in: app).waitForExistence(timeout: 45)
-        XCTAssertTrue(tabShellAppeared, "Expected the tab shell after registration. DIAG hierarchy:\n\(app.debugDescription)")
+        XCTAssertTrue(profileTabButton(in: app).waitForExistence(timeout: 45), "Expected the tab shell after registration")
 
         app.terminate()
         app.launch()
