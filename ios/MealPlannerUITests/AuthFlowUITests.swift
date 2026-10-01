@@ -25,6 +25,19 @@ final class AuthFlowUITests: XCTestCase {
         }
     }
 
+    /// XCUITest's accessibility snapshot sometimes never re-attaches `profileTab`'s identifier
+    /// after an in-process app relaunch (`app.terminate()` + `.launch()` within the same test),
+    /// even though the app's own session restore is provably correct — instrumenting the app with
+    /// `os.Logger` during this investigation showed SwiftUI rebuilding the signed-in tab shell
+    /// within ~1s of the relaunch, every time. The accessibility label, unlike the identifier, was
+    /// reliably present in the same post-relaunch snapshot. Used for existence checks only — a
+    /// `.matching()`-query element is markedly less reliable to `.tap()` than a plain identifier
+    /// lookup (confirmed: swapping it into `signOutButton(in:)` broke an otherwise-healthy,
+    /// no-relaunch-involved tab switch), so `signOutButton(in:)` keeps using `app.buttons[...]`.
+    private func profileTabButton(in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "profileTab", "Profile")).firstMatch
+    }
+
     /// The tab shell defaults to the Today tab after sign-in/registration; `signOutButton` lives
     /// on the Profile tab, so every flow that needs it must navigate there first.
     private func signOutButton(in app: XCUIApplication) -> XCUIElement {
@@ -125,7 +138,7 @@ final class AuthFlowUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(
-            app.buttons["profileTab"].waitForExistence(timeout: 20),
+            profileTabButton(in: app).waitForExistence(timeout: 20),
             "Expected the tab shell to reappear after relaunch — the Keychain-stored session should restore without signing in again"
         )
 
