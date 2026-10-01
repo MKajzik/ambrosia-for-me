@@ -3,10 +3,12 @@ import SwiftUI
 public struct RegisterView: View {
     @Bindable var viewModel: AuthViewModel
     let onRegistered: () -> Void
+    let onShowSignIn: () -> Void
 
-    public init(viewModel: AuthViewModel, onRegistered: @escaping () -> Void) {
+    public init(viewModel: AuthViewModel, onRegistered: @escaping () -> Void, onShowSignIn: @escaping () -> Void) {
         self.viewModel = viewModel
         self.onRegistered = onRegistered
+        self.onShowSignIn = onShowSignIn
     }
 
     public var body: some View {
@@ -43,6 +45,8 @@ public struct RegisterView: View {
                     || viewModel.displayName.isEmpty
             )
             .accessibilityIdentifier("registerSubmitButton")
+            Button("Already have an account? Sign in", action: onShowSignIn)
+                .accessibilityIdentifier("showSignInButton")
         }
         .navigationTitle("Create Account")
     }

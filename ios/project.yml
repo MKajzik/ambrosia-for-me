@@ -22,9 +22,12 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.ambrosiaforme.mealplanner
+        # CODE_SIGNING_ALLOWED: NO produces a binary with no entitlements at all, including no
+        # application-identifier entitlement — the Security framework then has no default
+        # keychain access group to use and every SecItemAdd/SecItemCopyMatching fails with
+        # errSecMissingEntitlement. A plain ad-hoc signature (the simulator's default, no
+        # Developer Team required) carries that entitlement and is all the Keychain needs.
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGNING_REQUIRED: NO
-        CODE_SIGNING_ALLOWED: NO
         SWIFT_VERSION: "6.0"
   MealPlannerUITests:
     type: bundle.ui-testing
@@ -35,8 +38,8 @@ targets:
       - target: MealPlanner
     settings:
       base:
-        CODE_SIGNING_REQUIRED: NO
-        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   MealPlanner:
     build:

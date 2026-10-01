@@ -20,7 +20,7 @@ public struct AuthRepository: Sendable {
             return auth.user
         case .badRequest(let badRequest):
             let problem = try badRequest.body.applicationProblemJson
-            throw AuthError.validationFailed(problem.detail ?? problem.title)
+            throw AuthError.validationFailed(Self.validationMessage(for: problem))
         case .conflict:
             throw AuthError.emailTaken
         case .tooManyRequests:
@@ -41,7 +41,7 @@ public struct AuthRepository: Sendable {
             return auth.user
         case .badRequest(let badRequest):
             let problem = try badRequest.body.applicationProblemJson
-            throw AuthError.validationFailed(problem.detail ?? problem.title)
+            throw AuthError.validationFailed(Self.validationMessage(for: problem))
         case .unauthorized:
             // The API answers an unknown email and a wrong password identically
             // (backend/CLAUDE.md); the UI must never imply which one was wrong.
@@ -60,6 +60,34 @@ public struct AuthRepository: Sendable {
             _ = try? await client.logoutUser(.init(body: .json(.init(refreshToken: refreshToken))))
         }
         tokenStore.clear()
+    }
+
+    /// A `400 validation_failed` carries per-field `errors`, never a `detail` string (confirmed
+    /// against the real API, not assumed from the schema) — `problem.detail ?? problem.title`
+    /// alone showed the user a bare "Bad Request" for something as ordinary as a short password.
+    /// Named fields match `openapi.yaml`'s request schemas (`email`, `password`, `display_name`).
+    private static func validationMessage(for problem: Components.Schemas.Problem) -> String {
+        guard let errors = problem.errors, !errors.isEmpty else {
+            return problem.detail ?? problem.title
+        }
+        let messages = errors.map { fieldErrorMessage(field: $0.field, code: $0.code) }
+        return messages.joined(separator: " ")
+    }
+
+    private static func fieldErrorMessage(field: String, code: String) -> String {
+        switch (field, code) {
+        case ("email", "required"): return "Enter your email address."
+        case ("email", "invalid_format"), ("email", "invalid_type"), ("email", "invalid_value"):
+            return "Enter a valid email address."
+        case ("email", "too_long"): return "Email address is too long."
+        case ("password", "required"): return "Enter a password."
+        case ("password", "too_short"): return "Password must be at least 10 characters."
+        case ("password", "too_long"): return "Password is too long."
+        case ("display_name", "required"): return "Enter a display name."
+        case ("display_name", "too_short"): return "Display name is too short."
+        case ("display_name", "too_long"): return "Display name is too long."
+        default: return "\(field.replacingOccurrences(of: "_", with: " ").capitalized) is invalid."
+        }
     }
 
     public func currentUser() async throws -> Components.Schemas.User {

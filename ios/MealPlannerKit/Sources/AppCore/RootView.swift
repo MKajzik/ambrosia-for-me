@@ -36,7 +36,8 @@ public struct RootView: View {
                         if showingRegister {
                             RegisterView(
                                 viewModel: registerViewModel,
-                                onRegistered: { appState.adoptSession(from: registerViewModel) }
+                                onRegistered: { appState.adoptSession(from: registerViewModel) },
+                                onShowSignIn: { showingRegister = false }
                             )
                         } else {
                             SignInView(
@@ -57,7 +58,11 @@ public struct RootView: View {
             // screen instead of sign-in, because `showingRegister` is this view's own local
             // state and nothing else resets it when `AppState.signOut()` fires from the
             // Profile tab, several views away from here.
-            if nowSignedOut { showingRegister = false }
+            if nowSignedOut {
+                showingRegister = false
+                signInViewModel.reset()
+                registerViewModel.reset()
+            }
         }
     }
 

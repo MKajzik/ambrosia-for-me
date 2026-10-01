@@ -35,13 +35,22 @@ public struct KeychainTokenStore: TokenStore {
     private func write(account: String, value: String) {
         let data = Data(value.utf8)
         let query = baseQuery(account: account)
+        let status: OSStatus
         if SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess {
-            SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         } else {
             var addQuery = query
             addQuery[kSecValueData as String] = data
             addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            SecItemAdd(addQuery as CFDictionary, nil)
+            status = SecItemAdd(addQuery as CFDictionary, nil)
+        }
+        // `save`/`TokenStore` stay non-throwing (every call site treats persisting a token as a
+        // fire-and-forget side effect of a successful network response), but a failure here is
+        // never silent: it previously was, and a misconfigured build (no keychain entitlement —
+        // see `project.yml`'s signing settings) silently broke every authenticated request with
+        // no diagnostic trail.
+        if status != errSecSuccess {
+            print("KeychainTokenStore: failed to save '\(account)' (OSStatus \(status))")
         }
     }
 

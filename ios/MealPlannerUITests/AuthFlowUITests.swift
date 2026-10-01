@@ -21,6 +21,15 @@ final class AuthFlowUITests: XCTestCase {
         return app.buttons["signOutButton"]
     }
 
+    /// A `SecureField`'s accessibility `value` is privacy-masked to a fixed placeholder (confirmed
+    /// live: it reads `"•"` whether 3 or 8 characters were actually typed), so a test can never
+    /// verify how much text landed by reading it back.
+    private func typeIntoSecureField(_ text: String, field: XCUIElement) {
+        field.tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        field.typeText(text)
+    }
+
     func testRegisterThenSignOutThenSignInAgain() throws {
         let app = XCUIApplication()
         app.launch()
@@ -38,8 +47,7 @@ final class AuthFlowUITests: XCTestCase {
         registerEmailField.typeText(email)
 
         let registerPasswordField = app.secureTextFields["registerPasswordField"]
-        registerPasswordField.tap()
-        registerPasswordField.typeText("correct-horse-battery-staple")
+        typeIntoSecureField("correct-horse-battery-staple", field: registerPasswordField)
 
         app.buttons["registerSubmitButton"].tap()
 
@@ -53,13 +61,46 @@ final class AuthFlowUITests: XCTestCase {
         signInEmailField.typeText(email)
 
         let signInPasswordField = app.secureTextFields["signInPasswordField"]
-        signInPasswordField.tap()
-        signInPasswordField.typeText("correct-horse-battery-staple")
+        typeIntoSecureField("correct-horse-battery-staple", field: signInPasswordField)
 
         app.buttons["signInSubmitButton"].tap()
 
         let secondSignOutButton = signOutButton(in: app)
         XCTAssertTrue(secondSignOutButton.waitForExistence(timeout: 10), "Expected the sign-out button on the Profile tab again after signing back in")
+    }
+
+    /// Pins the Critical finding from this plan's final review: a build without a real code
+    /// signature (`CODE_SIGNING_ALLOWED: NO`) produces a binary with no `application-identifier`
+    /// entitlement, so every `SecItemAdd`/`SecItemCopyMatching` silently fails and the Keychain
+    /// never actually persists a session — confirmed live by watching this exact test fail before
+    /// `project.yml` was fixed to allow a normal ad-hoc simulator signature.
+    func testSessionPersistsAcrossRelaunch() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let email = uniqueEmail()
+
+        app.buttons["showRegisterButton"].tap()
+        let displayNameField = app.textFields["registerDisplayNameField"]
+        XCTAssertTrue(displayNameField.waitForExistence(timeout: 5))
+        displayNameField.tap()
+        displayNameField.typeText("iOS UI Test")
+        let registerEmailField = app.textFields["registerEmailField"]
+        registerEmailField.tap()
+        registerEmailField.typeText(email)
+        let registerPasswordField = app.secureTextFields["registerPasswordField"]
+        typeIntoSecureField("correct-horse-battery-staple", field: registerPasswordField)
+        app.buttons["registerSubmitButton"].tap()
+
+        XCTAssertTrue(app.buttons["profileTab"].waitForExistence(timeout: 10), "Expected the tab shell after registration")
+
+        app.terminate()
+        app.launch()
+
+        XCTAssertTrue(
+            app.buttons["profileTab"].waitForExistence(timeout: 10),
+            "Expected the tab shell to reappear after relaunch — the Keychain-stored session should restore without signing in again"
+        )
     }
 
     func testWrongPasswordShowsGenericError() throws {
@@ -78,8 +119,7 @@ final class AuthFlowUITests: XCTestCase {
         registerEmailField.tap()
         registerEmailField.typeText(email)
         let registerPasswordField = app.secureTextFields["registerPasswordField"]
-        registerPasswordField.tap()
-        registerPasswordField.typeText("correct-horse-battery-staple")
+        typeIntoSecureField("correct-horse-battery-staple", field: registerPasswordField)
         app.buttons["registerSubmitButton"].tap()
 
         let firstSignOutButton = signOutButton(in: app)
@@ -91,8 +131,7 @@ final class AuthFlowUITests: XCTestCase {
         signInEmailField.tap()
         signInEmailField.typeText(email)
         let signInPasswordField = app.secureTextFields["signInPasswordField"]
-        signInPasswordField.tap()
-        signInPasswordField.typeText("definitely-the-wrong-password")
+        typeIntoSecureField("definitely-the-wrong-password", field: signInPasswordField)
         app.buttons["signInSubmitButton"].tap()
 
         let errorMessage = app.staticTexts["signInErrorMessage"]

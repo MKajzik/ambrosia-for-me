@@ -53,17 +53,49 @@ struct AuthRepositoryTests {
         }
     }
 
-    @Test("Registering with an invalid field throws validationFailed with the problem's detail")
-    func registerValidationFailed() async throws {
+    @Test("A too-short password maps the real errors[] shape to a friendly message, not the bare problem title")
+    func registerValidationFailedTooShortPassword() async throws {
+        // The real API's 400 validation_failed carries only `errors`, never a `detail` string
+        // (confirmed against the running backend) — this is the exact shape it sends.
         let transport = StubTransport {
-            (400, #"{"type":"about:blank","title":"Bad Request","status":400,"detail":"password is too short","code":"validation_failed"}"#)
+            (400, #"{"type":"about:blank","title":"Bad Request","status":400,"code":"validation_failed","errors":[{"field":"password","code":"too_short"}]}"#)
         }
         let repository = AuthRepository(
             client: makeAuthlessClient(transport: transport),
             tokenStore: InMemoryTokenStore()
         )
 
-        await #expect(throws: AuthError.validationFailed("password is too short")) {
+        await #expect(throws: AuthError.validationFailed("Password must be at least 10 characters.")) {
+            try await repository.register(email: "person@example.com", password: "short", displayName: "Person")
+        }
+    }
+
+    @Test("Multiple field errors are joined into one message")
+    func registerValidationFailedMultipleFields() async throws {
+        let transport = StubTransport {
+            (400, #"{"type":"about:blank","title":"Bad Request","status":400,"code":"validation_failed","errors":[{"field":"email","code":"invalid_format"},{"field":"display_name","code":"required"}]}"#)
+        }
+        let repository = AuthRepository(
+            client: makeAuthlessClient(transport: transport),
+            tokenStore: InMemoryTokenStore()
+        )
+
+        await #expect(throws: AuthError.validationFailed("Enter a valid email address. Enter a display name.")) {
+            try await repository.register(email: "not-an-email", password: "correct-horse-battery", displayName: "")
+        }
+    }
+
+    @Test("A 400 with no errors array falls back to the problem's detail, then title")
+    func registerValidationFailedNoErrorsArray() async throws {
+        let transport = StubTransport {
+            (400, #"{"type":"about:blank","title":"Bad Request","status":400,"detail":"malformed JSON body","code":"bad_request"}"#)
+        }
+        let repository = AuthRepository(
+            client: makeAuthlessClient(transport: transport),
+            tokenStore: InMemoryTokenStore()
+        )
+
+        await #expect(throws: AuthError.validationFailed("malformed JSON body")) {
             try await repository.register(email: "person@example.com", password: "short", displayName: "Person")
         }
     }

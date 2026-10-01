@@ -28,6 +28,17 @@ public final class AuthViewModel {
         }
     }
 
+    /// Called when the session ends (sign-out), so a form's leftover credentials never reappear
+    /// for the next person to use this device — `SignInView` and `RegisterView` each keep their
+    /// own `AuthViewModel` for the lifetime of the app, not just for one sign-in attempt.
+    public func reset() {
+        email = ""
+        password = ""
+        displayName = ""
+        errorMessage = nil
+        lastSignedInUser = nil
+    }
+
     private func submit(_ action: () async throws -> Components.Schemas.User) async -> Components.Schemas.User? {
         isSubmitting = true
         errorMessage = nil
