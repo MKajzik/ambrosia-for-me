@@ -26,14 +26,13 @@ final class AuthFlowUITests: XCTestCase {
     }
 
     /// XCUITest's accessibility snapshot sometimes never re-attaches `profileTab`'s identifier
-    /// after an in-process app relaunch (`app.terminate()` + `.launch()` within the same test),
-    /// even though the app's own session restore is provably correct — instrumenting the app with
-    /// `os.Logger` during this investigation showed SwiftUI rebuilding the signed-in tab shell
-    /// within ~1s of the relaunch, every time. The accessibility label, unlike the identifier, was
-    /// reliably present in the same post-relaunch snapshot. Used for existence checks only — a
-    /// `.matching()`-query element is markedly less reliable to `.tap()` than a plain identifier
-    /// lookup (confirmed: swapping it into `signOutButton(in:)` broke an otherwise-healthy,
-    /// no-relaunch-involved tab switch), so `signOutButton(in:)` keeps using `app.buttons[...]`.
+    /// after any app launch past the first one in a given `xcodebuild test` invocation — whether
+    /// that's `app.terminate()` + `.launch()` within one test, or simply a later `@Test`/test
+    /// method's own fresh `XCUIApplication().launch()` — even though the app's own session
+    /// restore is provably correct: instrumenting the app with `os.Logger` during this
+    /// investigation showed SwiftUI rebuilding the signed-in tab shell within ~1s of the launch,
+    /// every time. The accessibility label, unlike the identifier, was reliably present in the
+    /// same snapshot, so match on either.
     private func profileTabButton(in app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "profileTab", "Profile")).firstMatch
     }
@@ -41,7 +40,7 @@ final class AuthFlowUITests: XCTestCase {
     /// The tab shell defaults to the Today tab after sign-in/registration; `signOutButton` lives
     /// on the Profile tab, so every flow that needs it must navigate there first.
     private func signOutButton(in app: XCUIApplication) -> XCUIElement {
-        let profileTab = app.buttons["profileTab"]
+        let profileTab = profileTabButton(in: app)
         XCTAssertTrue(profileTab.waitForExistence(timeout: 45), "Expected the tab shell after a successful sign-in or registration")
         profileTab.tap()
         let signOutButton = app.buttons["signOutButton"]
@@ -132,7 +131,7 @@ final class AuthFlowUITests: XCTestCase {
         typeIntoSecureField("correct-horse-battery-staple", field: registerPasswordField)
         app.buttons["registerSubmitButton"].tap()
 
-        XCTAssertTrue(app.buttons["profileTab"].waitForExistence(timeout: 45), "Expected the tab shell after registration")
+        XCTAssertTrue(profileTabButton(in: app).waitForExistence(timeout: 45), "Expected the tab shell after registration")
 
         app.terminate()
         app.launch()
