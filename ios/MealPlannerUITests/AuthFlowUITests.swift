@@ -131,7 +131,8 @@ final class AuthFlowUITests: XCTestCase {
         typeIntoSecureField("correct-horse-battery-staple", field: registerPasswordField)
         app.buttons["registerSubmitButton"].tap()
 
-        XCTAssertTrue(profileTabButton(in: app).waitForExistence(timeout: 45), "Expected the tab shell after registration")
+        let tabShellAppeared = profileTabButton(in: app).waitForExistence(timeout: 45)
+        XCTAssertTrue(tabShellAppeared, "Expected the tab shell after registration. DIAG hierarchy:\n\(app.debugDescription)")
 
         app.terminate()
         app.launch()
