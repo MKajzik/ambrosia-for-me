@@ -14,8 +14,8 @@ struct TokenRefresherTests {
         "id": "11111111-1111-1111-1111-111111111111",
         "email": "person@example.com",
         "display_name": "Person",
-        "created_at": "2026-01-01T00:00:00Z",
-        "updated_at": "2026-01-01T00:00:00Z"
+        "created_at": "2026-01-01T00:00:00.000000Z",
+        "updated_at": "2026-01-01T00:00:00.000000Z"
       }
     }
     """

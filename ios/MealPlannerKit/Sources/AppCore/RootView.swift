@@ -6,7 +6,13 @@ import SwiftUI
 
 public struct RootView: View {
     @State private var appState: AppState
-    @State private var authViewModel: AuthViewModel
+    // Separate instances, not one shared between both forms: each form's `TextField`/
+    // `SecureField` binds directly to its view model's `email`/`password`, and sharing one
+    // instance left the sign-in fields pre-populated with whatever was last typed into the
+    // register form (or vice versa) when the user switched between them or returned to
+    // sign-in after signing out from a freshly registered account.
+    @State private var signInViewModel: AuthViewModel
+    @State private var registerViewModel: AuthViewModel
     @State private var showingRegister = false
 
     public init(baseURL: URL = APIEnvironment.baseURL) {
@@ -15,7 +21,8 @@ public struct RootView: View {
         let client = makeClient(baseURL: baseURL, middlewares: [BearerAuthMiddleware(refresher: refresher)])
         let authRepository = AuthRepository(client: client, tokenStore: tokenStore)
         _appState = State(initialValue: AppState(authRepository: authRepository, tokenStore: tokenStore))
-        _authViewModel = State(initialValue: AuthViewModel(authRepository: authRepository))
+        _signInViewModel = State(initialValue: AuthViewModel(authRepository: authRepository))
+        _registerViewModel = State(initialValue: AuthViewModel(authRepository: authRepository))
     }
 
     public var body: some View {
@@ -28,13 +35,13 @@ public struct RootView: View {
                     NavigationStack {
                         if showingRegister {
                             RegisterView(
-                                viewModel: authViewModel,
-                                onRegistered: { appState.adoptSession(from: authViewModel) }
+                                viewModel: registerViewModel,
+                                onRegistered: { appState.adoptSession(from: registerViewModel) }
                             )
                         } else {
                             SignInView(
-                                viewModel: authViewModel,
-                                onSignedIn: { appState.adoptSession(from: authViewModel) },
+                                viewModel: signInViewModel,
+                                onSignedIn: { appState.adoptSession(from: signInViewModel) },
                                 onShowRegister: { showingRegister = true }
                             )
                         }
@@ -45,5 +52,17 @@ public struct RootView: View {
             }
         }
         .task { await appState.restoreSession() }
+        .onChange(of: isSignedOut) { _, nowSignedOut in
+            // Otherwise a user who registered, then signed out, lands back on the register
+            // screen instead of sign-in, because `showingRegister` is this view's own local
+            // state and nothing else resets it when `AppState.signOut()` fires from the
+            // Profile tab, several views away from here.
+            if nowSignedOut { showingRegister = false }
+        }
+    }
+
+    private var isSignedOut: Bool {
+        if case .signedOut = appState.session { return true }
+        return false
     }
 }

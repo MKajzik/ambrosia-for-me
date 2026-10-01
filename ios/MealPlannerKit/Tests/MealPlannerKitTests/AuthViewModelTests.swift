@@ -14,7 +14,7 @@ struct AuthViewModelTests {
               "access_token": "a1", "refresh_token": "r1", "token_type": "Bearer", "expires_in": 900,
               "user": {
                 "id": "11111111-1111-1111-1111-111111111111", "email": "person@example.com",
-                "display_name": "Person", "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+                "display_name": "Person", "created_at": "2026-01-01T00:00:00.000000Z", "updated_at": "2026-01-01T00:00:00.000000Z"
               }
             }
             """)
