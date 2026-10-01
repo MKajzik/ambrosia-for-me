@@ -76,7 +76,7 @@ jobs:
           go run ./cmd/api &
           ready=""
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8080/readyz; then ready=1; break; fi
+            if curl -sf http://localhost:8080/v1/readyz; then ready=1; break; fi
             sleep 1
           done
           if [ -z "$ready" ]; then
