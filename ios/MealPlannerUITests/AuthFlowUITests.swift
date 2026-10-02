@@ -1,4 +1,3 @@
-import UIKit
 import XCTest
 
 final class AuthFlowUITests: XCTestCase {
@@ -27,12 +26,11 @@ final class AuthFlowUITests: XCTestCase {
 
     /// XCUITest's accessibility snapshot sometimes never re-attaches `profileTab`'s identifier
     /// after any app launch past the first one in a given `xcodebuild test` invocation — whether
-    /// that's `app.terminate()` + `.launch()` within one test, or simply a later `@Test`/test
-    /// method's own fresh `XCUIApplication().launch()` — even though the app's own session
-    /// restore is provably correct: instrumenting the app with `os.Logger` during this
-    /// investigation showed SwiftUI rebuilding the signed-in tab shell within ~1s of the launch,
-    /// every time. The accessibility label, unlike the identifier, was reliably present in the
-    /// same snapshot, so match on either.
+    /// that's `app.terminate()` + `.launch()` within one test, or simply a later test method's own
+    /// fresh `XCUIApplication().launch()` — even though the app's own session restore is provably
+    /// correct: instrumenting the app with `os.Logger` during this investigation showed SwiftUI
+    /// rebuilding the signed-in tab shell within ~1s of the launch, every time. The accessibility
+    /// label, unlike the identifier, was reliably present in the same snapshot, so match on either.
     private func profileTabButton(in app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "profileTab", "Profile")).firstMatch
     }
@@ -48,30 +46,66 @@ final class AuthFlowUITests: XCTestCase {
         return signOutButton
     }
 
-    /// A `SecureField`'s accessibility `value` is privacy-masked to a fixed `"•"` regardless of
-    /// how many characters were actually entered, so a test can never verify the *exact* text
-    /// landed — but an empty field reports no `value` at all (confirmed by inspecting a live CI
-    /// failure's accessibility snapshot: an empty `SecureField` shows no `value:` line, a
-    /// non-empty one shows `value: •`), which is enough to detect the specific failure mode seen
-    /// here: a *complete* paste failure, not truncation.
+    /// Clears a field before retyping into it — `.typeText` appends at the cursor, so a field with
+    /// leftover content from a previous attempt must be cleared first. Always sends a generous
+    /// fixed number of deletes rather than computing the field's exact current length (unknowable
+    /// for a privacy-masked `SecureField` anyway); extra deletes on an already-empty field are
+    /// harmless no-ops.
+    private func clearAndType(_ text: String, field: XCUIElement) {
+        field.tap()
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60))
+        field.typeText(text)
+    }
+
+    /// Registers a new account, retrying the whole form fill if it doesn't reach the tab shell.
     ///
-    /// `typeText` into a `SecureField` is unreliable once the app carries a real code signature:
-    /// Password AutoFill intercepts XCUITest's synthesized keystrokes and the password sometimes
-    /// arrives truncated (see `.superpowers/sdd/2026-09-30-ios-foundation/progress.md`). Writing
-    /// to the pasteboard and sending the hardware-keyboard Cmd+V shortcut sidesteps AutoFill and
-    /// fixes the truncation, but the paste itself is sometimes a complete no-op (confirmed live:
-    /// a CI failure's accessibility snapshot showed the password field completely empty and the
-    /// submit button still disabled, right after this exact paste sequence ran) — so verify it
-    /// landed and retry a few times before giving up.
-    private func typeIntoSecureField(_ text: String, field: XCUIElement) {
-        UIPasteboard.general.string = text
+    /// Password entry here went through two failed approaches before this one. `typeText`
+    /// directly into the `SecureField` is unreliable once the app carries a real code signature:
+    /// Password AutoFill intercepts XCUITest's synthesized keystrokes and sometimes drops
+    /// characters, occasionally leaving the password too short
+    /// (see `.superpowers/sdd/2026-09-30-ios-foundation/progress.md`). Writing to the pasteboard
+    /// and sending a hardware-keyboard Cmd+V shortcut (`field.typeKey("v", modifierFlags: .command)`)
+    /// was tried next specifically to sidestep that — but it turned out to deterministically
+    /// deliver *zero* characters whenever the app under test is not the very first one launched in
+    /// a given `xcodebuild test` invocation: confirmed live via a CI diagnostic that read
+    /// `registerPasswordField.value` back as its placeholder text (not even a masked `"•"`) after
+    /// 5 retries with a settle delay, every single run, while the exact same `typeKey` call always
+    /// succeeded in the first test method's app launch. That's a distinct, apparently permanent
+    /// XCUITest limitation, unrelated to AutoFill, that no amount of retrying or waiting works
+    /// around.
+    ///
+    /// `typeText` has never once failed on the display name or email fields, on any launch — it's
+    /// the one mechanism proven reliable across every launch — so it's used here for the password
+    /// too, with retries to absorb its own, separate AutoFill-truncation risk: a client-side-
+    /// disabled submit button never reaches the network, and a server-rejected attempt (password
+    /// too short) doesn't register a duplicate account, so retrying from a cleared form is safe.
+    private func registerAccount(in app: XCUIApplication, displayName: String, email: String, password: String) {
         for _ in 0..<5 {
-            field.tap()
-            field.typeKey("v", modifierFlags: .command)
-            // Give the paste's accessibility value time to land before reading it back — reading
-            // immediately risks seeing a stale (pre-paste) value even on a successful paste.
-            Thread.sleep(forTimeInterval: 0.3)
-            if let value = field.value as? String, !value.isEmpty {
+            let displayNameField = app.textFields["registerDisplayNameField"]
+            waitUntilHittable(displayNameField, timeout: 5)
+            clearAndType(displayName, field: displayNameField)
+            clearAndType(email, field: app.textFields["registerEmailField"])
+            clearAndType(password, field: app.secureTextFields["registerPasswordField"])
+            app.buttons["registerSubmitButton"].tap()
+            if profileTabButton(in: app).waitForExistence(timeout: 8) {
+                return
+            }
+        }
+    }
+
+    /// Signs in with the given credentials, retrying the whole form fill if it doesn't reach the
+    /// tab shell — only used where success is the sole valid outcome (a just-registered account
+    /// signing back in with its real password), for the same AutoFill-truncation reason
+    /// `registerAccount` retries. Never used for a deliberately wrong password: there, a sign-in
+    /// error is the expected, correct result, not a signal to retry.
+    private func signIn(in app: XCUIApplication, email: String, password: String) {
+        for _ in 0..<5 {
+            let emailField = app.textFields["signInEmailField"]
+            waitUntilHittable(emailField, timeout: 5)
+            clearAndType(email, field: emailField)
+            clearAndType(password, field: app.secureTextFields["signInPasswordField"])
+            app.buttons["signInSubmitButton"].tap()
+            if profileTabButton(in: app).waitForExistence(timeout: 8) {
                 return
             }
         }
@@ -84,32 +118,13 @@ final class AuthFlowUITests: XCTestCase {
         let email = uniqueEmail()
 
         app.buttons["showRegisterButton"].tap()
-        let displayNameField = app.textFields["registerDisplayNameField"]
-        waitUntilHittable(displayNameField, timeout: 5)
-        displayNameField.tap()
-        displayNameField.typeText("iOS UI Test")
-
-        let registerEmailField = app.textFields["registerEmailField"]
-        registerEmailField.tap()
-        registerEmailField.typeText(email)
-
-        let registerPasswordField = app.secureTextFields["registerPasswordField"]
-        typeIntoSecureField("correct-horse-battery-staple", field: registerPasswordField)
-
-        app.buttons["registerSubmitButton"].tap()
+        registerAccount(in: app, displayName: "iOS UI Test", email: email, password: "correct-horse-battery-staple")
 
         let firstSignOutButton = signOutButton(in: app)
         firstSignOutButton.tap()
 
-        let signInEmailField = app.textFields["signInEmailField"]
-        waitUntilHittable(signInEmailField, timeout: 5)
-        signInEmailField.tap()
-        signInEmailField.typeText(email)
-
-        let signInPasswordField = app.secureTextFields["signInPasswordField"]
-        typeIntoSecureField("correct-horse-battery-staple", field: signInPasswordField)
-
-        app.buttons["signInSubmitButton"].tap()
+        waitUntilHittable(app.textFields["signInEmailField"], timeout: 5)
+        signIn(in: app, email: email, password: "correct-horse-battery-staple")
 
         // Sign out at the end so this test leaves no session in the Keychain: tests run against
         // the same simulator and a dangling signed-in session makes the next test (which expects
@@ -132,25 +147,9 @@ final class AuthFlowUITests: XCTestCase {
         let email = uniqueEmail()
 
         app.buttons["showRegisterButton"].tap()
-        let displayNameField = app.textFields["registerDisplayNameField"]
-        waitUntilHittable(displayNameField, timeout: 5)
-        displayNameField.tap()
-        displayNameField.typeText("iOS UI Test")
-        let registerEmailField = app.textFields["registerEmailField"]
-        registerEmailField.tap()
-        registerEmailField.typeText(email)
-        let registerPasswordField = app.secureTextFields["registerPasswordField"]
-        typeIntoSecureField("correct-horse-battery-staple", field: registerPasswordField)
-        let passwordFieldValueAfterTyping = String(describing: registerPasswordField.value)
-        let submitButtonEnabledAfterTyping = app.buttons["registerSubmitButton"].isEnabled
-        app.buttons["registerSubmitButton"].tap()
+        registerAccount(in: app, displayName: "iOS UI Test", email: email, password: "correct-horse-battery-staple")
 
-        let tabShellAppeared = profileTabButton(in: app).waitForExistence(timeout: 45)
-        XCTAssertTrue(
-            tabShellAppeared,
-            "Expected the tab shell after registration. DIAG passwordField.value after typing: "
-                + "\(passwordFieldValueAfterTyping), submitButton.isEnabled after typing: \(submitButtonEnabledAfterTyping)"
-        )
+        XCTAssertTrue(profileTabButton(in: app).waitForExistence(timeout: 45), "Expected the tab shell after registration")
 
         app.terminate()
         app.launch()
@@ -174,26 +173,15 @@ final class AuthFlowUITests: XCTestCase {
 
         // Register once so the account exists, sign out, then try the wrong password.
         app.buttons["showRegisterButton"].tap()
-        let displayNameField = app.textFields["registerDisplayNameField"]
-        waitUntilHittable(displayNameField, timeout: 5)
-        displayNameField.tap()
-        displayNameField.typeText("iOS UI Test")
-        let registerEmailField = app.textFields["registerEmailField"]
-        registerEmailField.tap()
-        registerEmailField.typeText(email)
-        let registerPasswordField = app.secureTextFields["registerPasswordField"]
-        typeIntoSecureField("correct-horse-battery-staple", field: registerPasswordField)
-        app.buttons["registerSubmitButton"].tap()
+        registerAccount(in: app, displayName: "iOS UI Test", email: email, password: "correct-horse-battery-staple")
 
         let firstSignOutButton = signOutButton(in: app)
         firstSignOutButton.tap()
 
         let signInEmailField = app.textFields["signInEmailField"]
         waitUntilHittable(signInEmailField, timeout: 5)
-        signInEmailField.tap()
-        signInEmailField.typeText(email)
-        let signInPasswordField = app.secureTextFields["signInPasswordField"]
-        typeIntoSecureField("definitely-the-wrong-password", field: signInPasswordField)
+        clearAndType(email, field: signInEmailField)
+        clearAndType("definitely-the-wrong-password", field: app.secureTextFields["signInPasswordField"])
         app.buttons["signInSubmitButton"].tap()
 
         let errorMessage = app.staticTexts["signInErrorMessage"]
