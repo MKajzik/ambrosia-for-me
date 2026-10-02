@@ -42,7 +42,7 @@ ios/
     ├── Sources/
     │   ├── API/              # generated Types + Client (OpenAPI plugin output) + APIClient wrapper
     │   ├── Auth/             # Keychain token storage, refresh single-flight actor
-    │   ├── Persistence/      # SwiftData schema + ModelContainer factory
+    │   ├── Persistence/      # SwiftData schema, per-domain cache actors, ModelContainer factory
     │   ├── Repositories/     # one per domain: Meals, DietTemplates, Plan, ShoppingLists, Partner, Profile
     │   ├── Sync/             # ShoppingSyncEngine (offline queue), ListEventStream (SSE)
     │   ├── Features/         # {Today,Plan,Meals,Shopping,Profile}/{ViewModel,View}
@@ -50,7 +50,7 @@ ios/
     └── Tests/MealPlannerKitTests/     # Swift Testing: VMs, repositories, queue replay
 ```
 
-`xcodegen generate` produces `MealPlanner.xcodeproj`, which is gitignored; only `project.yml`, `MealPlannerUITests/` sources and the package are committed. XCUITest needs a real app to launch, so its target is defined in `project.yml` against the `MealPlanner` app target, not inside the SPM package — `swift test` alone never runs it, only `xcodebuild test` does. CI runs `xcodegen generate` before `xcodebuild`. `swift build` / `swift test` work on `MealPlannerKit` without Xcode at all, which is what CI's unit-test job and local iteration use day to day.
+`xcodegen generate` produces `MealPlanner.xcodeproj`, which is gitignored; only `project.yml`, `MealPlannerUITests/` sources and the package are committed. XCUITest needs a real app to launch, so its target is defined in `project.yml` against the `MealPlanner` app target, not inside the SPM package — `swift test` alone never runs it, only `xcodebuild test` does. CI runs `xcodegen generate` before `xcodebuild`. `swift build` / `swift test` work on `MealPlannerKit` without Xcode at all, which is what CI's unit-test job and local iteration use day to day. `Persistence` and `Repositories` are SPM targets alongside `API`, `Auth`, `Features` and `AppCore`; their dependency graph is in `2026-10-02-ios-meals-design.md` §4.
 
 ## 5. Networking and auth
 
@@ -61,11 +61,12 @@ ios/
 
 ## 6. Persistence and caching
 
-- One `ModelContainer` for the whole app, created at launch, injected via SwiftUI environment.
+- One `ModelContainer` for the whole app, created at launch and handed to the per-domain cache actors (`2026-10-02-ios-meals-design.md` §5.2). Views and view models never see it, so it is not injected into the SwiftUI environment.
 - Each repository (`MealsRepository`, `PlanRepository`, `ShoppingListsRepository`, etc.) is the only code that touches both the generated `Client` and SwiftData for its domain; view models never see either directly.
-- Read path: return the cached SwiftData snapshot immediately (instant launch), then fetch from the API in the background and update the cache and the view model when the fetch lands. A fetch failure with no cached data shows an empty/error state; a fetch failure with cached data keeps showing the cache, marked stale (small "offline" indicator, matching the web app's "404 replaces, other failures keep cache" split from `web/CLAUDE.md`, generalized to iOS's own read failures).
+- Read path: return the cached SwiftData snapshot immediately (instant launch), then fetch from the API in the background and update the cache and the view model when the fetch lands. A fetch failure with no cached data shows an empty/error state; a fetch failure with cached data keeps showing the cache, marked stale (small "offline" indicator, matching the web app's "404 replaces, other failures keep cache" split from `web/CLAUDE.md`, generalized to iOS's own read failures). The mechanism is two repository calls, `cached…()` then `refresh…()`, with the view model re-reading in between (Meals spec §5.3).
 - Write path (everything except shopping items): call the API directly; a failure surfaces an error and does not mutate the cache optimistically, since there is no offline queue for these domains. This is deliberately simpler than shopping: the parent spec only asks for offline support on the shopping list (§5.4), and non-shopping writes are rare enough on a phone (editing a meal, applying a template) that requiring connectivity is an acceptable, YAGNI-respecting limit for v1.
 - Shopping items are the one write path with an offline queue — see §7.
+- Every cache is cleared whenever the session ends, by any path, so a second user on the device never sees the first user's data (Meals spec §5.6).
 
 ## 7. Shopping offline queue and sync
 
@@ -87,10 +88,10 @@ ios/
 - `RootView`: a `TabView` with five tabs — Today, Plan, Meals, Shopping, Profile — each wrapping its own `NavigationStack` (parent spec §5.4). Meal and ingredient editors, the template editor, and item edit/add dialogs are sheets.
 - `Features/Today`: rings for calories and the three macros against `GET /plan`'s targets, one-tap meal swap and portion change, "Add snack"/"Clear snacks" for the multi-row slot (mirrors the web app's snack handling, since the API addresses a snack only by date+slot, not individually — `web/CLAUDE.md` §Gotchas).
 - `Features/Plan`: week calendar, apply-template flow with the `409 plan_conflict` → confirm-overwrite dialog, daily/weekly totals.
-- `Features/Meals`: shared ingredient search component (type-ahead, category filter, "create custom ingredient" fallback — same shape as the web app's, parent spec §5.1), meal library with "Mine"/"Partner's" segments, editor with a live nutrition panel. A partner's meal is read-only with a "Copy to my library" action; the Partner segment is hidden while `GET partner` reports `404 partner_not_linked`.
+- `Features/Meals`: shared ingredient search sheet (type-ahead, category filter, "create custom ingredient" fallback — same shape as the web app's, parent spec §5.1), meal library with "Mine"/"Partner's" segments, an autosaving editor (no Save button, as web) with a live nutrition panel. A partner's meal is read-only with a "Copy to my library" action; the Partner segment shows only while `GET /partner` returns `status: active` (a pending invite, like `404 partner_not_linked`, hides it). Details: `2026-10-02-ios-meals-design.md`.
 - `Features/Shopping`: lists grouped by aisle category, check-off, quick-add, generate-from-date-range, the sync indicator from §7, a partner badge on shared lists.
 - `Features/Profile`: targets (four optional numbers, same blank-clears / zero-calories-refused rule as web), partner connection (invite code display/entry, unlink), custom ingredient management (sends all 18 nutrients on update, since the API replaces the whole set — `backend/CLAUDE.md` §Behaviour), account deletion. Deletion asks for the account's email to be typed in the UI even though the API needs no re-authentication for `DELETE /me`, mirroring the web app's belt-and-suspenders pattern (`web/CLAUDE.md` §Gotchas).
-- Ingredient search filters "mine only" client-side after fetching all pages, same documented gap and workaround as the web app (`GET /ingredients` has no owner filter — parent spec known gap, web spec §11).
+- The Profile screen's custom-ingredient management filters "mine only" client-side after fetching all pages, same documented gap and workaround as the web app (`GET /ingredients` has no owner filter — parent spec known gap, web spec §11). The meal ingredient search has no such filter (it shows a "Custom" badge instead), as web.
 
 ## 10. Visual direction
 
@@ -130,7 +131,7 @@ Liquid Glass materials, SF Symbols, system typography and native Dynamic Type, m
 One spec, five plans, five PRs, in order (parent spec §9, handoff decision 2):
 
 1. **Foundation.** `ios/` scaffold (XcodeGen `project.yml`, `MealPlannerKit` package) and `ios/CLAUDE.md`; Swift OpenAPI Generator wiring and drift check; Keychain auth with transparent refresh and single-flight; email/password sign-in and registration; the five-tab shell with empty placeholder screens; `ios.yml` CI (unit + UI jobs) and Makefile targets.
-2. **Meals.** The shared ingredient search, meal library and editor with live nutrition, partner's shared meals and copy.
+2. **Meals.** The shared ingredient search with custom-ingredient creation, meal library and autosaving editor with live nutrition, partner's shared meals and copy; plus the session handling Foundation deferred to the first authenticated screens (`2026-10-02-ios-meals-design.md`).
 3. **Plan and Today.** Diet template editor, week calendar and apply, Today with macro rings and one-tap swaps.
 4. **Shopping and Profile.** Lists, generate, check-off and quick-add; the offline queue (§7) and SSE (§8); the partner connection UI; targets, custom ingredients and account deletion; the accessibility audit.
 5. **Sign in with Apple.** Its own backend plan first (`POST /auth/apple`, `openapi.yaml` change, Apple Developer Service ID and keys), then the iOS `AuthenticationServices` integration.
