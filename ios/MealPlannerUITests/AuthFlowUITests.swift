@@ -68,10 +68,12 @@ final class AuthFlowUITests: XCTestCase {
         for _ in 0..<5 {
             field.tap()
             field.typeKey("v", modifierFlags: .command)
+            // Give the paste's accessibility value time to land before reading it back — reading
+            // immediately risks seeing a stale (pre-paste) value even on a successful paste.
+            Thread.sleep(forTimeInterval: 0.3)
             if let value = field.value as? String, !value.isEmpty {
                 return
             }
-            Thread.sleep(forTimeInterval: 0.3)
         }
     }
 
@@ -139,9 +141,16 @@ final class AuthFlowUITests: XCTestCase {
         registerEmailField.typeText(email)
         let registerPasswordField = app.secureTextFields["registerPasswordField"]
         typeIntoSecureField("correct-horse-battery-staple", field: registerPasswordField)
+        let passwordFieldValueAfterTyping = String(describing: registerPasswordField.value)
+        let submitButtonEnabledAfterTyping = app.buttons["registerSubmitButton"].isEnabled
         app.buttons["registerSubmitButton"].tap()
 
-        XCTAssertTrue(profileTabButton(in: app).waitForExistence(timeout: 45), "Expected the tab shell after registration")
+        let tabShellAppeared = profileTabButton(in: app).waitForExistence(timeout: 45)
+        XCTAssertTrue(
+            tabShellAppeared,
+            "Expected the tab shell after registration. DIAG passwordField.value after typing: "
+                + "\(passwordFieldValueAfterTyping), submitButton.isEnabled after typing: \(submitButtonEnabledAfterTyping)"
+        )
 
         app.terminate()
         app.launch()
