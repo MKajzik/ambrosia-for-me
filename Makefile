@@ -19,7 +19,7 @@ migrate run-api: export DATABASE_URL ?= postgres://mealplanner:mealplanner@local
 run-api: export JWT_SECRET ?= dev-only-secret-change-me-0123456789
 run-api: export ALLOW_DEV_JWT_SECRET ?= 1
 
-.PHONY: help lint-api test-backend lint-backend lint-web test-web e2e-web run-web generate generate-web check-generated check-generated-web migrate run-api import-usda db-up db-down check
+.PHONY: help lint-api test-backend lint-backend lint-web test-web e2e-web run-web generate generate-web generate-ios check-generated check-generated-web check-generated-ios build-ios test-ios migrate run-api import-usda db-up db-down check
 
 help: ## List available targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-22s %s\n", $$1, $$2}'
@@ -48,6 +48,21 @@ check-generated: generate ## Fail if the committed generated code is out of date
 check-generated-web: generate-web ## Fail if the committed web API types are out of date
 	git add -AN -- $(WEB_GENERATED)
 	git diff --exit-code -- $(WEB_GENERATED)
+
+GENERATED_IOS := ios/MealPlannerKit/Sources/API/GeneratedSources
+
+generate-ios: ## Regenerate the iOS Swift OpenAPI client from openapi.yaml
+	cd ios/MealPlannerKit && swift package --allow-writing-to-package-directory generate-code-from-openapi
+
+check-generated-ios: generate-ios ## Fail if the committed iOS API client is out of date
+	git add -AN -- $(GENERATED_IOS)
+	git diff --exit-code -- $(GENERATED_IOS)
+
+build-ios: ## Build the iOS app for the simulator (needs Xcode and XcodeGen)
+	cd ios && xcodegen generate && xcodebuild -project MealPlanner.xcodeproj -scheme MealPlanner -destination 'generic/platform=iOS Simulator' build
+
+test-ios: ## Run the iOS unit tests (Swift Testing, no Xcode or simulator needed)
+	cd ios/MealPlannerKit && swift test
 
 web/node_modules: web/package-lock.json
 	cd web && npm ci
@@ -82,4 +97,4 @@ db-up: ## Start local Postgres and wait until healthy
 db-down: ## Stop local Postgres (data is kept)
 	docker compose down
 
-check: lint-api test-backend lint-backend check-generated lint-web test-web ## Everything CI runs, except the compose workflow and the web E2E flows
+check: lint-api test-backend lint-backend check-generated lint-web test-web test-ios ## Everything CI runs, except the compose workflow, the web E2E flows and the iOS UI tests

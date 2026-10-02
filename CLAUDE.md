@@ -24,7 +24,7 @@ Design spec: `docs/superpowers/specs/2026-09-21-meal-planner-design.md`. Read be
 - `.redocly.lint-ignore.yaml`: only lint exemption (`/healthz` and `/readyz` exempt from "every operation declares a 4XX response" rule; all other operations must declare one)
 - `backend/`: Go API (see `backend/CLAUDE.md`)
 - `web/`: Next.js web app (see `web/CLAUDE.md`)
-- `ios/`: added by own plan
+- `ios/`: SwiftUI iOS app (see `ios/CLAUDE.md`)
 - `docker-compose.yml`: local Postgres, one-shot migrate, API, web (`backend/Dockerfile`, `web/Dockerfile`)
 - `.github/workflows/`: path-filtered CI
 
@@ -43,6 +43,10 @@ Run `make help` for list. Most used:
 | `make run-web` | Run web app on `:3000` (API on `:8080` first) |
 | `make generate` | Regenerate generated code: oapi-codegen + sqlc for backend, TS API types for web (`generate-web`) |
 | `make check-generated` | Fail if committed generated code stale (`check-generated-web` for web types only) |
+| `make build-ios` | Build the iOS app for the simulator (needs Xcode + XcodeGen) |
+| `make test-ios` | Run the iOS unit tests (no Xcode or simulator needed) |
+| `make generate-ios` | Regenerate the iOS Swift OpenAPI client |
+| `make check-generated-ios` | Fail if the committed iOS API client is stale |
 | `make db-up` / `make db-down` | Start / stop local Postgres |
 | `make migrate` | Apply migrations to local DB |
 | `make run-api` | Run API on `:8080` |

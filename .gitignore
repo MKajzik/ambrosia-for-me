@@ -29,3 +29,7 @@ ios/build/
 DerivedData/
 xcuserdata/
 *.xcuserstate
+ios/*.xcodeproj/
+ios/Generated/
+ios/MealPlannerKit/.build/
+ios/MealPlannerKit/.swiftpm/

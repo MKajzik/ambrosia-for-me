@@ -1,0 +1,107 @@
+name: ios
+
+on:
+  pull_request:
+    paths:
+      - ios/**
+      - openapi.yaml
+      - Makefile
+      - .github/workflows/ios.yml
+  push:
+    branches: [master]
+    paths:
+      - ios/**
+      - openapi.yaml
+      - Makefile
+      - .github/workflows/ios.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      # `swift build`/`swift test` need an Xcode 26 toolchain to recognize `.iOS(.v26)` and
+      # `swift-tools-version:6.2` — pinned to match local development; bump this alongside the
+      # local Xcode version, and check the runner image actually carries it
+      # (https://github.com/actions/runner-images) before raising it further.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+      - run: make test-ios
+      - run: make check-generated-ios
+
+  ui:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install and start Postgres
+        # macOS runners have no Docker daemon, so service containers (which the backend's own
+        # test suite gets via testcontainers) aren't available here — Postgres runs natively.
+        run: |
+          set -euo pipefail
+          brew install postgresql@16
+          brew link --overwrite --force postgresql@16
+          brew services start postgresql@16
+          for i in $(seq 1 30); do pg_isready -h 127.0.0.1 -p 5432 && break; sleep 1; done
+          pg_isready -h 127.0.0.1 -p 5432 || { echo "::error::Postgres never became ready"; exit 1; }
+          createdb -h 127.0.0.1 mealplanner
+      - name: Run migrations and start the API
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://runner@127.0.0.1:5432/mealplanner?sslmode=disable
+          JWT_SECRET: dev-only-secret-change-me-0123456789
+          ALLOW_DEV_JWT_SECRET: "1"
+        run: |
+          set -euo pipefail
+          go run ./cmd/migrate
+          go run ./cmd/api &
+          ready=""
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/v1/readyz; then ready=1; break; fi
+            sleep 1
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::API never became ready on :8080"
+            exit 1
+          fi
+      - run: brew install xcodegen
+      - name: Build and run the iOS UI tests
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcodegen generate
+          # Must be an iOS 26 runtime specifically (the deployment target) — matching any "iOS"
+          # runtime risks picking one below it if the runner image ships more than one.
+          DEVICE_UDID=$(xcrun simctl list devices available -j | /usr/bin/python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)['devices']
+          for runtime, devices in data.items():
+              if 'iOS-26' in runtime:
+                  for d in devices:
+                      if d['name'].startswith('iPhone'):
+                          print(d['udid']); raise SystemExit
+          ")
+          if [ -z "$DEVICE_UDID" ]; then
+            echo "::error::No iOS 26 iPhone simulator runtime found on this runner"
+            exit 1
+          fi
+          xcodebuild -project MealPlanner.xcodeproj -scheme MealPlanner -destination "id=$DEVICE_UDID" test
