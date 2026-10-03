@@ -97,4 +97,13 @@ struct NutritionTests {
         #expect(NutritionFormat.spoken(2.4, unit: .microgram) == "2.4 micrograms")
         #expect(NutritionFormat.spoken(nil, unit: .kcal) == "no data")
     }
+    @Test("Ring speech says amount, target and percent; no target and unknown are spoken plainly")
+    func ringSpoken() {
+        #expect(NutritionFormat.ringSpoken(amount: 520, target: 2000, unit: .kcal) == "520 of 2,000 kilocalories, 26 percent")
+        #expect(NutritionFormat.ringSpoken(amount: 2500, target: 2000, unit: .kcal) == "2,500 of 2,000 kilocalories, 125 percent")
+        #expect(NutritionFormat.ringSpoken(amount: 520, target: nil, unit: .kcal) == "520 kilocalories, no target")
+        #expect(NutritionFormat.ringSpoken(amount: 520, target: 0, unit: .kcal) == "520 kilocalories, no target")
+        #expect(NutritionFormat.ringSpoken(amount: nil, target: 2000, unit: .kcal) == "no data")
+        #expect(NutritionFormat.ringSpoken(amount: 38, target: 100, unit: .g) == "38 of 100 grams, 38 percent")
+    }
 }

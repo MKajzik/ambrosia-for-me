@@ -29,6 +29,16 @@ public enum NutritionFormat {
         return "\(enUS(amount, maxFractionDigits: unit == .kcal || abs(amount) >= 10 ? 0 : 1)) \(word)"
     }
 
+    /// The unit word appears once, after the target ("520 of 2,000 kilocalories, 26 percent").
+    public static func ringSpoken(amount: Double?, target: Double?, unit: NutrientUnit) -> String {
+        guard let amount else { return "no data" }
+        guard let progress = targetProgress(value: amount, target: target), let target else {
+            return "\(spoken(amount, unit: unit)), no target"
+        }
+        let amountNumber = spoken(amount, unit: unit).split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
+        return "\(amountNumber) of \(spoken(target, unit: unit)), \(progress.percent) percent"
+    }
+
     private static func enUS(_ value: Double, maxFractionDigits: Int) -> String {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US")
