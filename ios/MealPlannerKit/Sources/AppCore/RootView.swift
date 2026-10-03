@@ -2,6 +2,8 @@ import API
 import Auth
 import Features
 import Foundation
+import Persistence
+import Repositories
 import SwiftUI
 
 public struct RootView: View {
@@ -14,13 +16,30 @@ public struct RootView: View {
     @State private var signInViewModel: AuthViewModel
     @State private var registerViewModel: AuthViewModel
     @State private var showingRegister = false
+    @Environment(\.scenePhase) private var scenePhase
+    private let refresher: TokenRefresher
+    private let mealsDependencies: MealsDependencies
 
     public init(baseURL: URL = APIEnvironment.baseURL) {
         let tokenStore = KeychainTokenStore()
         let refresher = TokenRefresher(refreshClient: makeAuthlessClient(baseURL: baseURL), tokenStore: tokenStore)
         let client = makeClient(baseURL: baseURL, middlewares: [BearerAuthMiddleware(refresher: refresher)])
         let authRepository = AuthRepository(client: client, tokenStore: tokenStore)
-        _appState = State(initialValue: AppState(authRepository: authRepository, tokenStore: tokenStore))
+
+        let mealCache = CacheStore.makeMealCache(CacheStore.launchContainer())
+        let mealsRepository = MealsRepository(client: client, cache: mealCache)
+
+        self.refresher = refresher
+        self.mealsDependencies = MealsDependencies(
+            meals: mealsRepository,
+            ingredients: IngredientsRepository(client: client),
+            partner: PartnerRepository(client: client)
+        )
+        _appState = State(initialValue: AppState(
+            authRepository: authRepository,
+            tokenStore: tokenStore,
+            clearCaches: { await mealsRepository.clearCaches() }
+        ))
         _signInViewModel = State(initialValue: AuthViewModel(authRepository: authRepository))
         _registerViewModel = State(initialValue: AuthViewModel(authRepository: authRepository))
     }
@@ -47,12 +66,18 @@ public struct RootView: View {
                             )
                         }
                     }
-                case .signedIn:
-                    TabShellView(appState: appState)
+                case .signedIn, .unverified:
+                    TabShellView(appState: appState, mealsDependencies: mealsDependencies)
                 }
             }
         }
-        .task { await appState.restoreSession() }
+        .task {
+            await appState.attach(to: refresher)
+            await appState.restoreSession()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await appState.retryVerification() } }
+        }
         .onChange(of: isSignedOut) { _, nowSignedOut in
             // Otherwise a user who registered, then signed out, lands back on the register
             // screen instead of sign-in, because `showingRegister` is this view's own local

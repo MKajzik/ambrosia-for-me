@@ -10,6 +10,14 @@ public actor TokenRefresher {
     private let tokenStore: any TokenStore
     private var inFlight: Task<String, Error>?
 
+    private var sessionEndedHandler: (@Sendable () async -> Void)?
+
+    /// Called once each time the API rejects the refresh token, i.e. the session is over. The stored
+    /// tokens are already cleared when it runs. Single-flighting means racing callers cause one call.
+    public func setSessionEndedHandler(_ handler: (@Sendable () async -> Void)?) {
+        sessionEndedHandler = handler
+    }
+
     public init(refreshClient: Client, tokenStore: any TokenStore) {
         self.refreshClient = refreshClient
         self.tokenStore = tokenStore
@@ -43,6 +51,7 @@ public actor TokenRefresher {
             return auth.accessToken
         case .badRequest, .unauthorized:
             tokenStore.clear()
+            await sessionEndedHandler?()
             throw AuthError.signedOut
         case .tooManyRequests:
             throw AuthError.rateLimited

@@ -66,4 +66,22 @@ struct TokenRefresherTests {
         }
         #expect(await transport.callCount == 0)
     }
+
+    @Test("A rejected refresh notifies the session-ended handler exactly once, even with racing callers")
+    func rejectionNotifiesOnce() async throws {
+        let transport = StubTransport {
+            (401, #"{"type":"about:blank","title":"Unauthorized","status":401,"code":"unauthorized"}"#)
+        }
+        let tokenStore = InMemoryTokenStore(accessToken: "old", refreshToken: "used")
+        let refresher = TokenRefresher(refreshClient: makeAuthlessClient(transport: transport), tokenStore: tokenStore)
+        let notified = Locked(0)
+        await refresher.setSessionEndedHandler { notified.mutate { $0 += 1 } }
+
+        async let first: String? = try? refresher.refreshAccessToken()
+        async let second: String? = try? refresher.refreshAccessToken()
+        _ = await (first, second)
+
+        #expect(notified.value == 1)
+        #expect(tokenStore.refreshToken == nil)
+    }
 }

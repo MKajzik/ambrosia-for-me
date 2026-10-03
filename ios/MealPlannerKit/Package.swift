@@ -31,11 +31,19 @@ let package = Package(
                 .product(name: "HTTPTypes", package: "swift-http-types"),
             ]
         ),
-        .target(name: "Features", dependencies: ["Auth"]),
-        .target(name: "AppCore", dependencies: ["API", "Auth", "Features"]),
+        .target(name: "Persistence", dependencies: ["API"]),
+        .target(
+            name: "Repositories",
+            dependencies: [
+                "API", "Persistence",
+                .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
+            ]
+        ),
+        .target(name: "Features", dependencies: ["API", "Auth", "Repositories"]),
+        .target(name: "AppCore", dependencies: ["API", "Auth", "Features", "Persistence", "Repositories"]),
         .testTarget(
             name: "MealPlannerKitTests",
-            dependencies: ["API", "Auth", "Features"]
+            dependencies: ["API", "Auth", "Persistence", "Repositories", "Features", "AppCore"]
         )
     ]
 )

@@ -55,11 +55,23 @@ public struct AuthRepository: Sendable {
         }
     }
 
-    public func logout() async {
-        if let refreshToken = tokenStore.refreshToken {
-            _ = try? await client.logoutUser(.init(body: .json(.init(refreshToken: refreshToken))))
-        }
+    /// Clears the stored tokens at once and returns the refresh token that was stored, so the caller can
+    /// revoke it on the server without making the user wait for the network.
+    public func endLocalSession() -> String? {
+        let refreshToken = tokenStore.refreshToken
         tokenStore.clear()
+        return refreshToken
+    }
+
+    /// Best-effort server-side revoke (`/auth/logout` needs no bearer token).
+    public func revoke(refreshToken: String) async {
+        _ = try? await client.logoutUser(.init(body: .json(.init(refreshToken: refreshToken))))
+    }
+
+    public func logout() async {
+        if let refreshToken = endLocalSession() {
+            await revoke(refreshToken: refreshToken)
+        }
     }
 
     /// A `400 validation_failed` carries per-field `errors`, never a `detail` string (confirmed

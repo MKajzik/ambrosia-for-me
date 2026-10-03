@@ -31,3 +31,10 @@ public func makeAuthlessClient(baseURL: URL = APIEnvironment.baseURL, transport:
 public func makeClient(baseURL: URL = APIEnvironment.baseURL, middlewares: [any ClientMiddleware]) -> Client {
     Client(serverURL: baseURL, configuration: apiConfiguration, transport: URLSessionTransport(), middlewares: middlewares)
 }
+
+/// Test seam: a client with middlewares over an arbitrary transport (the production `makeClient` always uses `URLSessionTransport`).
+public func makeClient(
+    baseURL: URL = APIEnvironment.baseURL, transport: any ClientTransport, middlewares: [any ClientMiddleware]
+) -> Client {
+    Client(serverURL: baseURL, configuration: apiConfiguration, transport: transport, middlewares: middlewares)
+}
