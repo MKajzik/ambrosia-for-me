@@ -47,7 +47,7 @@ public struct RootView: View {
                             )
                         }
                     }
-                case .signedIn:
+                case .signedIn, .unverified:
                     TabShellView(appState: appState)
                 }
             }
