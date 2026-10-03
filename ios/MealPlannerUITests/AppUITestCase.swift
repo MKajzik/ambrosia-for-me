@@ -88,7 +88,7 @@ class AppUITestCase: XCTestCase {
     /// cannot tell a rejected request from a dropped keystroke from a slow server.
     func diagnose(_ app: XCUIApplication, _ what: String, errorID: String, submitID: String) {
         let error = app.staticTexts[errorID]
-        let texts = app.staticTexts.allElementsBoundByIndex.map(\.label)
+        let texts = app.staticTexts.allElementsBoundByIndex.map { $0.label }
         print("UITEST-DIAG \(what) did not reach the shell: error=\(error.exists ? error.label : "none") submitEnabled=\(app.buttons[submitID].isEnabled) texts=\(texts)")
     }
 
