@@ -6,6 +6,7 @@ import SwiftData
 public enum CacheStore {
     private static let schema = Schema([
         CachedMeal.self, CachedMealIngredient.self, CachedPlanDay.self, CachedTargets.self,
+        CachedTemplate.self,
     ])
 
     public static var defaultStoreURL: URL {
@@ -45,6 +46,10 @@ public enum CacheStore {
 
     public static func makePlanCache(_ container: ModelContainer) -> PlanCache {
         PlanCache(modelContainer: container)
+    }
+
+    public static func makeTemplateCache(_ container: ModelContainer) -> TemplateCache {
+        TemplateCache(modelContainer: container)
     }
 
     private static func open(_ url: URL) throws -> ModelContainer {
