@@ -84,15 +84,21 @@ class AppUITestCase: XCTestCase {
     /// too, with retries to absorb its own, separate AutoFill-truncation risk: a client-side-
     /// disabled submit button never reaches the network, and a server-rejected attempt (password
     /// too short) doesn't register a duplicate account, so retrying from a cleared form is safe.
+    // CI runners vary a lot: the transition to the tab shell took ~3 s on a fast run and 9 s or more on a slow
+    // one (register/sign-in hash a password server-side, on the same machine as the simulator). A short wait
+    // here misreads a slow success as a failure; the retry then drives a form that is already gone and the
+    // test dies with a signed-in session left in the Keychain, which breaks every later test. So: wait 20 s
+    // per attempt, and never retry once the shell is up.
     func registerAccount(in app: XCUIApplication, displayName: String, email: String, password: String) {
         for _ in 0..<5 {
+            if profileTabButton(in: app).exists { return }
             let displayNameField = app.textFields["registerDisplayNameField"]
             waitUntilHittable(displayNameField, timeout: 5)
             clearAndType(displayName, field: displayNameField)
             clearAndType(email, field: app.textFields["registerEmailField"])
             clearAndType(password, field: app.secureTextFields["registerPasswordField"])
             app.buttons["registerSubmitButton"].tap()
-            if profileTabButton(in: app).waitForExistence(timeout: 8) {
+            if profileTabButton(in: app).waitForExistence(timeout: 20) {
                 return
             }
         }
@@ -105,12 +111,13 @@ class AppUITestCase: XCTestCase {
     /// error is the expected, correct result, not a signal to retry.
     func signIn(in app: XCUIApplication, email: String, password: String) {
         for _ in 0..<5 {
+            if profileTabButton(in: app).exists { return }
             let emailField = app.textFields["signInEmailField"]
             waitUntilHittable(emailField, timeout: 5)
             clearAndType(email, field: emailField)
             clearAndType(password, field: app.secureTextFields["signInPasswordField"])
             app.buttons["signInSubmitButton"].tap()
-            if profileTabButton(in: app).waitForExistence(timeout: 8) {
+            if profileTabButton(in: app).waitForExistence(timeout: 20) {
                 return
             }
         }
