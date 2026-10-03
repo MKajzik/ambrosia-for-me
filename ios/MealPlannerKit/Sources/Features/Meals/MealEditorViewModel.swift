@@ -3,10 +3,9 @@ import Foundation
 import Observation
 import Repositories
 
-/// Loads one meal and, for the owner, edits it with autosave. A port of web's `useAutosave` + `meal-editor.tsx`:
-/// saves once the valid draft has stopped changing for 700 ms and differs from what the server holds; one save
-/// at a time; an edit made during a save is saved after it; a value that was tried (saved or failed) is not tried
-/// again by itself; fields (`PATCH`) then ingredients (`PUT`), each step committed on its own.
+/// Loads one meal and, for the owner, edits it with autosave (the shared `Autosaver`: saves once the valid draft has
+/// stopped changing for 700 ms and differs from what the server holds; fields (`PATCH`) then ingredients (`PUT`),
+/// each step committed on its own).
 @Observable
 @MainActor
 public final class MealEditorViewModel {
@@ -22,8 +21,6 @@ public final class MealEditorViewModel {
     public private(set) var phase: Phase = .loading
     /// The server's latest answer. Feeds the nutrition panel; the draft is copied from it only once.
     public private(set) var meal: Components.Schemas.Meal?
-    public private(set) var isSaving = false
-    public private(set) var saveError: String?
 
     private var storedDraft = MealDraft()
     /// Set through here so every edit, from a binding or a method, schedules autosave. Reads and writes go
@@ -32,7 +29,7 @@ public final class MealEditorViewModel {
         get { storedDraft }
         set {
             storedDraft = newValue
-            scheduleSave()
+            autosaver.schedule()
         }
     }
 
@@ -40,11 +37,13 @@ public final class MealEditorViewModel {
     private var saved: MealDraft.Valid?
 
     @ObservationIgnored private var adoptedDraft: MealDraft?
-    @ObservationIgnored private var settled: MealDraft.Valid?
-    @ObservationIgnored private var debounceTask: Task<Void, Never>?
-    @ObservationIgnored private var isRunning = false
     @ObservationIgnored private let repository: MealsRepository
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
+    @ObservationIgnored private lazy var autosaver = Autosaver<MealDraft.Valid>(
+        sleep: sleep,
+        pending: { [weak self] in self?.pendingValue },
+        perform: { [weak self] value in try await self?.save(value) }
+    )
 
     public init(
         mealID: String,
@@ -63,6 +62,8 @@ public final class MealEditorViewModel {
     public var isOwner: Bool { meal?.isOwner ?? false }
     public var offersSharing: Bool { partnerLinked || draft.shared }
     public var canAddIngredient: Bool { draft.canAddRow }
+    public var isSaving: Bool { autosaver.isSaving }
+    public var saveError: String? { autosaver.saveError }
 
     public var validationErrors: MealDraft.Errors? {
         if case .invalid(let errors) = draft.validate() { errors } else { nil }
@@ -110,7 +111,7 @@ public final class MealEditorViewModel {
         storedDraft = adopted
         adoptedDraft = adopted
         saved = MealDraft.saved(from: loaded)
-        settled = nil
+        autosaver.forget()
     }
 
     // MARK: Editing
@@ -129,56 +130,29 @@ public final class MealEditorViewModel {
 
     // MARK: Autosave
 
-    private func scheduleSave() {
-        debounceTask?.cancel()
-        debounceTask = nil
-        guard isOwner, !isSaving, let value = pendingValue, value != settled else { return }
-        let sleep = self.sleep
-        debounceTask = Task { [weak self] in
-            do { try await sleep(.milliseconds(700)) } catch { return }
-            guard !Task.isCancelled else { return }
-            await self?.runSave()
+    /// The two writes, each committed on its own: a failure in the second leaves the first counted as saved.
+    private func save(_ value: MealDraft.Valid) async throws {
+        guard var current = saved else { return }
+        let changes = MealDraft.changes(from: current, to: value)
+        if let patch = changes.patch {
+            meal = try await repository.update(id: mealID, patch)
+            current = MealDraft.Valid(name: value.name, notes: value.notes, servings: value.servings, shared: value.shared, items: current.items)
+            saved = current
         }
-    }
-
-    private func runSave() async {
-        guard !isRunning, var current = saved, let value = pendingValue else { return }
-        isRunning = true
-        isSaving = true
-        saveError = nil
-        do {
-            let changes = MealDraft.changes(from: current, to: value)
-            if let patch = changes.patch {
-                meal = try await repository.update(id: mealID, patch)
-                current = MealDraft.Valid(name: value.name, notes: value.notes, servings: value.servings, shared: value.shared, items: current.items)
-                saved = current
-            }
-            if let items = changes.items {
-                meal = try await repository.replaceIngredients(id: mealID, items)
-                current.items = value.items
-                saved = current
-            }
-        } catch {
-            saveError = ErrorText.message(for: error)
+        if let items = changes.items {
+            meal = try await repository.replaceIngredients(id: mealID, items)
+            current.items = value.items
+            saved = current
         }
-        settled = value
-        isRunning = false
-        isSaving = false
-        scheduleSave()
     }
 
     /// "Try again": forget that the value was tried, and save now.
     public func retry() async {
-        settled = nil
-        await runSave()
+        await autosaver.retry()
     }
 
-    /// Leaving the editor (sheet dismissed, or the scene leaving the foreground) saves a pending edit in an
-    /// unstructured task, so dismissing the view does not cancel it. A flush that fails after the sheet is
-    /// gone is not surfaced; web has the same limit.
+    /// Leaving the editor saves a pending edit in an unstructured task, so dismissing the view does not cancel it.
     public func flushOnLeave() {
-        debounceTask?.cancel()
-        debounceTask = nil
-        Task { await self.runSave() }
+        autosaver.flush()
     }
 }
