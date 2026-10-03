@@ -4,7 +4,9 @@ import SwiftData
 /// Builds the SwiftData container. The cache is rebuildable from the API, so there are no migrations:
 /// a store that will not open is deleted and recreated.
 public enum CacheStore {
-    private static let schema = Schema([CachedMeal.self, CachedMealIngredient.self])
+    private static let schema = Schema([
+        CachedMeal.self, CachedMealIngredient.self, CachedPlanDay.self, CachedTargets.self,
+    ])
 
     public static var defaultStoreURL: URL {
         URL.applicationSupportDirectory.appending(path: "MealPlannerCache.store")
@@ -39,6 +41,10 @@ public enum CacheStore {
     /// so other modules build the cache through here.
     public static func makeMealCache(_ container: ModelContainer) -> MealCache {
         MealCache(modelContainer: container)
+    }
+
+    public static func makePlanCache(_ container: ModelContainer) -> PlanCache {
+        PlanCache(modelContainer: container)
     }
 
     private static func open(_ url: URL) throws -> ModelContainer {
