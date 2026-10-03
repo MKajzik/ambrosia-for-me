@@ -84,6 +84,27 @@ class AppUITestCase: XCTestCase {
     /// too, with retries to absorb its own, separate AutoFill-truncation risk: a client-side-
     /// disabled submit button never reaches the network, and a server-rejected attempt (password
     /// too short) doesn't register a duplicate account, so retrying from a cleared form is safe.
+    private final class StatusBox: @unchecked Sendable { var code = 0 }
+
+    /// Creates an account straight through the API, for flows that are not about registration. The registration
+    /// form's `.newPassword` field is the one place where Password AutoFill drops typed characters (CI showed
+    /// "Password must be at least 10 characters." five attempts in a row), so those flows sign in instead:
+    /// the sign-in password field has not shown the problem. The Auth flows still register through the form.
+    func createAccountViaAPI(email: String, password: String, displayName: String) throws {
+        var request = URLRequest(url: URL(string: "http://localhost:8080/v1/auth/register")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "password": password, "display_name": displayName])
+        let done = expectation(description: "register via API")
+        let box = StatusBox()
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            box.code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            done.fulfill()
+        }.resume()
+        wait(for: [done], timeout: 30)
+        XCTAssertEqual(box.code, 201, "Expected the API to create the account")
+    }
+
     /// Printed (and so visible in the CI log) when an attempt did not reach the tab shell: the XCUITest log alone
     /// cannot tell a rejected request from a dropped keystroke from a slow server.
     func diagnose(_ app: XCUIApplication, _ what: String, errorID: String, submitID: String) {

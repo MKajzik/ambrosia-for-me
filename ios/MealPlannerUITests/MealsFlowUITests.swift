@@ -1,18 +1,20 @@
 import XCTest
 
 final class MealsFlowUITests: AppUITestCase {
-    /// Register, open Meals, create a meal, add a custom ingredient with calories, and see the server's nutrition
+    /// Sign in to an API-created account, open Meals, create a meal, add a custom ingredient with calories, and see the server's nutrition
     /// for it. Seeing "52" in the Calories tile proves the autosave `PUT` reached the API and the API's
     /// computed nutrition came back (a 100 g row of a 52 kcal/100 g ingredient, one serving).
     func testCreateMealWithCustomIngredientAutosaves() throws {
         let app = XCUIApplication()
         app.launch()
 
-        app.buttons["showRegisterButton"].tap()
-        registerAccount(in: app, displayName: "iOS Meals", email: uniqueEmail(), password: "correct-horse-battery-staple")
+        let email = uniqueEmail()
+        let password = "correct-horse-battery-staple"
+        try createAccountViaAPI(email: email, password: password, displayName: "iOS Meals")
+        signIn(in: app, email: email, password: password)
 
         let mealsTab = tabButton(in: app, identifier: "mealsTab", label: "Meals")
-        XCTAssertTrue(mealsTab.waitForExistence(timeout: 45), "Expected the tab shell after registration")
+        XCTAssertTrue(mealsTab.waitForExistence(timeout: 45), "Expected the tab shell after signing in")
         mealsTab.tap()
 
         let newMeal = app.buttons["newMealButton"]
