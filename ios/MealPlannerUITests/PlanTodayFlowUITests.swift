@@ -34,11 +34,10 @@ final class PlanTodayFlowUITests: AppUITestCase {
         XCTAssertTrue(calories.waitForExistence(timeout: 45))
         expectValue(of: calories, toContain: "100")
 
-        let menu = element(app, identifier: "slotMenu-breakfast", label: "Breakfast options")
-        if !menu.waitForExistence(timeout: 15) { print("UITEST-TREE \(app.debugDescription)") }
+        let menu = app.buttons["slotMenu-breakfast"]
         waitUntilHittable(menu, timeout: 45)
         menu.tap()
-        let changePortion = element(app, identifier: "changePortionButton", label: "Change portion")
+        let changePortion = app.buttons["changePortionButton"]
         waitUntilHittable(changePortion)
         changePortion.tap()
         let portionField = app.textFields["portionField"]
@@ -58,13 +57,5 @@ final class PlanTodayFlowUITests: AppUITestCase {
         // Leave no session in the Keychain for the next test.
         signOutButton(in: app).tap()
         XCTAssertTrue(app.buttons["showRegisterButton"].waitForExistence(timeout: 45), "Expected the welcome screen after signing out")
-    }
-
-    /// A SwiftUI `Menu` and its items are not reliably exposed as `buttons` with their identifier on iOS 26 (CI could
-    /// not find `slotMenu-breakfast`), so match any element type by identifier or label, as `tabButton` does.
-    private func element(_ app: XCUIApplication, identifier: String, label: String) -> XCUIElement {
-        app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, label))
-            .firstMatch
     }
 }

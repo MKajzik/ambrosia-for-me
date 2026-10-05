@@ -111,6 +111,7 @@ struct TemplateEditorView: View {
                         }
                     }
                     .foregroundStyle(.primary)
+                    .buttonStyle(.borderless)
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title).font(.caption).foregroundStyle(.secondary)

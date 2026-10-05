@@ -27,6 +27,9 @@ struct SlotRowView: View {
             if slot == .snack { snacks } else { single }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // One List row holds several buttons: with the default style a tap anywhere in the row fires all of them
+        // (the last one wins, so "Add meal" under Breakfast added to Snacks). Borderless makes each button its own target.
+        .buttonStyle(.borderless)
         .disabled(isDisabled)
     }
 
