@@ -57,9 +57,34 @@ class AppUITestCase: XCTestCase {
     /// for a privacy-masked `SecureField` anyway); extra deletes on an already-empty field are
     /// harmless no-ops.
     func clearAndType(_ text: String, field: XCUIElement) {
-        field.tap()
+        focus(field)
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60))
         field.typeText(text)
+    }
+
+    /// Taps the field and waits for the keyboard: a tap right after a screen transition sometimes leaves no
+    /// keyboard focus, and `typeText` then fails the whole test ("Neither element nor any descendant has keyboard
+    /// focus") instead of just typing nothing. Tap again once if the keyboard did not appear.
+    func focus(_ field: XCUIElement) {
+        field.tap()
+        let keyboard = XCUIApplication().keyboards.firstMatch
+        if !keyboard.waitForExistence(timeout: 5) {
+            field.tap()
+            _ = keyboard.waitForExistence(timeout: 5)
+        }
+    }
+
+    /// Types a password into a secure field and checks it landed whole before the caller submits. Password AutoFill
+    /// intercepts synthesized keystrokes on CI and sometimes drops characters (CI showed "Password must be at least
+    /// 10 characters." and "Invalid email or password." for a correct 29-character password). A secure field's value
+    /// is one bullet per character, so its length is the number of characters that arrived: retype until it matches.
+    /// If the value cannot be read that way, stop retrying and let the caller's own retry loop cope.
+    func typeSecret(_ text: String, field: XCUIElement) {
+        for _ in 0..<4 {
+            clearAndType(text, field: field)
+            guard let value = field.value as? String, value != (field.placeholderValue ?? "") else { return }
+            if value.count == text.count { return }
+        }
     }
 
     /// Registers a new account, retrying the whole form fill if it doesn't reach the tab shell.
@@ -125,7 +150,7 @@ class AppUITestCase: XCTestCase {
             waitUntilHittable(displayNameField, timeout: 5)
             clearAndType(displayName, field: displayNameField)
             clearAndType(email, field: app.textFields["registerEmailField"])
-            clearAndType(password, field: app.secureTextFields["registerPasswordField"])
+            typeSecret(password, field: app.secureTextFields["registerPasswordField"])
             app.buttons["registerSubmitButton"].tap()
             if profileTabButton(in: app).waitForExistence(timeout: 20) {
                 return
@@ -145,7 +170,7 @@ class AppUITestCase: XCTestCase {
             let emailField = app.textFields["signInEmailField"]
             waitUntilHittable(emailField, timeout: 5)
             clearAndType(email, field: emailField)
-            clearAndType(password, field: app.secureTextFields["signInPasswordField"])
+            typeSecret(password, field: app.secureTextFields["signInPasswordField"])
             app.buttons["signInSubmitButton"].tap()
             if profileTabButton(in: app).waitForExistence(timeout: 20) {
                 return
