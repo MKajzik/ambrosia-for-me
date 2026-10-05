@@ -35,6 +35,7 @@ final class PlanTodayFlowUITests: AppUITestCase {
         expectValue(of: calories, toContain: "100")
 
         let menu = element(app, identifier: "slotMenu-breakfast", label: "Breakfast options")
+        if !menu.waitForExistence(timeout: 15) { print("UITEST-TREE \(app.debugDescription)") }
         waitUntilHittable(menu, timeout: 45)
         menu.tap()
         let changePortion = element(app, identifier: "changePortionButton", label: "Change portion")
