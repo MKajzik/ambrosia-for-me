@@ -80,11 +80,24 @@ class AppUITestCase: XCTestCase {
     /// is one bullet per character, so its length is the number of characters that arrived: retype until it matches.
     /// If the value cannot be read that way, stop retrying and let the caller's own retry loop cope.
     func typeSecret(_ text: String, field: XCUIElement) {
-        for _ in 0..<4 {
+        for attempt in 0..<4 {
             clearAndType(text, field: field)
-            guard let value = field.value as? String, value != (field.placeholderValue ?? "") else { return }
+            let raw = field.value as? String
+            let placeholder = field.placeholderValue ?? ""
+            // Printed so a CI failure shows what the field actually held (see `diagnoseSecret`).
+            print("UITEST-SECRET attempt=\(attempt) expected=\(text.count) readCount=\(raw.map { String($0.count) } ?? "nil") isPlaceholder=\(raw == placeholder) hasKeyboard=\(XCUIApplication().keyboards.firstMatch.exists)")
+            guard let value = raw, value != placeholder else { return }
             if value.count == text.count { return }
         }
+    }
+
+    /// What is on screen right before a password form is submitted: the secure field's value, and every button and
+    /// text, so an iOS Strong Password prompt or a covered field would show up in the CI log.
+    func diagnoseSecret(_ app: XCUIApplication, field: XCUIElement, label: String) {
+        let value = (field.value as? String) ?? "nil"
+        let buttons = app.buttons.allElementsBoundByIndex.map { "\($0.identifier)|\($0.label)" }
+        let texts = app.staticTexts.allElementsBoundByIndex.map { $0.label }
+        print("UITEST-SECRET-SUBMIT \(label) valueCount=\(value.count) keyboard=\(app.keyboards.firstMatch.exists) buttons=\(buttons) texts=\(texts)")
     }
 
     /// Registers a new account, retrying the whole form fill if it doesn't reach the tab shell.
@@ -177,6 +190,7 @@ class AppUITestCase: XCTestCase {
             clearAndType(displayName, field: displayNameField)
             clearAndType(email, field: app.textFields["registerEmailField"])
             typeSecret(password, field: app.secureTextFields["registerPasswordField"])
+            diagnoseSecret(app, field: app.secureTextFields["registerPasswordField"], label: "register")
             app.buttons["registerSubmitButton"].tap()
             if profileTabButton(in: app).waitForExistence(timeout: 20) {
                 return
