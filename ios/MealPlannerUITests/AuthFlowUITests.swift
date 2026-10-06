@@ -36,10 +36,11 @@ final class AuthFlowUITests: AppUITestCase {
 
         let email = uniqueEmail()
 
-        app.buttons["showRegisterButton"].tap()
-        registerAccount(in: app, displayName: "iOS UI Test", email: email, password: "correct-horse-battery-staple")
+        // Not about the registration form (the one test above is), so create the account through the API.
+        try createAccountViaAPI(email: email, password: "correct-horse-battery-staple", displayName: "iOS UI Test")
+        signIn(in: app, email: email, password: "correct-horse-battery-staple")
 
-        XCTAssertTrue(profileTabButton(in: app).waitForExistence(timeout: 45), "Expected the tab shell after registration")
+        XCTAssertTrue(profileTabButton(in: app).waitForExistence(timeout: 45), "Expected the tab shell after signing in")
 
         app.terminate()
         app.launch()
@@ -61,17 +62,13 @@ final class AuthFlowUITests: AppUITestCase {
 
         let email = uniqueEmail()
 
-        // Register once so the account exists, sign out, then try the wrong password.
-        app.buttons["showRegisterButton"].tap()
-        registerAccount(in: app, displayName: "iOS UI Test", email: email, password: "correct-horse-battery-staple")
-
-        let firstSignOutButton = signOutButton(in: app)
-        firstSignOutButton.tap()
+        // The account exists (created through the API); a wrong password must give the generic error.
+        try createAccountViaAPI(email: email, password: "correct-horse-battery-staple", displayName: "iOS UI Test")
 
         let signInEmailField = app.textFields["signInEmailField"]
         waitUntilHittable(signInEmailField, timeout: 5)
         clearAndType(email, field: signInEmailField)
-        clearAndType("definitely-the-wrong-password", field: app.secureTextFields["signInPasswordField"])
+        typeSecret("definitely-the-wrong-password", field: app.secureTextFields["signInPasswordField"])
         app.buttons["signInSubmitButton"].tap()
 
         let errorMessage = app.staticTexts["signInErrorMessage"]

@@ -19,6 +19,7 @@ public struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     private let refresher: TokenRefresher
     private let mealsDependencies: MealsDependencies
+    private let planDependencies: PlanDependencies
 
     public init(baseURL: URL = APIEnvironment.baseURL) {
         let tokenStore = KeychainTokenStore()
@@ -26,19 +27,27 @@ public struct RootView: View {
         let client = makeClient(baseURL: baseURL, middlewares: [BearerAuthMiddleware(refresher: refresher)])
         let authRepository = AuthRepository(client: client, tokenStore: tokenStore)
 
-        let mealCache = CacheStore.makeMealCache(CacheStore.launchContainer())
-        let mealsRepository = MealsRepository(client: client, cache: mealCache)
+        let container = CacheStore.launchContainer()
+        let mealsRepository = MealsRepository(client: client, cache: CacheStore.makeMealCache(container))
+        let planRepository = PlanRepository(client: client, cache: CacheStore.makePlanCache(container))
+        let templatesRepository = TemplatesRepository(client: client, cache: CacheStore.makeTemplateCache(container))
+        let partnerRepository = PartnerRepository(client: client)
 
         self.refresher = refresher
         self.mealsDependencies = MealsDependencies(
             meals: mealsRepository,
             ingredients: IngredientsRepository(client: client),
-            partner: PartnerRepository(client: client)
+            partner: partnerRepository
+        )
+        self.planDependencies = PlanDependencies(
+            plan: planRepository, templates: templatesRepository, meals: mealsRepository, partner: partnerRepository
         )
         _appState = State(initialValue: AppState(
             authRepository: authRepository,
             tokenStore: tokenStore,
-            clearCaches: { await mealsRepository.clearCaches() }
+            clearCaches: {
+                await clearAllCaches(meals: mealsRepository, plan: planRepository, templates: templatesRepository)
+            }
         ))
         _signInViewModel = State(initialValue: AuthViewModel(authRepository: authRepository))
         _registerViewModel = State(initialValue: AuthViewModel(authRepository: authRepository))
@@ -67,7 +76,7 @@ public struct RootView: View {
                         }
                     }
                 case .signedIn, .unverified:
-                    TabShellView(appState: appState, mealsDependencies: mealsDependencies)
+                    TabShellView(appState: appState, mealsDependencies: mealsDependencies, planDependencies: planDependencies)
                 }
             }
         }

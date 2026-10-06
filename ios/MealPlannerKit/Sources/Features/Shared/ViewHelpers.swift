@@ -1,3 +1,6 @@
+#if os(iOS)
+import UIKit
+#endif
 import SwiftUI
 
 extension View {
@@ -15,6 +18,16 @@ extension View {
     func inlineNavigationTitle() -> some View {
         #if os(iOS)
         self.navigationBarTitleDisplayMode(.inline)
+        #else
+        self
+        #endif
+    }
+
+    /// Fires when the device's date or time zone changes (midnight, travelling). iOS only; elsewhere it does nothing.
+    @ViewBuilder
+    func onSignificantTimeChange(perform action: @escaping () -> Void) -> some View {
+        #if os(iOS)
+        self.onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in action() }
         #else
         self
         #endif

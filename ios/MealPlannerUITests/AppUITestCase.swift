@@ -57,9 +57,34 @@ class AppUITestCase: XCTestCase {
     /// for a privacy-masked `SecureField` anyway); extra deletes on an already-empty field are
     /// harmless no-ops.
     func clearAndType(_ text: String, field: XCUIElement) {
-        field.tap()
+        focus(field)
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60))
         field.typeText(text)
+    }
+
+    /// Taps the field and waits for the keyboard: a tap right after a screen transition sometimes leaves no
+    /// keyboard focus, and `typeText` then fails the whole test ("Neither element nor any descendant has keyboard
+    /// focus") instead of just typing nothing. Tap again once if the keyboard did not appear.
+    func focus(_ field: XCUIElement) {
+        field.tap()
+        let keyboard = XCUIApplication().keyboards.firstMatch
+        if !keyboard.waitForExistence(timeout: 5) {
+            field.tap()
+            _ = keyboard.waitForExistence(timeout: 5)
+        }
+    }
+
+    /// Types a password into a secure field and checks it landed whole before the caller submits. Password AutoFill
+    /// intercepts synthesized keystrokes on CI and sometimes drops characters (CI showed "Password must be at least
+    /// 10 characters." and "Invalid email or password." for a correct 29-character password). A secure field's value
+    /// is one bullet per character, so its length is the number of characters that arrived: retype until it matches.
+    /// If the value cannot be read that way, stop retrying and let the caller's own retry loop cope.
+    func typeSecret(_ text: String, field: XCUIElement) {
+        for _ in 0..<4 {
+            clearAndType(text, field: field)
+            guard let value = field.value as? String, value != (field.placeholderValue ?? "") else { return }
+            if value.count == text.count { return }
+        }
     }
 
     /// Registers a new account, retrying the whole form fill if it doesn't reach the tab shell.
@@ -84,25 +109,51 @@ class AppUITestCase: XCTestCase {
     /// too, with retries to absorb its own, separate AutoFill-truncation risk: a client-side-
     /// disabled submit button never reaches the network, and a server-rejected attempt (password
     /// too short) doesn't register a duplicate account, so retrying from a cleared form is safe.
-    private final class StatusBox: @unchecked Sendable { var code = 0 }
+    private final class ResponseBox: @unchecked Sendable {
+        var code = 0
+        var data = Data()
+    }
 
-    /// Creates an account straight through the API, for flows that are not about registration. The registration
-    /// form's `.newPassword` field is the one place where Password AutoFill drops typed characters (CI showed
-    /// "Password must be at least 10 characters." five attempts in a row), so those flows sign in instead:
-    /// the sign-in password field has not shown the problem. The Auth flows still register through the form.
-    func createAccountViaAPI(email: String, password: String, displayName: String) throws {
-        var request = URLRequest(url: URL(string: "http://localhost:8080/v1/auth/register")!)
-        request.httpMethod = "POST"
+    /// A synchronous JSON request to the API from the test process, for flows that are not about the screens that
+    /// would otherwise create the data. Fails the test unless the status is `expect`.
+    @discardableResult
+    func apiRequest(_ method: String, _ path: String, token: String? = nil, json: [String: Any]? = nil, expect: Int) throws -> [String: Any] {
+        var request = URLRequest(url: URL(string: "http://localhost:8080/v1" + path)!)
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "password": password, "display_name": displayName])
-        let done = expectation(description: "register via API")
-        let box = StatusBox()
-        URLSession.shared.dataTask(with: request) { _, response, _ in
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let json { request.httpBody = try JSONSerialization.data(withJSONObject: json) }
+        let done = expectation(description: "\(method) \(path)")
+        let box = ResponseBox()
+        URLSession.shared.dataTask(with: request) { data, response, _ in
             box.code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            box.data = data ?? Data()
             done.fulfill()
         }.resume()
         wait(for: [done], timeout: 30)
-        XCTAssertEqual(box.code, 201, "Expected the API to create the account")
+        XCTAssertEqual(box.code, expect, "\(method) \(path)")
+        return ((try? JSONSerialization.jsonObject(with: box.data)) as? [String: Any]) ?? [:]
+    }
+
+    /// Creates an account straight through the API (the registration form's `.newPassword` field is the one place where
+    /// Password AutoFill drops typed characters on CI, so flows that are not about registration sign in instead) and
+    /// returns its access token. The Auth flows still register through the form.
+    @discardableResult
+    func createAccountViaAPI(email: String, password: String, displayName: String) throws -> String {
+        let body = try apiRequest("POST", "/auth/register", json: ["email": email, "password": password, "display_name": displayName], expect: 201)
+        return try XCTUnwrap(body["access_token"] as? String)
+    }
+
+    /// Waits until the element's accessibility value contains `text`.
+    func expectValue(of element: XCUIElement, toContain text: String, timeout: TimeInterval = 45, file: StaticString = #filePath, line: UInt = #line) {
+        let predicate = NSPredicate(format: "value CONTAINS %@", text)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        XCTAssertEqual(XCTWaiter().wait(for: [expectation], timeout: timeout), .completed, "Expected the value to contain \"\(text)\"", file: file, line: line)
+    }
+
+    /// A button or text whose label contains `text` (a plain-styled button's inner text is not a separate element).
+    func element(withLabelContaining text: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
 
     /// Printed (and so visible in the CI log) when an attempt did not reach the tab shell: the XCUITest log alone
@@ -125,7 +176,7 @@ class AppUITestCase: XCTestCase {
             waitUntilHittable(displayNameField, timeout: 5)
             clearAndType(displayName, field: displayNameField)
             clearAndType(email, field: app.textFields["registerEmailField"])
-            clearAndType(password, field: app.secureTextFields["registerPasswordField"])
+            typeSecret(password, field: app.secureTextFields["registerPasswordField"])
             app.buttons["registerSubmitButton"].tap()
             if profileTabButton(in: app).waitForExistence(timeout: 20) {
                 return
@@ -145,7 +196,7 @@ class AppUITestCase: XCTestCase {
             let emailField = app.textFields["signInEmailField"]
             waitUntilHittable(emailField, timeout: 5)
             clearAndType(email, field: emailField)
-            clearAndType(password, field: app.secureTextFields["signInPasswordField"])
+            typeSecret(password, field: app.secureTextFields["signInPasswordField"])
             app.buttons["signInSubmitButton"].tap()
             if profileTabButton(in: app).waitForExistence(timeout: 20) {
                 return
