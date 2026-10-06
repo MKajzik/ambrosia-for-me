@@ -91,3 +91,29 @@ struct LocalDayTests {
         #expect(d.weekRange(startingAt: "2026-12-28") == "Dec 28 – Jan 3")
     }
 }
+
+/// Changes the process's system time zone, which is global: kept in its own serialized suite and always restored.
+@Suite(.serialized)
+struct LocalDayDeviceZoneTests {
+    private func setSystemZone(_ identifier: String?) {
+        if let identifier { setenv("TZ", identifier, 1) } else { unsetenv("TZ") }
+        tzset()
+        NSTimeZone.resetSystemTimeZone()
+    }
+
+    @Test("A LocalDay built with the default zone follows the device when its time zone changes while the app runs")
+    func defaultZoneFollowsTheDevice() {
+        let original = getenv("TZ").map { String(cString: $0) }
+        defer { setSystemZone(original) }
+
+        setSystemZone("UTC")
+        let instant = ISO8601DateFormatter().date(from: "2026-10-05T22:30:00Z")!
+        let day = LocalDay(now: { instant })
+        #expect(day.today() == "2026-10-05")
+
+        // The traveller lands in Auckland: 22:30 UTC on the 5th is already the 6th there.
+        setSystemZone("Pacific/Auckland")
+        #expect(day.today() == "2026-10-06")
+    }
+}
+
