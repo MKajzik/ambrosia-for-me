@@ -40,7 +40,7 @@ jobs:
 
   ui:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 40
     defaults:
       run:
         shell: bash
@@ -85,23 +85,6 @@ jobs:
           fi
       - run: brew install xcodegen
       - name: Build and run the iOS UI tests
-        working-directory: ios
-        run: |
-          set -euo pipefail
-          xcodegen generate
-          # Must be an iOS 26 runtime specifically (the deployment target) — matching any "iOS"
-          # runtime risks picking one below it if the runner image ships more than one.
-          DEVICE_UDID=$(xcrun simctl list devices available -j | /usr/bin/python3 -c "
-          import json, sys
-          data = json.load(sys.stdin)['devices']
-          for runtime, devices in data.items():
-              if 'iOS-26' in runtime:
-                  for d in devices:
-                      if d['name'].startswith('iPhone'):
-                          print(d['udid']); raise SystemExit
-          ")
-          if [ -z "$DEVICE_UDID" ]; then
-            echo "::error::No iOS 26 iPhone simulator runtime found on this runner"
-            exit 1
-          fi
-          xcodebuild -project MealPlanner.xcodeproj -scheme MealPlanner -destination "id=$DEVICE_UDID" test
+        # The script bounds the two steps that have hung this job until its timeout with no test output (booting the
+        # simulator, the test runner starting) and retries them.
+        run: ios/scripts/ci-ui-tests.sh
