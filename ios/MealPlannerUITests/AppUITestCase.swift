@@ -62,6 +62,30 @@ class AppUITestCase: XCTestCase {
         field.typeText(text)
     }
 
+    /// Types plain text and checks it landed whole before the caller submits. Synthesized keystrokes get dropped on CI
+    /// for any field, not only passwords: a dropped character in the email gives "Invalid email or password." for a
+    /// correct password. Retype until the field's value equals the text; if the value cannot be read, stop retrying.
+    func typeVerified(_ text: String, field: XCUIElement) {
+        for attempt in 0..<4 {
+            clearAndType(text, field: field)
+            guard let value = field.value as? String else { return }
+            if value == text { return }
+            print("UITEST-TEXT attempt=\(attempt) expected=\(text.count) readCount=\(value.count)")
+        }
+    }
+
+    /// Finds an element in a scrolling list. A `List` renders rows lazily, so a row below the fold is not in the
+    /// accessibility tree until it is scrolled near: the Plan tab shows a whole week, and which day "today" is (so how
+    /// far down its row sits) depends on the weekday the test runs on.
+    func scrollUntilExists(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 10) -> Bool {
+        if element.waitForExistence(timeout: 15) { return true }
+        for _ in 0..<maxSwipes {
+            app.swipeUp()
+            if element.waitForExistence(timeout: 3) { return true }
+        }
+        return false
+    }
+
     /// Taps the field and waits for the keyboard: a tap right after a screen transition sometimes leaves no
     /// keyboard focus, and `typeText` then fails the whole test ("Neither element nor any descendant has keyboard
     /// focus") instead of just typing nothing. Tap again once if the keyboard did not appear.
@@ -174,8 +198,8 @@ class AppUITestCase: XCTestCase {
             if profileTabButton(in: app).exists { return }
             let displayNameField = app.textFields["registerDisplayNameField"]
             waitUntilHittable(displayNameField, timeout: 5)
-            clearAndType(displayName, field: displayNameField)
-            clearAndType(email, field: app.textFields["registerEmailField"])
+            typeVerified(displayName, field: displayNameField)
+            typeVerified(email, field: app.textFields["registerEmailField"])
             typeSecret(password, field: app.secureTextFields["registerPasswordField"])
             app.buttons["registerSubmitButton"].tap()
             if profileTabButton(in: app).waitForExistence(timeout: 20) {
@@ -195,7 +219,7 @@ class AppUITestCase: XCTestCase {
             if profileTabButton(in: app).exists { return }
             let emailField = app.textFields["signInEmailField"]
             waitUntilHittable(emailField, timeout: 5)
-            clearAndType(email, field: emailField)
+            typeVerified(email, field: emailField)
             typeSecret(password, field: app.secureTextFields["signInPasswordField"])
             app.buttons["signInSubmitButton"].tap()
             if profileTabButton(in: app).waitForExistence(timeout: 20) {
