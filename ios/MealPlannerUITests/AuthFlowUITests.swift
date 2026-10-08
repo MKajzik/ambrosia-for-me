@@ -67,7 +67,7 @@ final class AuthFlowUITests: AppUITestCase {
 
         let signInEmailField = app.textFields["signInEmailField"]
         waitUntilHittable(signInEmailField, timeout: 5)
-        clearAndType(email, field: signInEmailField)
+        typeVerified(email, field: signInEmailField)
         typeSecret("definitely-the-wrong-password", field: app.secureTextFields["signInPasswordField"])
         app.buttons["signInSubmitButton"].tap()
 

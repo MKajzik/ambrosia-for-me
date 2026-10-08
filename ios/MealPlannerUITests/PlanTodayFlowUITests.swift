@@ -49,8 +49,9 @@ final class PlanTodayFlowUITests: AppUITestCase {
         let planTab = tabButton(in: app, identifier: "planTab", label: "Plan")
         XCTAssertTrue(planTab.waitForExistence(timeout: 45))
         planTab.tap()
+        // The week is a long lazily-rendered list and today's row sits further down on later weekdays: scroll to it.
         XCTAssertTrue(
-            element(withLabelContaining: "UI Plan Meal", in: app).waitForExistence(timeout: 45),
+            scrollUntilExists(element(withLabelContaining: "UI Plan Meal", in: app), in: app),
             "Expected today's meal on the Plan tab's week"
         )
 
