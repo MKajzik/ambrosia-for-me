@@ -3,11 +3,13 @@ import Foundation
 /// The device's local calendar day as `YYYY-MM-DD` (the API's `date`), never UTC, with weeks starting Monday.
 /// Arithmetic goes through `Calendar.date(byAdding: .day)` on noon of the day, so a week is seven days across a
 /// daylight-saving change. Text is fixed en-US (as web). An unparseable day is returned unchanged.
+/// The default zone tracks the device (`.autoupdatingCurrent`), so Today follows a traveller across time zones: `.current`
+/// is a snapshot taken when the value is made.
 public struct LocalDay: Sendable {
     private let timeZone: TimeZone
     private let clock: @Sendable () -> Date
 
-    public init(timeZone: TimeZone = .current, now: @escaping @Sendable () -> Date = { Date() }) {
+    public init(timeZone: TimeZone = .autoupdatingCurrent, now: @escaping @Sendable () -> Date = { Date() }) {
         self.timeZone = timeZone
         self.clock = now
     }
