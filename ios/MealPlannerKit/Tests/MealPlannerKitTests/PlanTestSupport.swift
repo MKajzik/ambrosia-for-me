@@ -24,6 +24,8 @@ final class PlanServer: @unchecked Sendable {
     private var putGate: Gate?
     private var failPUT = false
     private var failGET = false
+    private var getGates: [Gate] = []
+    private var getArrivals = 0
     private let days = LocalDay(timeZone: TimeZone(identifier: "UTC")!)
 
     init(
@@ -40,6 +42,10 @@ final class PlanServer: @unchecked Sendable {
     func setFailPUT(_ value: Bool) { lock.lock(); failPUT = value; lock.unlock() }
     func setFailGET(_ value: Bool) { lock.lock(); failGET = value; lock.unlock() }
 
+    /// Each `GET /plan` takes the next gate (in arrival order) and waits for it before answering; with none left it answers at once.
+    func queueGetGates(_ gates: [Gate]) { lock.lock(); getGates = gates; lock.unlock() }
+    var getCount: Int { lock.lock(); defer { lock.unlock() }; return getArrivals }
+
     func entries(on date: String) -> [Components.Schemas.PlanEntry] {
         lock.lock(); defer { lock.unlock() }
         return byDate[date] ?? []
@@ -48,11 +54,21 @@ final class PlanServer: @unchecked Sendable {
     func route(_ call: RoutingTransport.Call) async throws -> (status: Int, body: String) {
         let parts = call.route.split(separator: " ", maxSplits: 1).map(String.init)
         let segments = parts[1].split(separator: "/").map(String.init)
-        if parts[0] == "GET", segments == ["plan"] { return try getPlan(call.path) }
+        if parts[0] == "GET", segments == ["plan"] {
+            if let gate = nextGetGate() { await gate.wait() }
+            return try getPlan(call.path)
+        }
         if parts[0] == "PUT", segments.count == 3, segments[0] == "plan" { return await putEntry(segments[1], segments[2], call.body) }
         if parts[0] == "DELETE", segments.count == 3, segments[0] == "plan" { return deleteEntry(segments[1], segments[2]) }
         if parts[0] == "POST", segments.count == 3, segments[0] == "diet-templates", segments[2] == "apply" { return apply(segments[1], call.body) }
         return (500, Fixtures.problem(500, code: "unrouted"))
+    }
+
+    /// `NSLock` cannot be taken in an async function under Swift 6, so this locked region is its own sync method.
+    private func nextGetGate() -> Gate? {
+        lock.lock(); defer { lock.unlock() }
+        getArrivals += 1
+        return getGates.isEmpty ? nil : getGates.removeFirst()
     }
 
     private func getPlan(_ path: String) throws -> (status: Int, body: String) {

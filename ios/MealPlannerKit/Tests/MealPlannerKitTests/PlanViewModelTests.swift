@@ -50,6 +50,30 @@ struct PlanViewModelTests {
         #expect(h.vm.isLoading == false)
     }
 
+    @Test("isLoading stays true until the last of several overlapping loads finishes")
+    func isLoadingCoversOverlappingLoads() async throws {
+        let server = PlanServer()
+        let first = Gate()
+        let second = Gate()
+        server.queueGetGates([first, second])
+        let h = try Harness(server: server)
+
+        // One at a time, so the first load owns the first gate.
+        let a = Task { await h.vm.load() }
+        #expect(await waitUntil { server.getCount == 1 })
+        let b = Task { await h.vm.setRange(from: "2026-10-12", to: "2026-10-12") }
+        #expect(await waitUntil { server.getCount == 2 }) // both loads are now waiting on the server
+        #expect(h.vm.isLoading)
+
+        await first.release()
+        await a.value
+        #expect(h.vm.isLoading) // the second load is still running
+
+        await second.release()
+        await b.value
+        #expect(h.vm.isLoading == false)
+    }
+
     @Test("A refresh failure keeps the cache on screen and marks it stale, with no error banner")
     func offlineKeepsCache() async throws {
         let server = PlanServer()

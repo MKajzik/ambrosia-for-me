@@ -36,7 +36,9 @@ public final class PlanViewModel {
     /// The cached days of `range`, by date. A date that was never fetched is absent, not empty.
     public private(set) var days: [String: Components.Schemas.DailyTotal] = [:]
     public private(set) var targets: Components.Schemas.Targets?
-    public private(set) var isLoading = false
+    /// True while any `load()` is running: loads can overlap (a new range, a refresh, a foreground), so this counts them.
+    public var isLoading: Bool { loadsInFlight > 0 }
+    private var loadsInFlight = 0
     public private(set) var isStale = false
     public private(set) var loadError: String?
     public private(set) var notice: String?
@@ -69,8 +71,8 @@ public final class PlanViewModel {
     /// it stale; with nothing cached it shows an error state.
     public func load() async {
         let requested = range
-        isLoading = true
-        defer { isLoading = false }
+        loadsInFlight += 1
+        defer { loadsInFlight -= 1 }
         show(await plan.cached(from: requested.from, to: requested.to))
         do {
             try await plan.refresh(from: requested.from, to: requested.to)
