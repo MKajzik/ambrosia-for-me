@@ -15,7 +15,9 @@ public final class ShoppingViewModel {
 
     public private(set) var scope: MealScope = .mine
     public private(set) var lists: [Components.Schemas.ShoppingListSummary] = []
-    public private(set) var isLoading = false
+    /// True while any `load()` is running: loads can overlap (a scope switch, a refresh), so this counts them.
+    public var isLoading: Bool { loadsInFlight > 0 }
+    private var loadsInFlight = 0
     public private(set) var isStale = false
     public private(set) var loadError: String?
     public private(set) var showsPartnerSegment = false
@@ -42,9 +44,10 @@ public final class ShoppingViewModel {
 
     public func load() async {
         let requested = scope
-        isLoading = true
-        defer { isLoading = false }
-        lists = await shopping.cachedLists(requested)
+        loadsInFlight += 1
+        defer { loadsInFlight -= 1 }
+        let cached = await shopping.cachedLists(requested)
+        if scope == requested { lists = cached }
         do {
             let next = try await shopping.refreshLists(requested, cursor: nil)
             guard scope == requested else { return }
@@ -61,6 +64,9 @@ public final class ShoppingViewModel {
             }
         } catch {
             guard scope == requested else { return }
+            // The first page did not load, so the cursor of an earlier page no longer describes what is shown.
+            nextCursor = nil
+            hasMore = false
             isStale = true
             loadError = lists.isEmpty ? ErrorText.message(for: error) : nil
         }
@@ -85,6 +91,10 @@ public final class ShoppingViewModel {
     public func select(_ next: MealScope) async {
         guard next != scope else { return }
         scope = next
+        nextCursor = nil
+        hasMore = false
+        isStale = false
+        loadError = nil
         await load()
     }
 
@@ -122,8 +132,13 @@ public final class ShoppingViewModel {
     }
 
     private func refreshMine() async {
-        _ = try? await shopping.refreshLists(.mine, cursor: nil)
-        if scope == .mine { lists = await shopping.cachedLists(.mine) }
+        // `try?` would flatten "no next page" (`nil`) into "failed", so catch explicitly.
+        let next: String?
+        do { next = try await shopping.refreshLists(.mine, cursor: nil) } catch { return }
+        guard scope == .mine else { return }
+        nextCursor = next
+        hasMore = next != nil
+        lists = await shopping.cachedLists(.mine)
     }
 
     /// Shown only while `GET /partner` says `active`. If the request fails (offline) it shows only when partner lists

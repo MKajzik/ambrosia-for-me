@@ -101,4 +101,80 @@ struct ShoppingViewModelTests {
         h.server.force("POST /shopping-lists/generate", status: 404)
         #expect(await vm.generate(from: range.from, to: range.to, name: nil) == .failed("Nothing is planned on those days."))
     }
+
+    private func makeVM(_ transport: RoutingTransport) throws -> ShoppingViewModel {
+        let client = makeAuthlessClient(transport: transport)
+        let repo = ShoppingListsRepository(client: client, cache: CacheStore.makeShoppingCache(try CacheStore.inMemoryContainer()))
+        return ShoppingViewModel(shopping: repo, partner: PartnerRepository(client: client), day: utc)
+    }
+
+    @Test("A failed refresh for a new scope clears the previous scope's paging, so Load more does nothing")
+    func pagingResetsOnScopeChange() async throws {
+        let transport = RoutingTransport { call in
+            if call.path.contains("/partner/") { throw URLError(.notConnectedToInternet) }
+            return (200, ShoppingFixtures.page([ShoppingFixtures.summary(id: "a")], next: "c2"))
+        }
+        let vm = try makeVM(transport)
+        await vm.load()
+        #expect(vm.hasMore)
+        await vm.select(.partner)
+        #expect(!vm.hasMore)
+        let before = await transport.calls.count
+        await vm.loadMore()
+        #expect(await transport.calls.count == before)
+    }
+
+    @Test("A failed first-page reload drops the old cursor")
+    func failedReloadDropsCursor() async throws {
+        let offline = Locked(false)
+        let transport = RoutingTransport { _ in
+            if offline.value { throw URLError(.notConnectedToInternet) }
+            return (200, ShoppingFixtures.page([ShoppingFixtures.summary(id: "a")], next: "c2"))
+        }
+        let vm = try makeVM(transport)
+        await vm.load()
+        offline.set(true)
+        await vm.load()
+        #expect(!vm.hasMore)
+    }
+
+    @Test("isLoading stays true until every overlapping load finishes, and a stale cache read cannot replace the new scope's lists")
+    func overlappingLoads() async throws {
+        let gate = Gate()
+        let transport = RoutingTransport { call in
+            if call.path.contains("/partner/") { return (200, ShoppingFixtures.page([ShoppingFixtures.summary(id: "p")])) }
+            await gate.wait()
+            return (200, ShoppingFixtures.page([ShoppingFixtures.summary(id: "m")]))
+        }
+        let vm = try makeVM(transport)
+        let first = Task { await vm.load() }
+        while await transport.calls.isEmpty { await Task.yield() }
+        await vm.select(.partner)
+        #expect(vm.lists.map(\.id) == ["p"])
+        #expect(vm.isLoading)
+        await gate.release()
+        await first.value
+        #expect(!vm.isLoading)
+        #expect(vm.scope == .partner)
+        #expect(vm.lists.map(\.id) == ["p"])
+    }
+
+    @Test("After createList the paging state matches the refreshed first page")
+    func createKeepsPaging() async throws {
+        let transport = RoutingTransport { call in
+            if call.route == "POST /shopping-lists" {
+                return (201, Fixtures.json(ShoppingFixtures.list(id: "new", name: "New")))
+            }
+            if call.path.contains("cursor=c2") { return (200, ShoppingFixtures.page([ShoppingFixtures.summary(id: "b")])) }
+            return (200, ShoppingFixtures.page([ShoppingFixtures.summary(id: "a")], next: "c2"))
+        }
+        let vm = try makeVM(transport)
+        await vm.load()
+        await vm.loadMore()
+        #expect(!vm.hasMore)
+        _ = await vm.createList(name: "New", shared: false)
+        #expect(vm.hasMore)
+        await vm.loadMore()
+        #expect(await transport.calls.contains { $0.path.contains("cursor=c2") })
+    }
 }
