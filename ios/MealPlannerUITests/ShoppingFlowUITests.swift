@@ -55,6 +55,15 @@ final class ShoppingFlowUITests: AppUITestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-uiTesting"]
         app.launch()
+        // Whatever fails below, never leave A signed in for the next test. Tolerant: if there is no tab shell (already
+        // signed out, or sign-in never finished) there is nothing to do.
+        addTeardownBlock {
+            let profileTab = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "profileTab", "Profile")).firstMatch
+            guard app.state == .runningForeground, profileTab.waitForExistence(timeout: 5) else { return }
+            profileTab.tap()
+            let signOut = app.buttons["signOutButton"]
+            if signOut.waitForExistence(timeout: 10) { signOut.tap() }
+        }
         signIn(in: app, email: emailA, password: password)
 
         // 1. Generate a list from the plan through the UI (the default range starts today).
