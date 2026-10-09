@@ -1,6 +1,6 @@
 # iOS Shopping Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace the Shopping tab stub with the real feature: browse your lists and your partner's shared lists, create or generate a list, check off / quick-add / edit / remove items, see a partner's changes live, and keep checking off, adding and removing items while offline with the changes syncing on reconnect.
 
@@ -107,7 +107,7 @@ Tests/MealPlannerKitTests/: IntentQueueTests, ShoppingFixtures, PendingOverlayTe
 **Interfaces:**
 - Produces: `ShoppingIntent` (`id: UUID`, `sequence: Int`, `kind: Kind`, `listID: String`, `itemID: String`, `payload: AddPayload?`, `isTemp: Bool`, `static tempPrefix`, `static newTempID() -> String`), `ShoppingIntent.Kind` (`check, uncheck, add, remove`), `ShoppingIntent.AddPayload` (`name`, `ingredientID?`, `quantity?`, `unit: Components.Schemas.Unit?`, `category: Components.Schemas.IngredientCategory?`), `IntentQueue.enqueue(_ intent: ShoppingIntent, into queue: [ShoppingIntent]) -> [ShoppingIntent]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 import Testing
@@ -199,12 +199,12 @@ struct IntentQueueTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run (from `ios/MealPlannerKit`): `swift test --filter IntentQueueTests`
 Expected: FAIL to compile, "cannot find 'ShoppingIntent' in scope".
 
-- [ ] **Step 3: Implement `ShoppingIntent.swift`**
+- [x] **Step 3: Implement `ShoppingIntent.swift`**
 
 ```swift
 import API
@@ -288,12 +288,12 @@ public enum IntentQueue {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter IntentQueueTests`
 Expected: PASS (7 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ios/MealPlannerKit/Sources/Persistence/ShoppingIntent.swift ios/MealPlannerKit/Tests/MealPlannerKitTests/IntentQueueTests.swift
@@ -315,7 +315,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `ShoppingIntent` (Task 1).
 - Produces: `PendingOverlay.apply(_ list: Components.Schemas.ShoppingList, intents: [ShoppingIntent], userID: String?, now: Date = Date()) -> Components.Schemas.ShoppingList`. Test helpers `ShoppingFixtures.item(...)`, `.list(...)`, `.summary(_:)`, `.summary(id:name:shared:)`, `.page(_:next:)`, `.conflict(current:)`.
 
-- [ ] **Step 1: Write `ShoppingFixtures.swift` (test support, used by every later task)**
+- [x] **Step 1: Write `ShoppingFixtures.swift` (test support, used by every later task)**
 
 ```swift
 import API
@@ -369,7 +369,7 @@ enum ShoppingFixtures {
 }
 ```
 
-- [ ] **Step 2: Write the failing tests** — `PendingOverlayTests.swift`
+- [x] **Step 2: Write the failing tests** — `PendingOverlayTests.swift`
 
 ```swift
 import API
@@ -461,12 +461,12 @@ struct PendingOverlayTests {
 }
 ```
 
-- [ ] **Step 3: Run to verify it fails**
+- [x] **Step 3: Run to verify it fails**
 
 Run: `swift test --filter PendingOverlayTests`
 Expected: FAIL to compile, "cannot find 'PendingOverlay' in scope".
 
-- [ ] **Step 4: Implement `PendingOverlay.swift`**
+- [x] **Step 4: Implement `PendingOverlay.swift`**
 
 ```swift
 import API
@@ -510,7 +510,7 @@ public enum PendingOverlay {
 }
 ```
 
-- [ ] **Step 5: Run to verify it passes, then commit**
+- [x] **Step 5: Run to verify it passes, then commit**
 
 Run: `swift test --filter PendingOverlayTests`
 Expected: PASS (8 tests).
@@ -535,7 +535,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `LocalDay` (`date(_:)`, `addDays(_:_:)`), `Components.Schemas.IngredientCategory.allCases` (API order) and `.label`.
 - Produces: `ItemGroup` (`category`, `items`, `id`), `ItemGrouping.groups(_:) -> [ItemGroup]`, `ItemGrouping.progress(_:) -> (done: Int, total: Int)`, `ItemGrouping.quantityText(_:) -> String`, `RangeValidation.maxDays`, `RangeValidation.error(from:to:day:) -> String?`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `ItemGroupingTests.swift`:
 
@@ -606,12 +606,12 @@ struct RangeValidationTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `swift test --filter "ItemGroupingTests|RangeValidationTests"`
 Expected: FAIL to compile, "cannot find 'ItemGrouping' in scope".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `ItemGrouping.swift`:
 
@@ -675,7 +675,7 @@ public enum RangeValidation {
 }
 ```
 
-- [ ] **Step 4: Run to verify they pass, then commit**
+- [x] **Step 4: Run to verify they pass, then commit**
 
 Run: `swift test --filter "ItemGroupingTests|RangeValidationTests"`
 Expected: PASS (5 tests). If `"1,000 g"` fails, check the locale argument on `formatted`: grouping must be on.
@@ -699,7 +699,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `Components.Schemas.ShoppingList`.
 - Produces: `ListEvent` (`kind: Kind`, `listID`, `itemID?`, `version?`; `static parse(data:) -> ListEvent?`), `ListEvent.Kind` (`itemChanged, itemDeleted, listChanged, listDeleted`), `SSEFrameParser` (`mutating feed(_ line: String) -> ListEvent?`), `ListEventAction` (`ignore, refetch, removeItem(String), accessLost`), `ListEventReducer.action(for:cached:) -> ListEventAction`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 import Testing
@@ -791,12 +791,12 @@ struct ListEventTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `swift test --filter ListEventTests`
 Expected: FAIL to compile, "cannot find 'SSEFrameParser' in scope".
 
-- [ ] **Step 3: Implement `ListEvent.swift`**
+- [x] **Step 3: Implement `ListEvent.swift`**
 
 ```swift
 import API
@@ -886,7 +886,7 @@ public enum ListEventReducer {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes, then commit**
+- [x] **Step 4: Run to verify it passes, then commit**
 
 Run: `swift test --filter ListEventTests`
 Expected: PASS (10 tests).
@@ -917,7 +917,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
   `enqueue(kind:listID:itemID:payload:) -> [ShoppingIntent]` (the list's intents after collapsing),
   `removeIntent(id: UUID)`, `dropIntents(itemID:)`, `rewriteTempID(_:to:)`, `clearAll()`; `CacheStore.makeShoppingCache(_:)`.
 
-- [ ] **Step 1: Write the failing tests** — `ShoppingCacheTests.swift`
+- [x] **Step 1: Write the failing tests** — `ShoppingCacheTests.swift`
 
 ```swift
 import API
@@ -1044,12 +1044,12 @@ struct ShoppingCacheTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `swift test --filter ShoppingCacheTests`
 Expected: FAIL to compile, "cannot find 'ShoppingCache'" / "makeShoppingCache".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `CachedShoppingModels.swift`:
 
@@ -1305,12 +1305,12 @@ In `CacheStore.swift`, add the three classes to the schema and the factory:
     }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter ShoppingCacheTests`
 Expected: PASS (10 tests). Then `swift test` (whole suite) to confirm the schema change broke nothing: all existing suites still PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ios/MealPlannerKit/Sources/Persistence ios/MealPlannerKit/Tests/MealPlannerKitTests/ShoppingCacheTests.swift
@@ -1340,7 +1340,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
     offline-able `setChecked(_:itemID:listID:)`, `addItem(_:listID:) -> String` (the temp id), `removeItem(itemID:listID:)`;
     cache upkeep `removeCachedItem(itemID:listID:)`, `dropList(id:)`, `clearPartnerLists()`, `clearCaches()`.
 
-- [ ] **Step 1: Write the failing tests** — `ShoppingRepositoryTests.swift`
+- [x] **Step 1: Write the failing tests** — `ShoppingRepositoryTests.swift`
 
 ```swift
 import API
@@ -1490,12 +1490,12 @@ struct ShoppingRepositoryTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `swift test --filter ShoppingRepositoryTests`
 Expected: FAIL to compile, "cannot find 'ShoppingListsRepository' in scope".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `ShoppingError.swift`:
 
@@ -1772,12 +1772,12 @@ In `ErrorText.swift`, add this case just above `case is URLError:`:
             }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter ShoppingRepositoryTests`
 Expected: PASS (11 tests). If a generated-client label differs (for example `.init(path: .init(id:itemId:))`), read the generated `Operations.UpdateShoppingItem.Input.Path` in `Sources/API/GeneratedSources/Types+Operations.swift` and match it; do not edit that file.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ios/MealPlannerKit/Sources/Repositories ios/MealPlannerKit/Sources/Features/Shared/ErrorText.swift ios/MealPlannerKit/Tests/MealPlannerKitTests/ShoppingRepositoryTests.swift
@@ -1801,7 +1801,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
   - `ShoppingSyncEngine(client:cache:)` (an `actor`) with `drain() async` (coalesces concurrent calls), `changes() -> AsyncStream<Void>` (one element after every queue step; one stream per caller), `takeNotice() -> String?`.
   - `ShoppingServer(_ lists:)` with `route(_:)`, `setOffline(_:)`, `setPartnerLinked(_:)`, `force(_ route:status:)`, `list(_:)`, `mutate(listID:itemID:_:)`, `deleteItem(listID:itemID:)`, `deleteList(_:)`. New server ids are `srv-101`, `srv-102`, …
 
-- [ ] **Step 1: Write `ShoppingServer.swift` (test support)**
+- [x] **Step 1: Write `ShoppingServer.swift` (test support)**
 
 ```swift
 import API
@@ -1940,7 +1940,7 @@ final class ShoppingServer: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 2: Write the failing tests** — `ShoppingSyncEngineTests.swift`
+- [x] **Step 2: Write the failing tests** — `ShoppingSyncEngineTests.swift`
 
 ```swift
 import API
@@ -2097,12 +2097,12 @@ struct ShoppingSyncEngineTests {
 }
 ```
 
-- [ ] **Step 3: Run to verify it fails**
+- [x] **Step 3: Run to verify it fails**
 
 Run: `swift test --filter ShoppingSyncEngineTests`
 Expected: FAIL to compile, "cannot find 'ShoppingSyncEngine' in scope".
 
-- [ ] **Step 4: Implement `ShoppingSyncEngine.swift`**
+- [x] **Step 4: Implement `ShoppingSyncEngine.swift`**
 
 ```swift
 import API
@@ -2254,7 +2254,7 @@ public actor ShoppingSyncEngine {
 }
 ```
 
-- [ ] **Step 5: Run to verify it passes, then commit**
+- [x] **Step 5: Run to verify it passes, then commit**
 
 Run: `swift test --filter ShoppingSyncEngineTests`
 Expected: PASS (8 tests). If `coalesces` is flaky because the second `drain()` arrives before the first request starts, the `waitForCalls` line is what orders them: keep it.
@@ -2284,7 +2284,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
   - `NetworkMonitor` (`updates: AsyncStream<Bool>`; `true` = a network path exists).
   - `ListEventStream(baseURL:accessToken:refreshToken:networkSwitch:open:)` with `events(listID:) -> AsyncThrowingStream<ListEvent, Error>`, `ListEventStream.StreamError` (`accessLost`, `unauthorized`, `unavailable(Int)`), `ListEventStream.Opener`.
 
-- [ ] **Step 1: Edit `Package.swift`**
+- [x] **Step 1: Edit `Package.swift`**
 
 In the `Repositories` target, add `HTTPTypes`; in `Features`, add `"Persistence"`:
 
@@ -2303,7 +2303,7 @@ In the `Repositories` target, add `HTTPTypes`; in `Features`, add `"Persistence"
 Run: `swift build`
 Expected: builds (nothing uses the new edges yet).
 
-- [ ] **Step 2: Write the failing tests** — `ListEventStreamTests.swift`
+- [x] **Step 2: Write the failing tests** — `ListEventStreamTests.swift`
 
 ```swift
 import Foundation
@@ -2405,12 +2405,12 @@ struct ListEventStreamTests {
 }
 ```
 
-- [ ] **Step 3: Run to verify it fails**
+- [x] **Step 3: Run to verify it fails**
 
 Run: `swift test --filter ListEventStreamTests`
 Expected: FAIL to compile, "cannot find 'ListEventStream' in scope".
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 `NetworkSwitch.swift`:
 
@@ -2583,7 +2583,7 @@ public struct ListEventStream: Sendable {
 }
 ```
 
-- [ ] **Step 5: Run to verify it passes, then commit**
+- [x] **Step 5: Run to verify it passes, then commit**
 
 Run: `swift test --filter ListEventStreamTests` then `swift build`
 Expected: PASS (7 tests); build succeeds on macOS (`Network` is available there).
@@ -2611,7 +2611,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `ShoppingListsRepository`, `ShoppingSyncEngine`, `ListEventStream`, `NetworkMonitor`, `NetworkSwitch`, `PartnerRepository`, `TokenRefresher` (`currentAccessToken()`, `refreshAccessToken()`), `AppState.session`.
 - Produces: `ShoppingDependencies(shopping:sync:partner:events:monitor:networkSwitch:currentUserID:)` with `runSyncLoop() async`; `clearAllCaches(meals:plan:templates:shopping:)`.
 
-- [ ] **Step 1: Update the failing test** — `ClearCachesTests.swift`
+- [x] **Step 1: Update the failing test** — `ClearCachesTests.swift`
 
 Extend the existing test (keep its current assertions) so it also seeds and checks shopping, and passes the new argument:
 
@@ -2630,7 +2630,7 @@ Extend the existing test (keep its current assertions) so it also seeds and chec
 Run: `swift test --filter ClearCachesTests`
 Expected: FAIL to compile, "extra argument 'shopping' in call".
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 `ClearCaches.swift`:
 
@@ -2769,12 +2769,12 @@ public struct ShoppingView: View {
 }
 ```
 
-- [ ] **Step 3: Run to verify it passes**
+- [x] **Step 3: Run to verify it passes**
 
 Run: `swift test --filter ClearCachesTests` then `swift build` then `swift test`
 Expected: PASS; whole suite green (`AppStateTests` and the others do not construct `clearAllCaches`).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add ios/MealPlannerKit
@@ -2796,7 +2796,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `ShoppingListsRepository`, `PartnerRepository`, `RangeValidation`, `LocalDay`, `ErrorText`, `MealScope`.
 - Produces: `ShoppingViewModel(shopping:partner:day:)` (`@Observable @MainActor`) with state `scope`, `lists`, `isLoading`, `isStale`, `loadError`, `showsPartnerSegment`, `hasMore`, `isLoadingMore`, `alertMessage`; methods `appear()`, `load()`, `loadMore()`, `select(_:)`, `createList(name:shared:) -> Outcome`, `generate(from:to:name:) -> Outcome`, `defaultRange() -> (from: String, to: String)`; `ShoppingViewModel.Outcome` (`opened(String)`, `failed(String)`). Test helper `ShoppingHarness`.
 
-- [ ] **Step 1: Write `ShoppingTestSupport.swift`**
+- [x] **Step 1: Write `ShoppingTestSupport.swift`**
 
 ```swift
 import API
@@ -2835,7 +2835,7 @@ struct ShoppingHarness {
 }
 ```
 
-- [ ] **Step 2: Write the failing tests** — `ShoppingViewModelTests.swift`
+- [x] **Step 2: Write the failing tests** — `ShoppingViewModelTests.swift`
 
 ```swift
 import API
@@ -2944,12 +2944,12 @@ struct ShoppingViewModelTests {
 }
 ```
 
-- [ ] **Step 3: Run to verify it fails**
+- [x] **Step 3: Run to verify it fails**
 
 Run: `swift test --filter ShoppingViewModelTests`
 Expected: FAIL to compile, "cannot find 'ShoppingViewModel' in scope".
 
-- [ ] **Step 4: Implement `ShoppingViewModel.swift`**
+- [x] **Step 4: Implement `ShoppingViewModel.swift`**
 
 ```swift
 import API
@@ -3095,7 +3095,7 @@ public final class ShoppingViewModel {
 }
 ```
 
-- [ ] **Step 5: Run to verify it passes, then commit**
+- [x] **Step 5: Run to verify it passes, then commit**
 
 Run: `swift test --filter ShoppingViewModelTests`
 Expected: PASS (6 tests).
@@ -3119,7 +3119,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `ShoppingListsRepository`, `ShoppingSyncEngine` (`drain`, `changes`, `takeNotice`), `PendingOverlay`, `ListEventReducer`, `ListEventStream.StreamError`, `ItemGrouping`, `ItemEdit`, `parseDecimal`, `ErrorText`, `ShoppingIntent`.
 - Produces: `ShoppingListViewModel(listID:shopping:sync:events:userID:sleep:)` (`@Observable @MainActor`) with state `displayed: ShoppingList?`, `groups: [ItemGroup]`, `progress`, `isOwner`, `isLoading`, `isStale`, `accessLost`, `loadError`, `pendingCount`, `isSyncing`, `alertMessage`; methods `run()`, `load()`, `reload()`, `toggle(_:)`, `quickAdd(_:) -> Bool`, `remove(_:)`, `edit(_:name:quantity:unit:category:) -> EditOutcome`, `rename(_:)`, `setShared(_:)`, `delete() -> Bool`, `regenerate()`, `handle(_ event:)`, `runLiveUpdates()`; `EditOutcome` (`saved`, `conflict(ShoppingItem)`, `failed(String)`); `EventSource` = `@Sendable (String) -> AsyncThrowingStream<ListEvent, Error>`.
 
-- [ ] **Step 1: Write the failing tests** — `ShoppingListViewModelTests.swift`
+- [x] **Step 1: Write the failing tests** — `ShoppingListViewModelTests.swift`
 
 ```swift
 import API
@@ -3369,12 +3369,12 @@ struct ShoppingListViewModelTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `swift test --filter ShoppingListViewModelTests`
 Expected: FAIL to compile, "cannot find 'ShoppingListViewModel' in scope".
 
-- [ ] **Step 3: Implement `ShoppingListViewModel.swift`**
+- [x] **Step 3: Implement `ShoppingListViewModel.swift`**
 
 ```swift
 import API
@@ -3636,12 +3636,12 @@ public final class ShoppingListViewModel {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter ShoppingListViewModelTests` then the whole `swift test`.
 Expected: PASS (16 tests); whole suite green. If `reconnect` hangs, `TestSleeper.fire()` waits up to 3 s for a waiter: the first stream must finish immediately and the loop must reach `sleep`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ios/MealPlannerKit/Sources/Features/Shopping/ShoppingListViewModel.swift ios/MealPlannerKit/Tests/MealPlannerKitTests/ShoppingListViewModelTests.swift
@@ -3664,7 +3664,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 
 There is no unit test for SwiftUI views in this codebase (the logic is in the tested view models); the gate for this task is the build, plus the UI test in Task 13.
 
-- [ ] **Step 1: `ShoppingView.swift`**
+- [x] **Step 1: `ShoppingView.swift`**
 
 ```swift
 import API
@@ -3803,7 +3803,7 @@ public struct ShoppingView: View {
 }
 ```
 
-- [ ] **Step 2: `ShoppingItemRow.swift` and `QuickAddField.swift`**
+- [x] **Step 2: `ShoppingItemRow.swift` and `QuickAddField.swift`**
 
 ```swift
 import API
@@ -3881,7 +3881,7 @@ struct QuickAddField: View {
 }
 ```
 
-- [ ] **Step 3: `EditItemSheet.swift`, `NewListSheet.swift`, `GenerateListSheet.swift`**
+- [x] **Step 3: `EditItemSheet.swift`, `NewListSheet.swift`, `GenerateListSheet.swift`**
 
 ```swift
 import API
@@ -4059,7 +4059,7 @@ struct GenerateListSheet: View {
 }
 ```
 
-- [ ] **Step 4: `ShoppingListView.swift`**
+- [x] **Step 4: `ShoppingListView.swift`**
 
 ```swift
 import API
@@ -4208,13 +4208,13 @@ public struct ShoppingListView: View {
 
 `ShoppingItem` must be `Identifiable` for `.sheet(item:)`: the generated type is not. Add this one line to `ShoppingListView.swift` (file scope): `extension Components.Schemas.ShoppingItem: @retroactive Identifiable {}`.
 
-- [ ] **Step 5: Build, then the whole suite**
+- [x] **Step 5: Build, then the whole suite**
 
 Run: `swift build` (from `ios/MealPlannerKit`), then `swift test`.
 Expected: both succeed on macOS. Then from the repo root: `make build-ios`.
 Expected: `** BUILD SUCCEEDED **` (the first compile of the iOS-only paths: a failure is most likely a UIKit-only modifier that needs `#if os(iOS)`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add ios/MealPlannerKit/Sources/Features/Shopping
@@ -4234,7 +4234,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `AppUITestCase` helpers (`uniqueEmail`, `createAccountViaAPI`, `apiRequest`, `signIn`, `tabButton`, `waitUntilHittable`, `expectValue`, `typeVerified`, `signOutButton`); the identifiers from Task 12; the `-uiTesting` launch argument (Task 9).
 - Produces: the flow in spec §10: generate in the UI, a partner's check-off lands live, an offline check-off shows the syncing badge and syncs on reconnect.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 ```swift
 import XCTest
@@ -4345,18 +4345,18 @@ final class ShoppingFlowUITests: AppUITestCase {
 }
 ```
 
-- [ ] **Step 2: Compile the UI-test target**
+- [x] **Step 2: Compile the UI-test target**
 
 Run: `cd ios && xcodegen generate && xcodebuild build-for-testing -project MealPlanner.xcodeproj -scheme MealPlanner -destination 'generic/platform=iOS Simulator' 2>&1 | grep -E "error:|TEST BUILD"`
 Expected: `** TEST BUILD SUCCEEDED **`. If `app.images["syncingBadge"]` never matches, print `app.debugDescription` once and match the element type SwiftUI actually gave the `Label` (an image or other element); keep the OR in the assertion.
 
-- [ ] **Step 3: Run the flow if the machine allows (optional locally; CI is the signal)**
+- [x] **Step 3: Run the flow if the machine allows (optional locally; CI is the signal)**
 
 Start the API (`make db-up && make migrate && make run-api` in another terminal), then:
 `cd ios && xcodebuild test -project MealPlanner.xcodeproj -scheme MealPlanner -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:MealPlannerUITests/ShoppingFlowUITests`
 Expected: the test passes. Local XCUITest is unreliable under load; if it fails for waits, trust CI.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add ios/MealPlannerUITests/ShoppingFlowUITests.swift
@@ -4374,7 +4374,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Modify: `docs/superpowers/specs/2026-10-08-ios-shopping-design.md`
 - Modify: `docs/superpowers/plans/2026-10-08-ios-shopping.md` (tick the boxes)
 
-- [ ] **Step 1: Update `ios/CLAUDE.md`**
+- [x] **Step 1: Update `ios/CLAUDE.md`**
 
 In the layout list add, in the matching bullets:
 - `Sources/Persistence/`: "Also `ShoppingCache` (list summaries per scope, the server's snapshot of each list, and the persisted offline queue of `ShoppingIntent` rows) and `IntentQueue`, the pure collapsing rules."
@@ -4395,7 +4395,7 @@ In **Gotchas** add:
 - Test helpers: `ShoppingServer` (in-memory shopping endpoints; item `PATCH` honours `version` and answers the real `409`, ids are `srv-101`, `srv-102`, …) and `ShoppingHarness` (repository + engine + cache over one server).
 ```
 
-- [ ] **Step 2: Reconcile the spec with what was built**
+- [x] **Step 2: Reconcile the spec with what was built**
 
 In `docs/superpowers/specs/2026-10-08-ios-shopping-design.md`:
 - §3: `IntentQueue` lives in `Persistence/` (the cache collapses atomically); `QueuedIntent` is `CachedIntent`; `ShoppingIntent` carries a single `itemID` with a `temp:` prefix for an unsynced add instead of `itemId?` + `clientTempId?`.
@@ -4403,7 +4403,7 @@ In `docs/superpowers/specs/2026-10-08-ios-shopping-design.md`:
 - §6: edits cannot clear a quantity or unit.
 - §10: the partner link and the sharing of the generated list are done through the API, not the UI; the offline switch is the `-uiTesting` `NetworkSwitch` and the toolbar button.
 
-- [ ] **Step 3: Run the full gate**
+- [x] **Step 3: Run the full gate**
 
 Run, from the repo root:
 - `make test-ios` — expected: all suites PASS.
@@ -4411,9 +4411,9 @@ Run, from the repo root:
 - `cd ios && xcodebuild build-for-testing -project MealPlanner.xcodeproj -scheme MealPlanner -destination 'generic/platform=iOS Simulator' 2>&1 | grep -E "error:|TEST BUILD"` — expected: `** TEST BUILD SUCCEEDED **`.
 - `make check` — expected: green (it does not need Docker for iOS; the other gates are unchanged because `openapi.yaml` did not change). If `check-generated-ios` fails, something edited generated code: revert it.
 
-- [ ] **Step 4: Tick this plan's boxes, commit, and report**
+- [x] **Step 4: Tick this plan's boxes, commit, and report**
 
-Mark every `- [ ]` in this file `- [x]`.
+Mark every `- [x]` in this file `- [x]`.
 
 ```bash
 git add ios/CLAUDE.md docs/superpowers

@@ -15,11 +15,11 @@ Out of scope: Profile (own spec), Sign in with Apple (#29), background sync or p
 
 | Topic | Decision |
 |---|---|
-| Offline model | **Overlay.** The cache stores the server's last snapshot of each list, unmodified. Pending changes live separately as `QueuedIntent` rows. The displayed list is the pure function `PendingOverlay.apply(snapshot, intents)`. A refetch or SSE echo replaces the snapshot and can never erase a pending change; a drained intent's row is deleted and the next snapshot already contains its effect, so nothing is reconciled. |
+| Offline model | **Overlay.** The cache stores the server's last snapshot of each list, unmodified. Pending changes live separately as `ShoppingIntent` rows. The displayed list is the pure function `PendingOverlay.apply(snapshot, intents)`. A refetch or SSE echo replaces the snapshot and can never erase a pending change; a drained intent's row is deleted and the next snapshot already contains its effect, so nothing is reconciled. |
 | What is queued | `check`, `uncheck`, `add`, `remove` of items only. Everything else (create/generate/regenerate/rename/share/delete list, edit item fields) is online-only and surfaces a plain retry-able error on failure, as every non-shopping write (iOS spec §6). |
 | Realtime | `URLSession.bytes(for:)` streaming `GET /shopping-lists/{id}/events`, bearer in `Authorization`. Events say what changed, never to what: refetch, don't patch. |
-| Reconnect | A small `NWPathMonitor` wrapper (new; Foundation has none) triggers a queue drain and a refetch. Foreground does the same. |
-| Item identity offline | An offline `add` gets a client-side `clientTempId` (UUID) until the server assigns the real id. |
+| Reconnect | A small stateless `NetworkMonitor` struct (new; Foundation has none) whose `updates()` returns a fresh stream over a fresh `NWPathMonitor` per call (so it restarts across sign-out and sign-in) triggers a queue drain and a refetch. Foreground does the same. |
+| Item identity offline | An offline `add` gets a client-side id (`temp:<uuid>`, in the same `itemID` field as server ids) until the server assigns the real id. |
 | Reads | `cached…()` then `refresh…()`, as Meals and Plan. |
 | Contract | Unchanged. |
 
@@ -27,14 +27,15 @@ Out of scope: Profile (own spec), Sign in with Apple (#29), background sync or p
 
 All in `ios/MealPlannerKit/Sources/`.
 
-- `Repositories/ShoppingListsRepository`: the only code that touches both the generated client and SwiftData for shopping. Reads: `cachedLists(scope:)` / `refreshLists(scope:cursor:)`, `cachedList(id:)` / `refreshList(id:)`. Online writes: `createList`, `generate`, `updateList`, `deleteList`, `editItem(version:)`. Offline-able item writes: `enqueue(_ intent:)`. One exhaustive `switch` over each generated response enum into `ShoppingError`; every method goes through `unwrapping` (CLAUDE.md gotcha).
-- `Persistence/ShoppingCache`: a `@ModelActor` taking and returning generated value types. One row per list (generated `ShoppingList` JSON) plus a list-summary page per scope (Mine / Partner's, reusing `MealScope`) and the `QueuedIntent` rows.
-- `Persistence/QueuedIntent` (SwiftData, internal): `id`, `sequence` (monotonic), `kind` (`check`/`uncheck`/`add`/`remove`), `listId`, `itemId?` (server id; nil for a not-yet-synced add), `clientTempId?`, `addPayload?` (name, ingredientId, quantity, unit, category). Cleared on sign-out with the other caches (`ClearCaches`).
-- `Sync/PendingOverlay`: pure function; no I/O.
-- `Sync/IntentQueue`: pure enqueue-with-collapsing (§4.2), testable without SwiftData.
-- `Sync/ShoppingSyncEngine`: actor; drains the queue (§4.3).
-- `Sync/ListEventStream` + `ListEvent`: SSE client and frame parser (§5).
-- `Sync/NetworkMonitor`: `NWPathMonitor` wrapper exposing an `AsyncStream<Bool>`.
+- `Repositories/ShoppingListsRepository`: the only code that touches both the generated client and SwiftData for shopping. Reads: `cachedLists(scope:)` / `refreshLists(scope:cursor:)`, `cachedList(id:)` / `refreshList(id:)`. Online writes: `createList`, `generate`, `updateList`, `deleteList`, `editItem(version:)`. Offline-able item writes: `enqueue(_ intent:)`. One exhaustive `switch` over each generated response enum into `ShoppingError`; every repository method goes through `unwrapping` (CLAUDE.md gotcha). The sync engine does not (a Swift 6 actor-self capture problem; every error maps to retry-later anyway).
+- `Persistence/ShoppingCache`: a `@ModelActor` taking and returning generated value types. One row per list (generated `ShoppingList` JSON) plus a list-summary page per scope (Mine / Partner's, reusing `MealScope`) and the persisted queue (`CachedIntent` rows).
+- `Persistence/ShoppingIntent` (value type) and `CachedIntent` (SwiftData, internal; the spec's earlier name was `QueuedIntent`): `id`, `sequence` (monotonic), `kind` (`check`/`uncheck`/`add`/`remove`), `listID`, a single `itemID` (a server id, or a `temp:`-prefixed id for a not-yet-synced add; replaces the earlier `itemId?` + `clientTempId?` pair), `addPayload?` (name, ingredientId, quantity, unit, category). Cleared on sign-out with the other caches (`ClearCaches`).
+- `Repositories/Sync/PendingOverlay`: pure function; no I/O.
+- `Persistence/IntentQueue`: pure enqueue-with-collapsing (§4.2), testable without SwiftData. It lives in `Persistence/` (not `Sync/`) because the cache collapses and writes atomically inside its actor, and `Persistence` cannot import `Repositories`.
+- `Repositories/Sync/ShoppingSyncEngine`: actor; drains the queue (§4.3).
+- `Repositories/Sync/ListEventStream` + `ListEvent` (`SSEFrameParser`, `ListEventReducer`): SSE client, frame parser and pure event rules (§5).
+- `Repositories/Sync/NetworkMonitor`: stateless struct; `updates()` returns a fresh `AsyncStream<Bool>` over its own `NWPathMonitor` each call. `NetworkSwitch` is the `-uiTesting` offline switch.
+- `Package.swift` gains two edges: `HTTPTypes` for `Repositories` (the offline middleware) and `Persistence` for `Features` (`ShoppingIntent.AddPayload`). No new external packages.
 - `Features/Shopping/`: `ShoppingViewModel` (lists), `ShoppingListViewModel` (one list), `ItemGrouping` (pure aisle grouping and quantity text, as `items.ts`), `RangeValidation` (pure, as `range.ts`: both dates, `to >= from`, at most 92 days inclusive), views, sheets.
 
 Views never call the network or SwiftData; they talk to view models, which talk to the repository.
@@ -46,32 +47,32 @@ Views never call the network or SwiftData; they talk to view models, which talk 
 `PendingOverlay.apply(snapshot, intents)` for one list, in `sequence` order:
 
 - `check` / `uncheck`: set `checked` on the item; `checked_by` is the current user's id when checking, `nil` when unchecking. `version` is left alone (only the server bumps it).
-- `add`: append an item built from the payload with `id = clientTempId`, `version = 1`, `origin = manual`, marked pending.
+- `add`: append an item built from the payload with the `temp:` `itemID`, `version = 1`, `origin = manual`, marked pending.
 - `remove`: hide the item.
 
-An item with a `clientTempId` id (not yet on the server) can be removed but not checked or edited from the UI beyond the folding in §4.2; its row shows the syncing mark. As web's `isOptimistic`.
+An item with a `temp:` id (not yet on the server) can be removed but not checked or edited from the UI beyond the folding in §4.2; its row shows the syncing mark. As web's `isOptimistic`.
 
 ### 4.2 Collapsing (at enqueue time, in `IntentQueue`)
 
 - `check` / `uncheck` replace any earlier pending check intent for the same item: one row per item holding the latest desired state (last write wins; the API's checked-only `PATCH` is unversioned, so this never conflicts server-side). A check state equal to the snapshot's state is still queued: the snapshot may be stale.
-- `add` then `remove` of the same `clientTempId` before either syncs: both rows are dropped; no network call.
-- `check` / `uncheck` of an item that is itself a pending `add`: cannot be folded into the add, because `CreateShoppingItemRequest` has no `checked` field. The check intent keeps its own row, addressed by `clientTempId`, and the engine rewrites it to the server id once the add succeeds (§4.3). The user sees no difference.
+- `add` then `remove` of the same temp id before either syncs: both rows are dropped; no network call.
+- `check` / `uncheck` of an item that is itself a pending `add`: cannot be folded into the add, because `CreateShoppingItemRequest` has no `checked` field. The check intent keeps its own row, addressed by the `temp:` id, and the engine rewrites it to the server id once the add succeeds (§4.3). The user sees no difference.
 - `remove` of an already-synced item: one row, sent once; it also drops any pending check intent for that item.
 
 ### 4.3 Draining
 
-`ShoppingSyncEngine` drains in `sequence` order, one request in flight per list, when the queue is non-empty and the app is online: on launch, on foreground, on reconnect, and after each successful online list mutation.
+`ShoppingSyncEngine` drains in `sequence` order, strictly one request in flight overall (a retryable failure blocks only that list's remaining rows; other lists keep draining), when the queue is non-empty and the app is online: on launch, on foreground, on reconnect, and after each successful online list mutation.
 
 | Intent | Request | On success | Failure |
 |---|---|---|---|
 | `check` / `uncheck` | `PATCH /shopping-lists/{id}/items/{item_id}` `{checked}` (no version) | delete row | below |
-| `add` | `POST /shopping-lists/{id}/items` | delete row; rewrite later rows that reference its `clientTempId` to the returned id | below |
+| `add` | `POST /shopping-lists/{id}/items` | delete row; rewrite later rows that reference its temp id to the returned id | below |
 | `remove` | `DELETE /shopping-lists/{id}/items/{item_id}` | delete row | `404` counts as success |
 
 Failure handling, for every intent:
 
 - Network failure, `429` or `5xx`: stop draining that list, keep the row, retry on the next trigger.
-- `404` (item or list gone, or access lost): drop the row, and drop the list's remaining rows if the list itself is gone.
+- `404` (item or list gone, or access lost): drop the row and remove the item from the snapshot. A gone list is cleaned by the next `refreshList`, which answers `404` and removes the list with its remaining rows (no extra request to tell item-gone from list-gone).
 - `400` / `409` on a queued `add`/`check`: not expected (neither is versioned, the client validates first). Drop the row and surface a one-line notice ("A change couldn't be saved"); never retry in a loop.
 - `401`: the existing `TokenRefresher` handles it; a signed-out session stops the engine and the caches are cleared.
 
@@ -103,10 +104,12 @@ The list screen and the tab show a syncing badge whenever any intent is pending 
 - **List screen** (`ShoppingListView`): items grouped by aisle category in the web's order, with checked items kept in place and a "n of m" progress line; a quick-add field (name only, category defaults to `other`, as web); the syncing and stale indicators; swipe-free actions (a visible menu and context menu, per the Plan gotcha).
 - **List menu**: rename, share with partner, delete (confirm), regenerate (only when the list has a source range). Owner-only (`is_owner`); a partner viewing the list gets item actions only.
 - **Item edit sheet**: name, quantity, unit, category. Sent against the version the sheet opened on. `409 version_conflict`: take `current` from the problem body (`ApiError`-equivalent), refetch, and reopen the sheet on the current item; never overwrite silently. Check-off needs no version. Edit requires connectivity (§2).
-- Numbers go through the shared `parseDecimal`. Quantity text follows `items.ts`.
+- Numbers go through the shared `parseDecimal`. Quantity text follows `items.ts`. Edits cannot clear a quantity or unit: the generated `UpdateShoppingItemRequest` fields are optionals that cannot encode an explicit `null` (as `notes`), so a blank quantity or unit leaves the value unchanged.
 - Accessibility: every control labelled; checkbox rows announce state; the syncing badge is read as "Syncing changes".
 
 ## 7. State and error rules
+
+- `ShoppingViewModel` counts in-flight loads for `isLoading` and resets paging on a scope change; `ShoppingListViewModel.reload()` is latest-wins (generation guard) and ignores the cache once access is lost.
 
 - Reads: `cached…()` first, then `refresh…()`. No cache and a failed fetch: empty/error state with retry. Cache and a failed fetch: keep the cache, marked stale.
 - Online writes: write then refresh, as `PlanViewModel`; a failed refresh after a good write is reported as exactly that and the write is never repeated. One list-level write at a time.
@@ -120,7 +123,7 @@ Swift Testing; network-touching code against `RoutingTransport` (sees method, pa
 
 - **`PendingOverlay`**: check/uncheck, add, remove, combinations, order.
 - **`IntentQueue`**: every collapsing rule in §4.2 (check replaces check; add-then-remove cancels; check on pending add keeps its own row; remove drops pending checks).
-- **`ShoppingSyncEngine`**: ordered replay; one in flight; `clientTempId` rewrite after an add; `404` drops the row (and the list's rows when the list is gone); network failure keeps the row and stops; `400`/`409` drops with a notice; stops on sign-out.
+- **`ShoppingSyncEngine`**: ordered replay; one in flight; temp-id rewrite after an add; `404` drops the row and the item; network failure keeps the row and stops; `400`/`409` drops with a notice; stops on sign-out.
 - **SSE**: frame parsing (multi-line, comments, malformed, unknown type); stale-event drop; version-gap refetch; `item_deleted` removal; `list_deleted` and `404` mean access lost; reconnect refetches.
 - **Repository and cache**: each response enum branch; `cached` then `refresh`; scope separation; queue survives re-creating the cache from disk; cleared by `ClearCaches`.
 - **View models**: optimistic display through the overlay; syncing indicator; `409` reopens on `current`; generate range validation; partner-not-linked hides Partner's.
@@ -128,12 +131,12 @@ Swift Testing; network-touching code against `RoutingTransport` (sees method, pa
 
 ## 9. Docs and accessibility
 
-- Update `ios/CLAUDE.md` in the same change as the code: layout entries for `Sync/`, the shopping repository and cache, and gotchas for the overlay, collapsing, drain outcomes, SSE rules and the `clientTempId` rewrite.
+- Update `ios/CLAUDE.md` in the same change as the code: layout entries for `Sync/`, the shopping repository and cache, and gotchas for the overlay, collapsing, drain outcomes, SSE rules and the temp-id rewrite.
 - The `apple:accessibility` audit stays part of the release work (#30), not this plan.
 
 ## 10. XCUITest
 
-One flow against the real API, accounts created through the API (`createAccountViaAPI`), partnership linked through the API, sign-in through the UI:
+One flow against the real API, accounts created through the API (`createAccountViaAPI`), partnership linked through the API, sign-in through the UI. The partner link and the sharing of the generated list are done through the API, not the UI; generating, the live update, the offline check-off and the sync are driven through the UI. The offline switch is the `-uiTesting`-only `NetworkSwitch` (created by `RootView`) plus the list toolbar button. The test retries the tab tap and the offline toggle itself because taps were dropped locally:
 
 1. User A signs in, generates a list from a seeded plan, and shares it.
 2. A second session (API calls as user B) checks an item; the change appears live on A's screen without a manual refresh.
@@ -145,7 +148,7 @@ Use `scrollUntilExists`, `typeVerified` and generous waits (45 s) per CLAUDE.md.
 ## 11. Build order
 
 1. Pure modules with tests: `PendingOverlay`, `IntentQueue`, `ListEvent` parser, `RangeValidation`, `ItemGrouping`.
-2. `ShoppingCache` and `QueuedIntent`; `ClearCaches`.
+2. `ShoppingCache` and `CachedIntent`; `ClearCaches`.
 3. `ShoppingListsRepository` reads and online writes.
 4. `NetworkMonitor` and `ShoppingSyncEngine`.
 5. `ListEventStream`.
