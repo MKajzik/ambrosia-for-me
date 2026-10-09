@@ -40,6 +40,9 @@ public struct ShoppingListsRepository: Sendable {
 
     public func pendingIntents(listID: String) async -> [ShoppingIntent] { await cache.intents(listID: listID) }
 
+    /// The lists with at least one queued change (the lists screen's syncing badge).
+    public func pendingListIDs() async -> Set<String> { Set(await cache.intents().map(\.listID)) }
+
     /// One page of lists. `cursor == nil` is the first page and replaces the scope in the cache; a later page is merged.
     /// Returns the next cursor, or `nil` when there is no more. A failure leaves the cache untouched, except that
     /// `404 partner_not_linked` clears the partner scope.

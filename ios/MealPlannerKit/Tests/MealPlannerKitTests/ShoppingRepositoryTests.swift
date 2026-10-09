@@ -142,4 +142,14 @@ struct ShoppingRepositoryTests {
         let (repo, _, _) = try make { _ in (400, Fixtures.problem(400, code: "validation_failed", errors: [("name", "required")])) }
         await #expect(throws: ShoppingError.validationFailed("Name is required.")) { try await repo.createList(name: "", shared: false) }
     }
+
+    @Test("pendingListIDs names each list with a queued change once")
+    func pendingListIDs() async throws {
+        let (repo, _, _) = try make { _ in (500, Fixtures.problem(500, code: "unused")) }
+        #expect(await repo.pendingListIDs().isEmpty)
+        await repo.setChecked(true, itemID: "i1", listID: "a")
+        await repo.setChecked(true, itemID: "i2", listID: "a")
+        _ = await repo.addItem(.init(name: "Bread"), listID: "b")
+        #expect(await repo.pendingListIDs() == ["a", "b"])
+    }
 }

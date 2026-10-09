@@ -23,6 +23,8 @@ public final class ShoppingViewModel {
     public private(set) var showsPartnerSegment = false
     public private(set) var hasMore = false
     public private(set) var isLoadingMore = false
+    /// Lists with a change still queued: each such row shows a syncing badge (spec §4.4).
+    public private(set) var pendingListIDs: Set<String> = []
     public var alertMessage: String?
 
     @ObservationIgnored private let shopping: ShoppingListsRepository
@@ -48,6 +50,7 @@ public final class ShoppingViewModel {
         defer { loadsInFlight -= 1 }
         let cached = await shopping.cachedLists(requested)
         if scope == requested { lists = cached }
+        await refreshPending()
         do {
             let next = try await shopping.refreshLists(requested, cursor: nil)
             guard scope == requested else { return }
@@ -70,6 +73,17 @@ public final class ShoppingViewModel {
             isStale = true
             loadError = lists.isEmpty ? ErrorText.message(for: error) : nil
         }
+    }
+
+    /// Keeps `pendingListIDs` in step with the queue for as long as the screen is shown.
+    public func watchSync(_ sync: ShoppingSyncEngine) async {
+        let changes = await sync.changes()
+        await refreshPending() // anything that drained before the subscription
+        for await _ in changes { await refreshPending() }
+    }
+
+    private func refreshPending() async {
+        pendingListIDs = await shopping.pendingListIDs()
     }
 
     public func loadMore() async {

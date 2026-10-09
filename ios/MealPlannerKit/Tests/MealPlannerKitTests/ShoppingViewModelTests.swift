@@ -177,4 +177,29 @@ struct ShoppingViewModelTests {
         await vm.loadMore()
         #expect(await transport.calls.contains { $0.path.contains("cursor=c2") })
     }
+
+    @Test("I5: the lists screen knows which lists have pending changes, and clears the badge when the queue drains")
+    func pendingBadge() async throws {
+        let server = ShoppingServer([
+            ShoppingFixtures.list(id: "a", name: "A"),
+            ShoppingFixtures.list(id: "b", name: "B", items: [ShoppingFixtures.item(id: "i1", listID: "b")]),
+        ])
+        let h = try ShoppingHarness(server)
+        let vm = make(h)
+        await vm.appear()
+        #expect(vm.pendingListIDs.isEmpty)
+
+        server.setOffline(true)
+        await h.repository.setChecked(true, itemID: "i1", listID: "b")
+        await vm.appear()
+        #expect(vm.pendingListIDs == ["b"])
+
+        let watching = Task { await vm.watchSync(h.engine) }
+        server.setOffline(false)
+        await h.engine.drain()
+        #expect(await waitUntil { vm.pendingListIDs.isEmpty })
+        watching.cancel()
+        await watching.value
+    }
 }
+

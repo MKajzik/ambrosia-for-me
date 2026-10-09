@@ -52,6 +52,7 @@ public struct ShoppingView: View {
         }
         .refreshable { await viewModel.appear() }
         .task { await viewModel.appear() }
+        .task { await viewModel.watchSync(dependencies.sync) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await viewModel.appear() } }
         }
@@ -119,6 +120,12 @@ public struct ShoppingView: View {
                 Text(subtitle(list)).font(.footnote).foregroundStyle(.secondary)
             }
             Spacer()
+            if viewModel.pendingListIDs.contains(list.id) {
+                Label("Syncing changes", systemImage: "arrow.triangle.2.circlepath")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("shoppingListSyncing-\(list.name)")
+            }
             if viewModel.scope == .partner {
                 Text("Shared by your partner").font(.caption).foregroundStyle(.secondary)
             } else if list.sharedWithPartner {
