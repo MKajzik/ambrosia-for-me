@@ -17,15 +17,22 @@ struct ClearCachesTests {
         await planCache.replace(days: [Fixtures.day("2026-10-05")], targets: Fixtures.targets())
         await templateCache.replaceSummaries([Fixtures.templateSummary()], scope: .mine)
 
+        let shoppingCache = CacheStore.makeShoppingCache(container)
+        await shoppingCache.store(ShoppingFixtures.list())
+        await shoppingCache.enqueue(kind: .check, listID: "l1", itemID: "i1", payload: nil)
+
         await clearAllCaches(
             meals: MealsRepository(client: client, cache: mealCache),
             plan: PlanRepository(client: client, cache: planCache),
-            templates: TemplatesRepository(client: client, cache: templateCache)
+            templates: TemplatesRepository(client: client, cache: templateCache),
+            shopping: ShoppingListsRepository(client: client, cache: shoppingCache)
         )
 
         #expect(await mealCache.summaries(scope: .mine).isEmpty)
         #expect(await planCache.days(from: "2000-01-01", to: "2100-01-01").isEmpty)
         #expect(await planCache.targets() == nil)
         #expect(await templateCache.summaries(scope: .mine).isEmpty)
+        #expect(await shoppingCache.list(id: "l1") == nil)
+        #expect(await shoppingCache.intents().isEmpty) // the next user never drains this user's queue
     }
 }
