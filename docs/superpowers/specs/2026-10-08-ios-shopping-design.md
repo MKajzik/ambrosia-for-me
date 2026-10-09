@@ -15,7 +15,7 @@ Out of scope: Profile (own spec), Sign in with Apple (#29), background sync or p
 
 | Topic | Decision |
 |---|---|
-| Offline model | **Overlay.** The cache stores the server's last snapshot of each list, unmodified. Pending changes live separately as `ShoppingIntent` rows. The displayed list is the pure function `PendingOverlay.apply(snapshot, intents)`. A refetch or SSE echo replaces the snapshot and can never erase a pending change; a drained intent's row is deleted and the next snapshot already contains its effect, so nothing is reconciled. |
+| Offline model | **Overlay.** The cache stores the server's last snapshot of each list, unmodified. Pending changes live separately as `ShoppingIntent` rows. The displayed list is the pure function `PendingOverlay.apply(snapshot, intents)`. A refetch or SSE echo replaces the snapshot (keeping any cached item whose `version` is higher than the answer's, since a refetch can be answered before a drained change landed) and can never erase a pending change; a drained intent's row is deleted and the next snapshot already contains its effect, so nothing is reconciled. |
 | What is queued | `check`, `uncheck`, `add`, `remove` of items only. Everything else (create/generate/regenerate/rename/share/delete list, edit item fields) is online-only and surfaces a plain retry-able error on failure, as every non-shopping write (iOS spec §6). |
 | Realtime | `URLSession.bytes(for:)` streaming `GET /shopping-lists/{id}/events`, bearer in `Authorization`. Events say what changed, never to what: refetch, don't patch. |
 | Reconnect | A small stateless `NetworkMonitor` struct (new; Foundation has none) whose `updates()` returns a fresh stream over a fresh `NWPathMonitor` per call (so it restarts across sign-out and sign-in) triggers a queue drain and a refetch. Foreground does the same. |
@@ -76,24 +76,24 @@ Failure handling, for every intent:
 - `400` / `409` on a queued `add`/`check`: not expected (neither is versioned, the client validates first). Drop the row and surface a one-line notice ("A change couldn't be saved"); never retry in a loop.
 - `401`: the existing `TokenRefresher` handles it; a signed-out session stops the engine and the caches are cleared.
 
-After a drain step, the engine tells the view model to re-read the cache; the next `refresh…` brings the snapshot up to date.
+After a drain step, the engine tells the view model to re-read the cache; the next `refresh…` brings the snapshot up to date. A change is shown before it is sent: the list screen starts the drain and does not wait for it, so quick-add and check-off never block on the network.
 
 ### 4.4 Indicator
 
-The list screen and the tab show a syncing badge whenever any intent is pending for that list. Rows render from the overlay regardless of queue state, so a checked item looks checked at once, online or offline.
+The list screen and the tab show a syncing badge whenever any intent is pending for that list (on the tab, each list row with a pending intent carries the badge). Rows render from the overlay regardless of queue state, so a checked item looks checked at once, online or offline.
 
 ## 5. Realtime
 
-- `ListEventStream` opens `GET /shopping-lists/{id}/events` with `URLSession.bytes(for:)`, parses `text/event-stream` frames (`event:`/`data:` lines, blank-line terminated; comment lines such as `: keep-alive` ignored), decodes each `data:` as `{type, list_id, item_id?, version?}`, and republishes valid events as an `AsyncStream<ListEvent>`. A frame that is not valid JSON or has an unknown `type` is dropped (as web's `parseListEvent`, so a malformed event can never act).
+- `ListEventStream` opens `GET /shopping-lists/{id}/events` with `URLSession.bytes(for:)`, parses `text/event-stream` frames (`event:`/`data:` lines, blank-line terminated; comment lines such as `: keep-alive` ignored), decodes each `data:` as `{type, list_id, item_id?, version?}`, and republishes valid events as an `AsyncThrowingStream<ListEventStream.Update>`: `.opened` once the server answers `200`, then `.event(ListEvent)` per frame. A frame that is not valid JSON or has an unknown `type` is dropped (as web's `parseListEvent`, so a malformed event can never act).
 - `401` on open goes through `TokenRefresher`. `404` means access lost. Other failures: keep the cache, mark stale, retry.
 - Owned by the repository for whichever list is open: started when the list screen appears, cancelled when it disappears or the app leaves the foreground.
 - Rules (as web's `useListEvents`):
   - An `item_changed` / `item_deleted` event whose `version` is at or below the cached item's version is ignored (often the user's own change). Events for the same item can arrive out of order.
   - An `item_deleted` removes the item from the snapshot.
-  - A version gap, `list_changed`, a closed stream, a reconnect and returning to the foreground refetch the list.
+  - A version gap, `list_changed`, the stream opening (each connect and reconnect, as web refetches on `open`) and returning to the foreground refetch the list.
   - `list_deleted` or a `404` means access lost: the screen is replaced by "This list is no longer available" even while items are cached.
   - Other load failures keep showing the cache, marked stale.
-- A closed stream triggers one refetch, then a reconnect with a capped backoff. The server closes the stream after `list_deleted`; that is not retried.
+- A closed stream triggers a reconnect with a capped backoff (reset when a stream opens); the refetch happens when the new stream opens, so a change committed before its `200` is not missed. The server closes the stream after `list_deleted`; that is not retried.
 - An event never patches an item's content. The refetch replaces the snapshot and the overlay re-applies any pending intents.
 
 ## 6. Screens
@@ -124,7 +124,7 @@ Swift Testing; network-touching code against `RoutingTransport` (sees method, pa
 - **`PendingOverlay`**: check/uncheck, add, remove, combinations, order.
 - **`IntentQueue`**: every collapsing rule in §4.2 (check replaces check; add-then-remove cancels; check on pending add keeps its own row; remove drops pending checks).
 - **`ShoppingSyncEngine`**: ordered replay; one in flight; temp-id rewrite after an add; `404` drops the row and the item; network failure keeps the row and stops; `400`/`409` drops with a notice; stops on sign-out.
-- **SSE**: frame parsing (multi-line, comments, malformed, unknown type); stale-event drop; version-gap refetch; `item_deleted` removal; `list_deleted` and `404` mean access lost; reconnect refetches.
+- **SSE**: frame parsing (multi-line, comments, malformed, unknown type); stale-event drop; version-gap refetch; `item_deleted` removal; `list_deleted` and `404` mean access lost; the stream opening refetches; the byte splitter (empty lines, CRLF, split multibyte, trailing partial line).
 - **Repository and cache**: each response enum branch; `cached` then `refresh`; scope separation; queue survives re-creating the cache from disk; cleared by `ClearCaches`.
 - **View models**: optimistic display through the overlay; syncing indicator; `409` reopens on `current`; generate range validation; partner-not-linked hides Partner's.
 - `ItemGrouping`, `RangeValidation`: pure unit tests (`null` quantity renders as no quantity, never 0).

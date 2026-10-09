@@ -1,8 +1,9 @@
 import Foundation
 import SwiftData
 
-/// Builds the SwiftData container. The cache is rebuildable from the API, so there are no migrations:
-/// a store that will not open is deleted and recreated.
+/// Builds the SwiftData container. Most of the store is rebuildable from the API, but `CachedIntent` rows are the
+/// user's unsynced shopping changes and are not: a schema change must stay lightweight-migratable, because the
+/// fallback below (a store that will not open is deleted and recreated) drops those changes.
 public enum CacheStore {
     private static let schema = Schema([
         CachedMeal.self, CachedMealIngredient.self, CachedPlanDay.self, CachedTargets.self,
