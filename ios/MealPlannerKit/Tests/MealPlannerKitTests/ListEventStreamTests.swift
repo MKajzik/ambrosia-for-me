@@ -23,10 +23,30 @@ struct ListEventStreamTests {
         )
     }
 
-    private func collect(_ stream: AsyncThrowingStream<ListEvent, Error>) async throws -> [ListEvent] {
-        var events: [ListEvent] = []
-        for try await event in stream { events.append(event) }
-        return events
+    /// The events only; `.opened` is checked by `opensFirst`.
+    private func collect(_ stream: AsyncThrowingStream<ListEventStream.Update, Error>) async throws -> [ListEvent] {
+        try await all(stream).compactMap { if case .event(let event) = $0 { event } else { nil } }
+    }
+
+    private func all(_ stream: AsyncThrowingStream<ListEventStream.Update, Error>) async throws -> [ListEventStream.Update] {
+        var updates: [ListEventStream.Update] = []
+        for try await update in stream { updates.append(update) }
+        return updates
+    }
+
+    @Test("A 200 yields .opened once, before any event, so the caller can refetch what it missed")
+    func opensFirst() async throws {
+        let stream = make { _ in (200, lines([": connected", "", changed, ""])) }
+        let updates = try await all(stream.events(listID: "l1"))
+        #expect(updates == [.opened, .event(ListEvent(kind: .itemChanged, listID: "l1", itemID: "i1", version: 2))])
+    }
+
+    @Test("A refused stream never reports .opened")
+    func refusedNeverOpens() async throws {
+        let seen = Locked<[ListEventStream.Update]>([])
+        let stream = make { _ in (503, lines([])) }
+        do { for try await update in stream.events(listID: "l1") { seen.mutate { $0.append(update) } } } catch {}
+        #expect(seen.value.isEmpty)
     }
 
     @Test("Opens the list's events URL with the bearer and Accept, and yields parsed events until the server closes")

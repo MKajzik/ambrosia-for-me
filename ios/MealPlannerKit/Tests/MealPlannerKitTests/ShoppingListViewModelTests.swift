@@ -10,7 +10,7 @@ typealias ListEventSource = ShoppingListViewModel.EventSource
 @MainActor
 @Suite
 struct ShoppingListViewModelTests {
-    private nonisolated static func quiet(_: String) -> AsyncThrowingStream<ListEvent, Error> { AsyncThrowingStream { $0.finish() } }
+    private nonisolated static func quiet(_: String) -> AsyncThrowingStream<ListEventStream.Update, Error> { AsyncThrowingStream { $0.finish() } }
 
     private func seeded() -> ShoppingServer {
         ShoppingServer([ShoppingFixtures.list(items: [
@@ -211,7 +211,7 @@ struct ShoppingListViewModelTests {
         #expect(vm.accessLost)
     }
 
-    @Test("When the stream closes it waits, refetches and reconnects; a 404 on the stream ends it with access lost")
+    @Test("When the stream closes it waits and reconnects; a 404 on the stream ends it with access lost")
     func reconnect() async throws {
         let h = try ShoppingHarness(seeded())
         let opened = Locked(0)
@@ -230,6 +230,49 @@ struct ShoppingListViewModelTests {
         await sleeper.fire() // the first stream ended; release the backoff
         await task.value
         #expect(opened.value == 2)
+        #expect(vm.accessLost)
+    }
+
+    @Test("I1: a partner change committed before the stream opened is shown once it opens (refetch on open)")
+    func refetchOnOpen() async throws {
+        let h = try ShoppingHarness(seeded())
+        let server = h.server
+        let held = Locked<[AsyncThrowingStream<ListEventStream.Update, Error>.Continuation]>([])
+        let vm = make(h, events: { _ in
+            // Between the screen's GET and the stream's 200: no event will ever be sent for this change.
+            server.mutate(listID: "l1", itemID: "i2") { $0.checked = true }
+            let (stream, continuation) = AsyncThrowingStream<ListEventStream.Update, Error>.makeStream()
+            held.mutate { $0.append(continuation) }
+            continuation.yield(.opened)
+            return stream
+        })
+        let task = Task { await vm.run() }
+        #expect(await waitUntil { self.item(vm, "i2")?.checked == true })
+        task.cancel()
+        for continuation in held.value { continuation.finish() }
+        await task.value
+    }
+
+    @Test("I1: the backoff goes back to 1 s once a stream opens, even if no event arrived")
+    func backoffResetsOnOpen() async throws {
+        let h = try ShoppingHarness(seeded())
+        let opened = Locked(0)
+        let delays = Locked<[Duration]>([])
+        let vm = make(
+            h,
+            events: { _ in
+                opened.mutate { $0 += 1 }
+                switch opened.value {
+                case 1: return AsyncThrowingStream { $0.finish(throwing: URLError(.networkConnectionLost)) }
+                case 2: return AsyncThrowingStream { $0.yield(.opened); $0.finish() }
+                default: return AsyncThrowingStream { $0.finish(throwing: ListEventStream.StreamError.accessLost) }
+                }
+            },
+            sleep: { delay in delays.mutate { $0.append(delay) } }
+        )
+        await vm.load()
+        await vm.runLiveUpdates()
+        #expect(delays.value == [.seconds(1), .seconds(1)])
         #expect(vm.accessLost)
     }
 

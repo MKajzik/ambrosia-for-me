@@ -1,9 +1,16 @@
 import Foundation
 
 /// The client for `GET /shopping-lists/{id}/events`. iOS has no `EventSource`, so this reads the response bytes itself,
-/// with the bearer in `Authorization` like every other route. It yields events until the server closes the stream; the
-/// caller decides what to do next (refetch, reconnect with backoff).
+/// with the bearer in `Authorization` like every other route. It yields `.opened` once the server answers `200`, then
+/// events until the server closes the stream; the caller decides what to do next (refetch on open, reconnect with backoff).
 public struct ListEventStream: Sendable {
+    public enum Update: Equatable, Sendable {
+        /// The server accepted the stream (`200`). Anything committed before this moment was not sent as an event, so
+        /// the caller refetches the list now (as web does on `EventSource` `open`).
+        case opened
+        case event(ListEvent)
+    }
+
     public typealias Lines = AsyncThrowingStream<String, Error>
     /// Opens the request and returns its status and its lines (empty lines included: they end a frame).
     public typealias Opener = @Sendable (URLRequest) async throws -> (status: Int, lines: Lines)
@@ -35,7 +42,7 @@ public struct ListEventStream: Sendable {
         self.open = open
     }
 
-    public func events(listID: String) -> AsyncThrowingStream<ListEvent, Error> {
+    public func events(listID: String) -> AsyncThrowingStream<Update, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -50,9 +57,10 @@ public struct ListEventStream: Sendable {
                     case 404: throw StreamError.accessLost
                     default: throw StreamError.unavailable(result.status)
                     }
+                    continuation.yield(.opened)
                     var parser = SSEFrameParser()
                     for try await line in result.lines {
-                        if let event = parser.feed(line) { continuation.yield(event) }
+                        if let event = parser.feed(line) { continuation.yield(.event(event)) }
                     }
                     continuation.finish()
                 } catch {

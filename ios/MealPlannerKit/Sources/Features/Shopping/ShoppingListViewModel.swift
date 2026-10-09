@@ -16,7 +16,7 @@ public final class ShoppingListViewModel {
         case failed(String)
     }
 
-    public typealias EventSource = @Sendable (String) -> AsyncThrowingStream<ListEvent, Error>
+    public typealias EventSource = @Sendable (String) -> AsyncThrowingStream<ListEventStream.Update, Error>
 
     public let listID: String
     public private(set) var displayed: Components.Schemas.ShoppingList?
@@ -234,21 +234,21 @@ public final class ShoppingListViewModel {
         await reload()
     }
 
-    /// Reads the list's event stream; when it closes or fails, waits (1 s, doubling to 30 s), refetches and reconnects.
-    /// Ends when the list is gone or the task is cancelled.
+    /// Reads the list's event stream. Each time it opens, refetches the list (a change committed before the `200` is
+    /// never sent as an event, as web refetches on `open`) and resets the backoff. When it closes or fails, waits (1 s,
+    /// doubling to 30 s) and reconnects. Ends when the list is gone or the task is cancelled.
     public func runLiveUpdates() async {
         var delay = Duration.seconds(1)
-        var reconnecting = false // the first connection follows `load()`, which has just refreshed
         while !Task.isCancelled, !accessLost {
-            if reconnecting {
-                await refresh()
-                if accessLost { return }
-            }
-            reconnecting = true
             do {
-                for try await event in events(listID) {
-                    delay = .seconds(1)
-                    await handle(event)
+                for try await update in events(listID) {
+                    switch update {
+                    case .opened:
+                        delay = .seconds(1)
+                        await refresh()
+                    case .event(let event):
+                        await handle(event)
+                    }
                     if accessLost { return }
                 }
             } catch ListEventStream.StreamError.accessLost {
