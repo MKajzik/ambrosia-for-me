@@ -46,8 +46,10 @@ struct ShoppingListViewModelTests {
         let vm = make(h)
         await vm.load()
         await vm.toggle(try #require(item(vm, "i1")))
+        #expect(item(vm, "i1")?.checked == true) // on screen at once
+        // The send runs after toggle returns (I2: changes never wait for the network).
+        #expect(await waitUntil { vm.pendingCount == 0 })
         #expect(item(vm, "i1")?.checked == true)
-        #expect(vm.pendingCount == 0)
         #expect(h.server.list("l1")?.items.first?.checked == true)
     }
 
@@ -63,9 +65,9 @@ struct ShoppingListViewModelTests {
         #expect(h.server.list("l1")?.items.first?.checked == false)
 
         h.server.setOffline(false)
-        await h.engine.drain()
+        await h.engine.drain() // may join the toggle's own background drain, which then reloads the screen
         await vm.reload()
-        #expect(!vm.isSyncing)
+        #expect(await waitUntil { !vm.isSyncing })
         #expect(h.server.list("l1")?.items.first?.checked == true)
     }
 
@@ -94,10 +96,35 @@ struct ShoppingListViewModelTests {
         #expect(temp.id.hasPrefix(ShoppingIntent.tempPrefix))
 
         h.server.setOffline(false)
-        await h.engine.drain()
+        await h.engine.drain() // may join the add's own background drain, which then reloads the screen
         await vm.reload()
-        #expect(!vm.isSyncing)
+        #expect(await waitUntil { !vm.isSyncing })
         #expect(vm.displayed?.items.last?.id == "srv-101")
+    }
+
+    @Test("I2: quick-add returns before the POST answers, with the item already on screen as pending")
+    func quickAddDoesNotWaitForNetwork() async throws {
+        let gate = Gate()
+        let posts = Locked(0)
+        let h = try ShoppingHarness(seeded(), before: { call in
+            guard call.route == "POST /shopping-lists/l1/items" else { return }
+            posts.mutate { $0 += 1 }
+            await gate.wait()
+        })
+        let vm = make(h)
+        await vm.load()
+        let returned = Locked<Bool?>(nil)
+        let adding = Task { returned.set(await vm.quickAdd("Bread")) }
+        let prompt = await waitUntil { returned.value != nil }
+        #expect(prompt, "quickAdd waited for the network")
+        #expect(returned.value == true)
+        #expect(vm.displayed?.items.last?.name == "Bread")
+        #expect(vm.displayed?.items.last?.id.hasPrefix(ShoppingIntent.tempPrefix) == true)
+        #expect(vm.isSyncing)
+        #expect(await waitUntil { posts.value == 1 }) // the send started, and is still held
+        await gate.release()
+        await adding.value
+        #expect(await waitUntil { vm.displayed?.items.last?.id == "srv-101" && !vm.isSyncing })
     }
 
     @Test("A blank quick-add is refused without queueing anything")
@@ -283,6 +310,6 @@ struct ShoppingListViewModelTests {
         let vm = make(h)
         await vm.load()
         _ = await vm.quickAdd("Bread")
-        #expect(vm.alertMessage == "A change couldn't be saved.")
+        #expect(await waitUntil { vm.alertMessage == "A change couldn't be saved." })
     }
 }

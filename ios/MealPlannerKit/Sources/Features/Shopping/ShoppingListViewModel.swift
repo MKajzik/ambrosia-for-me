@@ -41,7 +41,7 @@ public final class ShoppingListViewModel {
     @ObservationIgnored private var snapshot: Components.Schemas.ShoppingList?
     /// Overlapping `load()` calls: `isLoading` stays true until the last one ends.
     @ObservationIgnored private var loadsInFlight = 0 { didSet { isLoading = loadsInFlight > 0 } }
-    /// Bumped by every `reload()`; a reload whose reads were overtaken by a newer one drops its result.
+    /// Bumped by every `reload()`; a reload whose reads were overtaken by a newer one reads again.
     @ObservationIgnored private var reloadGeneration = 0
 
     public init(
@@ -74,16 +74,21 @@ public final class ShoppingListViewModel {
         await refresh()
     }
 
-    /// Re-reads the cache (the snapshot and the pending changes) and lays one over the other.
+    /// Re-reads the cache (the snapshot and the pending changes) and lays one over the other. When a newer reload
+    /// starts while this one reads, this one reads again rather than apply an older answer or return without one:
+    /// every call returns with the screen showing what the cache held when it was made (the next tap acts on it).
     public func reload() async {
         reloadGeneration += 1
-        let generation = reloadGeneration
-        let cached = await shopping.cachedList(id: listID)
-        let intents = await shopping.pendingIntents(listID: listID)
-        guard generation == reloadGeneration else { return }
-        snapshot = accessLost ? nil : cached
-        pendingCount = accessLost ? 0 : intents.count
-        displayed = snapshot.map { PendingOverlay.apply($0, intents: intents, userID: userID()) }
+        while true {
+            let generation = reloadGeneration
+            let cached = await shopping.cachedList(id: listID)
+            let intents = await shopping.pendingIntents(listID: listID)
+            guard generation == reloadGeneration else { continue }
+            snapshot = accessLost ? nil : cached
+            pendingCount = accessLost ? 0 : intents.count
+            displayed = snapshot.map { PendingOverlay.apply($0, intents: intents, userID: userID()) }
+            return
+        }
     }
 
     private func refresh() async {
@@ -123,12 +128,16 @@ public final class ShoppingListViewModel {
         await settle()
     }
 
-    /// Show the change, ask the engine to send it, show the result.
+    /// Shows the change at once, then asks the engine to send it without waiting for the network: the caller (the
+    /// quick-add field, a row) is free as soon as the change is on screen. The result is shown when the drain ends
+    /// (and by `observeSync` while the screen runs).
     private func settle() async {
         await reload()
-        await sync.drain()
-        await reload()
-        if let notice = await sync.takeNotice() { alertMessage = notice }
+        Task {
+            await sync.drain()
+            await reload()
+            if let notice = await sync.takeNotice() { alertMessage = notice }
+        }
     }
 
     private func observeSync() async {

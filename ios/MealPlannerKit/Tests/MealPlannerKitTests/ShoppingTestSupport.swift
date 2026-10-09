@@ -13,8 +13,13 @@ struct ShoppingHarness {
     let engine: ShoppingSyncEngine
     let partner: PartnerRepository
 
-    init(_ server: ShoppingServer = ShoppingServer(), partnerActive: Bool = true) throws {
+    /// `before` runs ahead of every request and may suspend it (a `Gate`), to hold the network mid-request.
+    init(
+        _ server: ShoppingServer = ShoppingServer(), partnerActive: Bool = true,
+        before: @escaping @Sendable (RoutingTransport.Call) async -> Void = { _ in }
+    ) throws {
         let transport = RoutingTransport { call in
+            await before(call)
             if call.route == "GET /partner" {
                 return partnerActive
                     ? (200, Fixtures.json(Components.Schemas.Partnership(status: .active, displayName: "Sam", linkedAt: Fixtures.date)))

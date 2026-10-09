@@ -16,8 +16,10 @@ struct QuickAddField: View {
         }
     }
 
+    /// `onAdd` only queues the item (it never waits for the network), so the field clears at once; anything typed
+    /// meanwhile is kept.
     private func submit() {
         let entered = text
-        Task { if await onAdd(entered) { text = "" } }
+        Task { if await onAdd(entered), text == entered { text = "" } }
     }
 }
