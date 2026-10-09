@@ -20,12 +20,18 @@ struct ClearCachesTests {
         let shoppingCache = CacheStore.makeShoppingCache(container)
         await shoppingCache.store(ShoppingFixtures.list())
         await shoppingCache.enqueue(kind: .check, listID: "l1", itemID: "i1", payload: nil)
+        // A refused change left the engine holding "A change couldn't be saved." for this user.
+        let refusing = makeAuthlessClient(transport: RoutingTransport { _ in (400, Fixtures.problem(400, code: "validation_failed")) })
+        let engine = ShoppingSyncEngine(client: refusing, cache: shoppingCache)
+        await engine.drain()
+        await shoppingCache.enqueue(kind: .check, listID: "l1", itemID: "i1", payload: nil)
 
         await clearAllCaches(
             meals: MealsRepository(client: client, cache: mealCache),
             plan: PlanRepository(client: client, cache: planCache),
             templates: TemplatesRepository(client: client, cache: templateCache),
-            shopping: ShoppingListsRepository(client: client, cache: shoppingCache)
+            shopping: ShoppingListsRepository(client: client, cache: shoppingCache),
+            sync: engine
         )
 
         #expect(await mealCache.summaries(scope: .mine).isEmpty)
@@ -34,5 +40,6 @@ struct ClearCachesTests {
         #expect(await templateCache.summaries(scope: .mine).isEmpty)
         #expect(await shoppingCache.list(id: "l1") == nil)
         #expect(await shoppingCache.intents().isEmpty) // the next user never drains this user's queue
+        #expect(await engine.takeNotice() == nil) // nor sees this user's "couldn't be saved"
     }
 }

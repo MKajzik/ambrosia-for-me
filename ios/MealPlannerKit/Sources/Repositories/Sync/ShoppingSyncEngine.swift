@@ -43,6 +43,11 @@ public actor ShoppingSyncEngine {
         return pendingNotice
     }
 
+    /// The session ended: forget a notice meant for the user who just signed out.
+    public func reset() {
+        pendingNotice = nil
+    }
+
     public func drain() async {
         if isDraining {
             wantsAnotherPass = true

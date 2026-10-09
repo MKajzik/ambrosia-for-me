@@ -75,7 +75,10 @@ public struct RootView: View {
             authRepository: authRepository,
             tokenStore: tokenStore,
             clearCaches: {
-                await clearAllCaches(meals: mealsRepository, plan: planRepository, templates: templatesRepository, shopping: shoppingRepository)
+                await clearAllCaches(
+                    meals: mealsRepository, plan: planRepository, templates: templatesRepository, shopping: shoppingRepository,
+                    sync: syncEngine
+                )
             }
         ))
         _signInViewModel = State(initialValue: AuthViewModel(authRepository: authRepository))
