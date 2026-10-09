@@ -27,7 +27,7 @@ public struct ShoppingDependencies: Sendable {
     /// Drains the queue now (launch), then again each time a network path appears. Run for as long as someone is signed in.
     public func runSyncLoop() async {
         await sync.drain()
-        for await online in monitor.updates where online {
+        for await online in monitor.updates() where online {
             await sync.drain()
         }
     }
