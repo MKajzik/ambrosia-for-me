@@ -81,8 +81,8 @@ public final class ShoppingListViewModel {
         reloadGeneration += 1
         while true {
             let generation = reloadGeneration
-            let cached = await shopping.cachedList(id: listID)
-            let intents = await shopping.pendingIntents(listID: listID)
+            // One cache call: the snapshot and the queue must come from the same moment (see `listWithIntents`).
+            let (cached, intents) = await shopping.cachedListWithIntents(id: listID)
             guard generation == reloadGeneration else { continue }
             snapshot = accessLost ? nil : cached
             pendingCount = accessLost ? 0 : intents.count

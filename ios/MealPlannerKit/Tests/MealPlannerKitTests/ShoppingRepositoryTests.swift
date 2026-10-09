@@ -152,4 +152,56 @@ struct ShoppingRepositoryTests {
         _ = await repo.addItem(.init(name: "Bread"), listID: "b")
         #expect(await repo.pendingListIDs() == ["a", "b"])
     }
+
+    /// The list view model reads from the main actor; when the main actor is busy (a full parallel test run, a busy
+    /// screen), a reader that hops back between two cache calls lets the engine apply a change and drop its row in
+    /// between. The noise task stands in for that busy main actor.
+    @MainActor
+    @Test("A list and its pending changes are read as one consistent pair while the engine applies and dequeues")
+    func listWithIntentsIsConsistent() async throws {
+        let stop = Locked(false)
+        let noise = Task { @MainActor in
+            while !stop.value {
+                let until = ContinuousClock.now + .milliseconds(5)
+                while ContinuousClock.now < until {}
+                await Task.yield()
+            }
+        }
+        defer { stop.set(true); noise.cancel() }
+        let (repo, cache, _) = try make { _ in (500, Fixtures.problem(500, code: "unused")) }
+        let count = 300
+        await cache.store(ShoppingFixtures.list(items: (0..<count).map { ShoppingFixtures.item(id: "i\($0)", position: $0) }))
+        // Every check is queued first (made offline). Then, as the engine does once each request is answered, the
+        // server's item lands in the snapshot and the row is removed, back to back, off the main actor.
+        var rows: [String: UUID] = [:]
+        for index in 0..<count {
+            let id = "i\(index)"
+            let pending = await cache.enqueue(kind: .check, listID: "l1", itemID: id, payload: nil)
+            rows[id] = pending.first { $0.itemID == id }?.id
+        }
+        let queued = rows
+        let writers = (0..<4).map { lane in
+            Task.detached {
+                for index in stride(from: lane, to: count, by: 4) {
+                    let id = "i\(index)"
+                    await cache.applyItem(ShoppingFixtures.item(id: id, checked: true, version: 2, position: index), listID: "l1")
+                    if let row = queued[id] { await cache.removeIntent(id: row) }
+                }
+            }
+        }
+        // Each check is pending or applied at every moment, so every read must show every item checked. An old
+        // snapshot paired with an already-removed row shows a sent check as unchecked.
+        var flips = 0
+        var reads = 0
+        while reads < 20_000 {
+            reads += 1
+            let (list, intents) = await repo.cachedListWithIntents(id: "l1")
+            let shown = try #require(list.map { PendingOverlay.apply($0, intents: intents, userID: "u1") })
+            flips += shown.items.filter { !$0.checked }.count
+            if intents.isEmpty { break }
+        }
+        for writer in writers { await writer.value }
+        #expect(reads > 1, "the reads never overlapped the writes")
+        #expect(flips == 0, "a read paired an old snapshot with an already-removed change \(flips) times in \(reads) reads")
+    }
 }

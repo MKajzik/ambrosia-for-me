@@ -40,6 +40,11 @@ public struct ShoppingListsRepository: Sendable {
 
     public func pendingIntents(listID: String) async -> [ShoppingIntent] { await cache.intents(listID: listID) }
 
+    /// The cached list and its pending changes as one consistent pair (one cache call), for the overlay.
+    public func cachedListWithIntents(id: String) async -> (list: Components.Schemas.ShoppingList?, intents: [ShoppingIntent]) {
+        await cache.listWithIntents(id: id)
+    }
+
     /// The lists with at least one queued change (the lists screen's syncing badge).
     public func pendingListIDs() async -> Set<String> { Set(await cache.intents().map(\.listID)) }
 

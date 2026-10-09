@@ -40,6 +40,12 @@ public actor ShoppingCache {
         listRow(id).flatMap { try? JSONDecoder().decode(Components.Schemas.ShoppingList.self, from: $0.json) }
     }
 
+    /// A list's snapshot and its pending changes, read in one actor turn so they always match: two separate reads can
+    /// pair the snapshot from before a sent change landed with the queue from after its row was removed.
+    public func listWithIntents(id: String) -> (list: Components.Schemas.ShoppingList?, intents: [ShoppingIntent]) {
+        (list(id: id), intents(listID: id))
+    }
+
     /// Stores the server's answer for a list, and brings an existing summary row up to date (rename, sharing).
     /// Item versions only go up on the server, so an item the snapshot already holds at a higher version than the
     /// answer's is kept: the answer was read before that change landed (a refetch racing a drained change). Items
