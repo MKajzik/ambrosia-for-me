@@ -119,4 +119,32 @@ struct ShoppingCacheTests {
         #expect(await cache.summaries(scope: .partner).isEmpty)
         #expect(await cache.intents().isEmpty)
     }
+
+    @Test("A refetch answered before a newer item landed keeps the newer cached item; an absent one still drops")
+    func storeKeepsNewerItems() async throws {
+        let (cache, _) = try make()
+        await cache.store(ShoppingFixtures.list(items: [
+            ShoppingFixtures.item(id: "i1", name: "Milk", checked: true, version: 3, position: 0),
+            ShoppingFixtures.item(id: "i2", name: "Eggs", version: 1, position: 1),
+            ShoppingFixtures.item(id: "i3", name: "Gone", version: 1, position: 2),
+        ]))
+        await cache.store(ShoppingFixtures.list(name: "Renamed", items: [
+            ShoppingFixtures.item(id: "i1", name: "Milk", checked: false, version: 2, position: 0), // older than cached
+            ShoppingFixtures.item(id: "i2", name: "Brown eggs", version: 2, position: 1), // newer than cached
+            ShoppingFixtures.item(id: "i4", name: "Bread", version: 1, position: 3), // new
+        ]))
+        let list = try #require(await cache.list(id: "l1"))
+        #expect(list.name == "Renamed")
+        #expect(list.items.map(\.id) == ["i1", "i2", "i4"])
+        #expect(list.items[0].checked && list.items[0].version == 3)
+        #expect(list.items[1].name == "Brown eggs")
+    }
+
+    @Test("removeItem still removes an item after the version-merging store")
+    func removeAfterMerge() async throws {
+        let (cache, _) = try make()
+        await cache.store(ShoppingFixtures.list(items: [ShoppingFixtures.item(id: "i1", version: 5)]))
+        await cache.removeItem(id: "i1", listID: "l1")
+        #expect(try #require(await cache.list(id: "l1")).items.isEmpty)
+    }
 }

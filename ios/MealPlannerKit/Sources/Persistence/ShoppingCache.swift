@@ -41,7 +41,23 @@ public actor ShoppingCache {
     }
 
     /// Stores the server's answer for a list, and brings an existing summary row up to date (rename, sharing).
+    /// Item versions only go up on the server, so an item the snapshot already holds at a higher version than the
+    /// answer's is kept: the answer was read before that change landed (a refetch racing a drained change). Items
+    /// absent from the answer still drop; new ones are added; the answer's order is kept.
     public func store(_ list: Components.Schemas.ShoppingList) {
+        var merged = list
+        if let cached = self.list(id: list.id) {
+            let held = Dictionary(cached.items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            merged.items = list.items.map { incoming in
+                guard let mine = held[incoming.id], mine.version > incoming.version else { return incoming }
+                return mine
+            }
+        }
+        write(merged)
+    }
+
+    /// Replaces the snapshot as given, with no version merge (item-level changes that already decided what to keep).
+    private func write(_ list: Components.Schemas.ShoppingList) {
         guard let json = try? JSONEncoder().encode(list) else { return }
         if let row = listRow(list.id) { row.json = json } else { modelContext.insert(CachedShoppingList(id: list.id, json: json)) }
         if let row = summaryRows().first(where: { $0.id == list.id }) {
@@ -64,13 +80,13 @@ public actor ShoppingCache {
             list.items.append(item)
             list.items.sort { $0.position < $1.position }
         }
-        store(list)
+        write(list)
     }
 
     public func removeItem(id: String, listID: String) {
         guard var list = list(id: listID), list.items.contains(where: { $0.id == id }) else { return }
         list.items.removeAll { $0.id == id }
-        store(list)
+        write(list)
     }
 
     /// The list is gone (deleted, unshared, unlinked): its snapshot, its summary row and its pending changes.
