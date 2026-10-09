@@ -71,23 +71,38 @@ public struct ListEventStream: Sendable {
     }
 
     /// The real transport. `URLSession.AsyncBytes.lines` drops empty lines, and an empty line is what ends an SSE frame,
-    /// so the bytes are split on `\n` by hand.
+    /// so the bytes are split on `\n` by `lines(_:)`.
     public static let urlSessionOpener: Opener = { request in
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        let lines = Lines { continuation in
+        return (status, lines(bytes))
+    }
+
+    /// Splits a byte stream on `\n`. Empty lines are kept (they end a frame), a `\r` before the `\n` is left for
+    /// `SSEFrameParser` to strip, a final line without a newline is delivered, and bytes are decoded only per whole line
+    /// (so a multibyte character split across reads stays whole). A line longer than `maxLineLength` bytes is dropped.
+    /// Cancelling the reader cancels the pump.
+    public static func lines<S: AsyncSequence & Sendable>(_ bytes: S, maxLineLength: Int = 65_536) -> Lines
+    where S.Element == UInt8 {
+        Lines { continuation in
             let task = Task {
                 do {
                     var line: [UInt8] = []
+                    var discarding = false
                     for try await byte in bytes {
                         if byte == 0x0A {
-                            continuation.yield(String(decoding: line, as: UTF8.self))
+                            if !discarding { continuation.yield(String(decoding: line, as: UTF8.self)) }
+                            discarding = false
                             line.removeAll(keepingCapacity: true)
-                        } else {
+                        } else if !discarding {
                             line.append(byte)
+                            if line.count > maxLineLength {
+                                discarding = true
+                                line.removeAll(keepingCapacity: true)
+                            }
                         }
                     }
-                    if !line.isEmpty { continuation.yield(String(decoding: line, as: UTF8.self)) }
+                    if !line.isEmpty, !discarding { continuation.yield(String(decoding: line, as: UTF8.self)) }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -95,6 +110,5 @@ public struct ListEventStream: Sendable {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
-        return (status, lines)
     }
 }

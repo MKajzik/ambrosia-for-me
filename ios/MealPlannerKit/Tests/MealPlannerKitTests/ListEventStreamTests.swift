@@ -94,4 +94,54 @@ struct ListEventStreamTests {
         await #expect(throws: URLError.self) { try await collect(stream.events(listID: "l1")) }
         #expect(opened.value == 0)
     }
+
+    // MARK: The byte splitter behind the real transport
+
+    private func bytes(_ chunks: [[UInt8]]) -> AsyncStream<UInt8> {
+        AsyncStream { continuation in
+            for chunk in chunks { for byte in chunk { continuation.yield(byte) } }
+            continuation.finish()
+        }
+    }
+
+    private func split(_ chunks: [[UInt8]], maxLineLength: Int = 65_536) async throws -> [String] {
+        var out: [String] = []
+        for try await line in ListEventStream.lines(bytes(chunks), maxLineLength: maxLineLength) { out.append(line) }
+        return out
+    }
+
+    @Test("Review focus 5: the splitter keeps empty lines and CR (the parser strips it), and a final unterminated line")
+    func splitterLines() async throws {
+        let text = ": connected\r\n\r\ndata: x\n\ndata: tail"
+        #expect(try await split([Array(text.utf8)]) == [": connected\r", "\r", "data: x", "", "data: tail"])
+    }
+
+    @Test("A multibyte character split across chunks decodes whole")
+    func splitterMultibyte() async throws {
+        let all = Array("data: café 🛒\n".utf8)
+        let cut = all.firstIndex(of: 0xC3)! + 1 // inside é
+        let cut2 = all.firstIndex(of: 0xF0)! + 2 // inside the emoji
+        #expect(try await split([Array(all[..<cut]), Array(all[cut..<cut2]), Array(all[cut2...])]) == ["data: café 🛒"])
+    }
+
+    @Test("A line longer than the cap is dropped, and the lines after it still arrive")
+    func splitterCap() async throws {
+        #expect(try await split([Array("short\n0123456789abc\n\nnext\n".utf8)], maxLineLength: 8) == ["short", "", "next"])
+    }
+
+    @MainActor
+    @Test("Cancelling the reader ends the byte pump")
+    func splitterCancel() async throws {
+        let ended = Locked(false)
+        let (source, feed) = AsyncStream<UInt8>.makeStream()
+        feed.onTermination = { _ in ended.set(true) }
+        let firstLine = Locked<String?>(nil)
+        let reader = Task {
+            for try await line in ListEventStream.lines(source) { firstLine.set(line) }
+        }
+        for byte in Array("hello\n".utf8) { feed.yield(byte) }
+        #expect(await waitUntil { firstLine.value == "hello" })
+        reader.cancel()
+        #expect(await waitUntil { ended.value })
+    }
 }
