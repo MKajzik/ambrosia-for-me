@@ -42,6 +42,9 @@ public final class PartnerViewModel {
         do {
             let status = try await partner.status()
             phase = status.map(Self.phase(for:)) ?? .none
+            // A code only means something while its invite is pending; once it was used, expired or cancelled from the
+            // other side it must not be shown as if it still worked.
+            if case .pending = phase {} else { invite = nil }
             isStale = false
             loadError = nil
         } catch {

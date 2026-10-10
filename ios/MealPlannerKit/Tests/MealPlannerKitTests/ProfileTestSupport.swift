@@ -27,7 +27,23 @@ final class ProfileServer: @unchecked Sendable {
     /// The next PATCH is refused as invalid on this server field (`target_protein_g`), whatever the value.
     func rejectPatch(field: String?) { lock.lock(); rejectedField = field; lock.unlock() }
 
-    func route(_ call: RoutingTransport.Call) async throws -> (status: Int, body: String) { try handle(call) }
+    /// `GET /me` answers with what the server held when it was asked, but only once this gate opens: a slow read that
+    /// a later write overtakes.
+    func holdReads(until gate: Gate?) { lock.lock(); readGate = gate; lock.unlock() }
+
+    func route(_ call: RoutingTransport.Call) async throws -> (status: Int, body: String) {
+        let answer = try handle(call)
+        if call.route == "GET /me", let gate = heldReadGate {
+            readsWaiting.mutate { $0 += 1 }
+            await gate.wait()
+        }
+        return answer
+    }
+
+    /// How many reads have been held so far, so a test can wait until its slow read is really in flight.
+    let readsWaiting = Locked(0)
+    private var readGate: Gate?
+    private var heldReadGate: Gate? { lock.lock(); defer { lock.unlock() }; return readGate }
 
     private func handle(_ call: RoutingTransport.Call) throws -> (status: Int, body: String) {
         lock.lock(); defer { lock.unlock() }

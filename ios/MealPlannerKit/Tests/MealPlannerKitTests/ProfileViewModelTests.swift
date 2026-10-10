@@ -177,4 +177,26 @@ struct ProfileViewModelTests {
         #expect(await vm.deleteAccount(typedEmail: "sam@example.com") == "Type your email address exactly to confirm.")
         #expect(h.signOuts.value == 0)
     }
+
+    @Test("A slow refresh that began before a save cannot undo it, on screen or in the cache")
+    func lateRefreshDoesNotUndoSave() async throws {
+        let h = try ProfileHarness(ProfileServer(ProfileFixtures.user(kcal: nil)))
+        let vm = h.makeViewModel()
+        await vm.appear()
+
+        let gate = Gate()
+        h.server.holdReads(until: gate)
+        let refresh = Task { await vm.appear() }
+        #expect(await waitUntil { h.server.readsWaiting.value == 1 }) // read the old profile, not yet answered
+
+        vm.draft.calories = "2000"
+        #expect(await vm.saveTargets())
+        h.server.holdReads(until: nil)
+        await gate.release()
+        await refresh.value
+
+        #expect(vm.user?.targetKcal == 2000)
+        #expect(vm.draft.calories == "2000")
+        #expect(await h.profileCache.user()?.targetKcal == 2000)
+    }
 }

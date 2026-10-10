@@ -70,7 +70,12 @@ final class ProfileFlowUITests: AppUITestCase {
         waitUntilHittable(calories, timeout: 45)
         calories.tap()
         typeVerified("2000", field: calories)
-        tapWhenHittable(app.buttons["targetsSaveButton"], in: app)
+        let save = app.buttons["targetsSaveButton"]
+        tapWhenHittable(save, in: app)
+        // Save is disabled again once the saved targets are adopted. Switching tabs before that lets Today read the old
+        // targets and nothing re-reads them.
+        let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == false"), object: save)
+        XCTAssertEqual(XCTWaiter().wait(for: [saved], timeout: 45), .completed, "Expected the targets to be saved")
 
         let todayTab = tabButton(in: app, identifier: "todayTab", label: "Today")
         waitUntilHittable(todayTab)
@@ -132,7 +137,7 @@ final class ProfileFlowUITests: AppUITestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 45), .completed, "Expected the ingredient to disappear after deleting it")
 
         // 4. Delete the account: the email is typed, and the welcome screen follows.
-        app.navigationBars.buttons.firstMatch.tap() // back to Profile
+        app.navigationBars.buttons["Profile"].tap() // back to Profile
         let deleteAccount = app.buttons["deleteAccountButton"]
         XCTAssertTrue(scrollUntilExists(deleteAccount, in: app))
         waitUntilHittable(deleteAccount, timeout: 45)

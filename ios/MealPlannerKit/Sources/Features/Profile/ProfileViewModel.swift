@@ -23,6 +23,9 @@ public final class ProfileViewModel {
     public var canSave: Bool { user != nil && !isSaving && draft != savedDraft }
 
     private var savedDraft = TargetsDraft()
+    /// Bumped when a save starts and again when it ends. A refresh whose answer was read before a save may be older
+    /// than that save, so it is not trusted if this changed while it ran.
+    @ObservationIgnored private var saveEpoch = 0
     @ObservationIgnored private let profile: ProfileRepository
     @ObservationIgnored private let plan: PlanRepository
     @ObservationIgnored private let signOut: @MainActor () async -> Void
@@ -39,8 +42,16 @@ public final class ProfileViewModel {
         loadsInFlight += 1
         defer { loadsInFlight -= 1 }
         if let cached = await profile.cachedUser() { adopt(cached, keepEdits: true) }
+        let epoch = saveEpoch
         do {
-            adopt(try await profile.refreshUser(), keepEdits: true)
+            var fresh = try await profile.refreshUser()
+            if saveEpoch != epoch {
+                // A save began or ended while this was in flight: the answer may predate it. While the save is still
+                // running its own answer wins; otherwise ask again so the screen and the cache end on the saved values.
+                if isSaving { return }
+                fresh = try await profile.refreshUser()
+            }
+            adopt(fresh, keepEdits: true)
             isStale = false
             loadError = nil
         } catch {
@@ -65,7 +76,11 @@ public final class ProfileViewModel {
             update = valid
         }
         isSaving = true
-        defer { isSaving = false }
+        saveEpoch += 1
+        defer {
+            isSaving = false
+            saveEpoch += 1
+        }
         do {
             let saved = try await profile.updateTargets(update)
             await plan.storeTargets(from: saved)

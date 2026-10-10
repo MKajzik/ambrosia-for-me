@@ -152,4 +152,19 @@ struct PartnerViewModelTests {
         #expect(vm.phase == .linked(name: "Alex", since: Fixtures.date))
         #expect(await cache.partnership() == .present(ProfileFixtures.active("Alex")))
     }
+
+    @Test("A used code is not shown again once the link has ended from the other side")
+    func staleCodeIsDropped() async throws {
+        let mode = Locked("pending")
+        let (vm, _, _, _) = try make { call in
+            if call.route == "POST /partner/invite" { return (201, Fixtures.json(ProfileFixtures.invite())) }
+            return mode.value == "pending" ? (200, Fixtures.json(ProfileFixtures.pending())) : (404, Fixtures.problem(404, code: "partner_not_linked"))
+        }
+        await vm.createInvite()
+        #expect(vm.invite != nil)
+        mode.set("gone")
+        await vm.appear()
+        #expect(vm.phase == .none)
+        #expect(vm.invite == nil)
+    }
 }
