@@ -46,7 +46,9 @@ class AppUITestCase: XCTestCase {
         let profileTab = profileTabButton(in: app)
         XCTAssertTrue(profileTab.waitForExistence(timeout: 45), "Expected the tab shell after a successful sign-in or registration")
         profileTab.tap()
+        // Sign Out is the last section of a long Form, so it is not rendered until scrolled near.
         let signOutButton = app.buttons["signOutButton"]
+        XCTAssertTrue(scrollUntilExists(signOutButton, in: app), "Expected the Sign Out button on Profile")
         waitUntilHittable(signOutButton)
         return signOutButton
     }

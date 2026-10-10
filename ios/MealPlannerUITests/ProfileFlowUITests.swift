@@ -59,7 +59,9 @@ final class ProfileFlowUITests: AppUITestCase {
             guard app.state == .runningForeground, profileTab.waitForExistence(timeout: 5) else { return }
             profileTab.tap()
             let signOut = app.buttons["signOutButton"]
-            if signOut.waitForExistence(timeout: 10) { signOut.tap() }
+            // Sign Out is at the bottom of a long Form and not rendered until scrolled near.
+            for _ in 0..<6 where !signOut.waitForExistence(timeout: 3) { app.swipeUp() }
+            if signOut.exists { signOut.tap() }
         }
         signIn(in: app, email: emailA, password: password)
 
@@ -71,11 +73,22 @@ final class ProfileFlowUITests: AppUITestCase {
         calories.tap()
         typeVerified("2000", field: calories)
         let save = app.buttons["targetsSaveButton"]
+        let banner = app.staticTexts["targetsBanner"]
         tapWhenHittable(save, in: app)
         // Save is disabled again once the saved targets are adopted. Switching tabs before that lets Today read the old
-        // targets and nothing re-reads them.
-        let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == false"), object: save)
-        XCTAssertEqual(XCTWaiter().wait(for: [saved], timeout: 45), .completed, "Expected the targets to be saved")
+        // targets and nothing re-reads them. A refused save keeps the button enabled and shows a banner: say what it said.
+        func saved(within seconds: TimeInterval) -> Bool {
+            let deadline = Date().addingTimeInterval(seconds)
+            while Date() < deadline {
+                if !save.isEnabled || banner.exists { return !banner.exists }
+                Thread.sleep(forTimeInterval: 0.5)
+            }
+            return false
+        }
+        if !saved(within: 15), !banner.exists {
+            tapWhenHittable(save, in: app) // a tap right after typing is sometimes lost; saving twice is harmless
+        }
+        XCTAssertTrue(saved(within: 45), "Expected the targets to be saved. Banner: \(banner.exists ? banner.label : "none")")
 
         let todayTab = tabButton(in: app, identifier: "todayTab", label: "Today")
         waitUntilHittable(todayTab)
