@@ -53,6 +53,13 @@ public enum ErrorText {
             case .rateLimited: return rateLimited
             case .server(let message): return message
             }
+        case let error as ProfileError:
+            switch error {
+            case .validationFailed(_, let message): return message
+            case .unauthorized: return "Please sign in again."
+            case .rateLimited: return rateLimited
+            case .server(let message): return message
+            }
         case is URLError:
             return "Can't reach the server. Check your connection and try again."
         default:
