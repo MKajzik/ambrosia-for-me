@@ -62,7 +62,9 @@ final class ShoppingFlowUITests: AppUITestCase {
             guard app.state == .runningForeground, profileTab.waitForExistence(timeout: 5) else { return }
             profileTab.tap()
             let signOut = app.buttons["signOutButton"]
-            if signOut.waitForExistence(timeout: 10) { signOut.tap() }
+            // Sign Out is at the bottom of a long Form and not rendered until scrolled near.
+            for _ in 0..<6 where !signOut.waitForExistence(timeout: 3) { app.swipeUp() }
+            if signOut.exists { signOut.tap() }
         }
         signIn(in: app, email: emailA, password: password)
 

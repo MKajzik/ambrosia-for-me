@@ -84,6 +84,15 @@ public struct PlanRepository: Sendable {
         }
     }
 
+    /// After `PATCH /me`: the Today rings read their targets from this cache, so the saved answer is written here too
+    /// and the plan does not have to be refetched.
+    public func storeTargets(from user: Components.Schemas.User) async {
+        await cache.setTargets(.init(
+            targetKcal: user.targetKcal, targetProteinG: user.targetProteinG,
+            targetCarbsG: user.targetCarbsG, targetFatG: user.targetFatG
+        ))
+    }
+
     /// Called whenever the session ends, so a second user on this device never sees the first user's plan.
     public func clearCaches() async { await cache.clearAll() }
 }

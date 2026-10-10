@@ -25,6 +25,11 @@ public enum MealsError: Error, Equatable, Sendable {
 public enum IngredientError: Error, Equatable, Sendable {
     /// `fields` maps a JSON field path (`name`, `nutrients.calories`) to its message so a form can show it inline.
     case validationFailed(fields: [String: String], message: String)
+    case notFound
+    /// `409 ingredient_in_use`: a meal still uses it.
+    case inUse
+    /// `409 unit_not_convertible`: clearing the weight per piece or density would strand a meal that uses that unit.
+    case unitInUse
     case unauthorized
     case rateLimited
     case server(String)
