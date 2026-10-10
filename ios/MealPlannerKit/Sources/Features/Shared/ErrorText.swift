@@ -21,6 +21,9 @@ public enum ErrorText {
         case let error as IngredientError:
             switch error {
             case .validationFailed(_, let message): return message
+            case .notFound: return "This ingredient isn't available anymore."
+            case .inUse: return "A meal still uses this ingredient. Remove it from those meals first."
+            case .unitInUse: return "A meal uses this ingredient by piece or by volume, so its weight per piece or density can't be cleared."
             case .unauthorized: return "Please sign in again."
             case .rateLimited: return rateLimited
             case .server(let message): return message
