@@ -6,6 +6,7 @@ struct TabShellView: View {
     let mealsDependencies: MealsDependencies
     let planDependencies: PlanDependencies
     let shoppingDependencies: ShoppingDependencies
+    let profileDependencies: ProfileDependencies
 
     var body: some View {
         TabView {
@@ -18,7 +19,7 @@ struct TabShellView: View {
             NavigationStack { ShoppingView(dependencies: shoppingDependencies) }
                 .tabItem { Label("Shopping", systemImage: "cart").accessibilityIdentifier("shoppingTab") }
             NavigationStack {
-                ProfileView(onSignOut: { Task { await appState.signOut() } })
+                ProfileView(dependencies: profileDependencies, onSignOut: { Task { await appState.signOut() } })
             }
             .tabItem { Label("Profile", systemImage: "person").accessibilityIdentifier("profileTab") }
         }

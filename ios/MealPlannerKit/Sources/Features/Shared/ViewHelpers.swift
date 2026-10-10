@@ -23,6 +23,16 @@ extension View {
         #endif
     }
 
+    /// `.textInputAutocapitalization` is UIKit-only; the package also builds for macOS so `swift test` runs without a simulator.
+    @ViewBuilder
+    func noAutocapitalization() -> some View {
+        #if os(iOS)
+        self.textInputAutocapitalization(.never).autocorrectionDisabled()
+        #else
+        self
+        #endif
+    }
+
     /// Fires when the device's date or time zone changes (midnight, travelling). iOS only; elsewhere it does nothing.
     @ViewBuilder
     func onSignificantTimeChange(perform action: @escaping () -> Void) -> some View {
