@@ -33,6 +33,26 @@ extension View {
         #endif
     }
 
+    /// A "Done" button above the keyboard that dismisses whichever field is focused. The decimal pad has no Return key,
+    /// so without it the keyboard can only be dismissed by dragging the form. Apply it once, on the form: a toolbar on a
+    /// `Section` is registered once per row. iOS only; elsewhere it does nothing.
+    @ViewBuilder
+    func keyboardDoneToolbar() -> some View {
+        #if os(iOS)
+        self.toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
+                .accessibilityIdentifier("keyboardDoneButton")
+            }
+        }
+        #else
+        self
+        #endif
+    }
+
     /// Fires when the device's date or time zone changes (midnight, travelling). iOS only; elsewhere it does nothing.
     @ViewBuilder
     func onSignificantTimeChange(perform action: @escaping () -> Void) -> some View {

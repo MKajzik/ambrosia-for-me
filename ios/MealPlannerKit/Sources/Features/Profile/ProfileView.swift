@@ -41,6 +41,7 @@ public struct ProfileView: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
+        .keyboardDoneToolbar()
         .navigationTitle("Profile")
         .task { await load() }
         .refreshable { await load() }

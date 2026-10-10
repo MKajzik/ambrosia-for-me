@@ -8,9 +8,29 @@ final class ProfileFlowUITests: AppUITestCase {
         return formatter.string(from: Date())
     }
 
-    /// Taps `element` once it can be hit, scrolling the form first if the keyboard or the fold is in the way.
+    /// Taps `element` once it sits in the clear middle of the screen. "Hittable" is not enough: a full-screen swipe can
+    /// leave a button under the status and navigation bars (or behind the keyboard), where a tap lands on the bar and
+    /// never reaches it. So the form is nudged with short drags until the element is clear of both.
     private func tapWhenHittable(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<3 where !element.isHittable { app.swipeUp() }
+        XCTAssertTrue(element.waitForExistence(timeout: 45), "Expected element to exist: \(element)")
+        let screen = app.windows.firstMatch.frame
+        func drag(by points: CGFloat) {
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5 + points / screen.height))
+            from.press(forDuration: 0.1, thenDragTo: to)
+        }
+        for _ in 0..<8 {
+            let frame = element.frame
+            let top = screen.minY + 140
+            let bottom = screen.maxY - (app.keyboards.count > 0 ? 360 : 120)
+            if frame.minY < top {
+                drag(by: min(top - frame.minY + 20, 300))
+            } else if frame.maxY > bottom {
+                drag(by: -min(frame.maxY - bottom + 20, 300))
+            } else {
+                break
+            }
+        }
         waitUntilHittable(element, timeout: 45)
         element.tap()
     }
@@ -89,6 +109,13 @@ final class ProfileFlowUITests: AppUITestCase {
             tapWhenHittable(save, in: app) // a tap right after typing is sometimes lost; saving twice is harmless
         }
         XCTAssertTrue(saved(within: 45), "Expected the targets to be saved. Banner: \(banner.exists ? banner.label : "none")")
+
+        // The calories field still has keyboard focus, and the keyboard covers the tab bar. The decimal pad has no Return key.
+        let done = app.buttons["keyboardDoneButton"]
+        if done.waitForExistence(timeout: 5) {
+            done.tap()
+            _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 10)
+        }
 
         let todayTab = tabButton(in: app, identifier: "todayTab", label: "Today")
         waitUntilHittable(todayTab)
