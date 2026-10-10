@@ -112,7 +112,7 @@ Tests/MealPlannerKitTests/: ProfileFixtures, NullSentinelMiddlewareTests, Target
 - Consumes: the test seam `makeClient(baseURL:transport:middlewares:)` (`Sources/API/APIClient.swift`), `RoutingTransport`, `Locked` (`Tests/.../TestSupport.swift`), `Fixtures.json`, `Fixtures.date`, `Fixtures.ingredient(...)`.
 - Produces: `NullSentinel.value: Double` (`-1`), `NullSentinelMiddleware()` (a `ClientMiddleware`), `NullSentinelMiddleware.operations: Set<String>`; test helpers `ProfileFixtures.user(...)`, `.active(_:)`, `.pending()`, `.invite(code:)`, `.fullNutrients()`, `.fullInput()`, `.fullIngredient()`, `.customIngredient(...)`, `.ingredientPage(_:next:)`.
 
-- [ ] **Step 1: Write the test support file `ProfileFixtures.swift`**
+- [x] **Step 1: Write the test support file `ProfileFixtures.swift`**
 
 ```swift
 import API
@@ -181,7 +181,7 @@ enum ProfileFixtures {
 }
 ```
 
-- [ ] **Step 2: Write the failing tests** — `NullSentinelMiddlewareTests.swift`
+- [x] **Step 2: Write the failing tests** — `NullSentinelMiddlewareTests.swift`
 
 ```swift
 import API
@@ -273,12 +273,12 @@ struct NullSentinelMiddlewareTests {
 }
 ```
 
-- [ ] **Step 3: Run to verify it fails**
+- [x] **Step 3: Run to verify it fails**
 
 Run (from `ios/MealPlannerKit`): `swift test --filter NullSentinelMiddlewareTests`
 Expected: FAIL to compile, "cannot find 'NullSentinel' in scope".
 
-- [ ] **Step 4: Implement `NullSentinelMiddleware.swift`**
+- [x] **Step 4: Implement `NullSentinelMiddleware.swift`**
 
 ```swift
 import Foundation
@@ -330,7 +330,7 @@ public struct NullSentinelMiddleware: ClientMiddleware {
 }
 ```
 
-- [ ] **Step 5: Run to verify it passes, then commit**
+- [x] **Step 5: Run to verify it passes, then commit**
 
 Run: `swift test --filter NullSentinelMiddlewareTests`
 Expected: PASS (6 tests). If `Data(collecting:upTo:)` does not exist in the installed OpenAPIRuntime, use `try await Data(collecting: body, upTo:)`'s equivalent: `var data = Data(); for try await chunk in body { data.append(contentsOf: chunk) }`.
@@ -355,7 +355,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `parseDecimal`, `plainNumber` (`Features/Shared/ParseDecimal.swift`), `ProfileFixtures.user` (Task 1).
 - Produces: `TargetsUpdate(kcal:protein:carbs:fat:)` (all `Double?`, `nil` = clear); `TargetsDraft` with `calories/protein/carbs/fat: String`, `init()`, `init(user:)`, `validate() -> TargetsDraft.Validation` (`.valid(TargetsUpdate)` / `.invalid([Field: String])`), `TargetsDraft.Field` (`calories, protein, carbs, fat`, `init?(apiPath:)`).
 
-- [ ] **Step 1: Write the failing tests** — `TargetsDraftTests.swift`
+- [x] **Step 1: Write the failing tests** — `TargetsDraftTests.swift`
 
 ```swift
 import Testing
@@ -440,12 +440,12 @@ struct TargetsDraftTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `swift test --filter TargetsDraftTests`
 Expected: FAIL to compile, "cannot find 'TargetsDraft' in scope".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `TargetsUpdate.swift`:
 
@@ -556,7 +556,7 @@ public struct TargetsDraft: Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes, then commit**
+- [x] **Step 4: Run to verify it passes, then commit**
 
 Run: `swift test --filter TargetsDraftTests`
 Expected: PASS (7 tests).
@@ -582,7 +582,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `CustomIngredientForm.validate()` and its `Field`/`Validation` (existing), `plainNumber`, `ProfileFixtures` (Task 1).
 - Produces: `InviteCodeFormat.display(_:) -> String`, `InviteCodeFormat.spoken(_:) -> String`; `IngredientUpdate(name:category:gramsPerPiece:densityGPerMl:nutrients:)` (`gramsPerPiece`/`densityGPerMl` `nil` = clear; `nutrients: NutrientAmountsInput`); `CustomIngredientForm.init(editing: Components.Schemas.Ingredient)`; `CustomIngredientForm.UpdateValidation` (`.valid(IngredientUpdate)` / `.invalid([Field: String])`); `CustomIngredientForm.validateUpdate(preserving:) -> UpdateValidation`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `InviteCodeFormatTests.swift`:
 
@@ -694,12 +694,12 @@ struct CustomIngredientEditTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `swift test --filter "InviteCodeFormatTests|CustomIngredientEditTests"`
 Expected: FAIL to compile, "cannot find 'InviteCodeFormat' in scope".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `InviteCodeFormat.swift`:
 
@@ -815,12 +815,12 @@ public struct IngredientUpdate: Equatable, Sendable {
     }
 ```
 
-- [ ] **Step 4: Run to verify they pass, then the whole suite for regressions**
+- [x] **Step 4: Run to verify they pass, then the whole suite for regressions**
 
 Run: `swift test --filter "InviteCodeFormatTests|CustomIngredientEditTests|CustomIngredientTests"`, then `swift test`.
 Expected: PASS (3 + 6 + the existing CustomIngredientTests); whole suite green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ios/MealPlannerKit/Sources/Features/Profile/InviteCodeFormat.swift ios/MealPlannerKit/Sources/Repositories/IngredientUpdate.swift ios/MealPlannerKit/Sources/Features/Shared/CustomIngredient/CustomIngredientForm.swift ios/MealPlannerKit/Tests/MealPlannerKitTests/InviteCodeFormatTests.swift ios/MealPlannerKit/Tests/MealPlannerKitTests/CustomIngredientEditTests.swift
@@ -844,7 +844,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `CacheStore.inMemoryContainer()`, `Fixtures.day(_:calories:)`, `Fixtures.targets(...)`, `ProfileFixtures` (Task 1).
 - Produces: `ProfileCache` (`user() -> User?`, `store(user:)`, `partnership() -> CachedPartnership`, `store(partnership: Partnership?)`, `clearAll()`), `CachedPartnership` (`unknown`, `none`, `present(Partnership)`), `CacheStore.makeProfileCache(_:)`, `PlanCache.setTargets(_ targets: Components.Schemas.Targets)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `ProfileCacheTests.swift`:
 
@@ -939,12 +939,12 @@ struct PlanCacheTargetsTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `swift test --filter "ProfileCacheTests|PlanCacheTargetsTests"`
 Expected: FAIL to compile, "cannot find 'makeProfileCache'" / "no member 'setTargets'".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `CachedProfileModels.swift`:
 
@@ -1081,12 +1081,12 @@ public actor ProfileCache {
     }
 ```
 
-- [ ] **Step 4: Run to verify they pass, then the whole suite**
+- [x] **Step 4: Run to verify they pass, then the whole suite**
 
 Run: `swift test --filter "ProfileCacheTests|PlanCacheTargetsTests"`, then `swift test`.
 Expected: PASS (4 + 2); whole suite green (the schema change must not break the other cache suites).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ios/MealPlannerKit/Sources/Persistence ios/MealPlannerKit/Tests/MealPlannerKitTests/ProfileCacheTests.swift ios/MealPlannerKit/Tests/MealPlannerKitTests/PlanCacheTargetsTests.swift
@@ -1113,7 +1113,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
   - `ProfileRepository(client:cache:)`: `cachedUser() async -> User?`, `refreshUser() async throws -> User` (discardable), `updateTargets(_:) async throws -> User`, `deleteAccount() async throws`, `clearCaches() async`.
   - `PlanRepository.storeTargets(from user: Components.Schemas.User) async`.
 
-- [ ] **Step 1: Write the failing tests** — `ProfileRepositoryTests.swift`
+- [x] **Step 1: Write the failing tests** — `ProfileRepositoryTests.swift`
 
 ```swift
 import API
@@ -1237,12 +1237,12 @@ struct ProfileRepositoryTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `swift test --filter ProfileRepositoryTests`
 Expected: FAIL to compile, "cannot find 'ProfileRepository' in scope".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `ProfileError.swift`:
 
@@ -1365,7 +1365,7 @@ public struct ProfileRepository: Sendable {
             }
 ```
 
-- [ ] **Step 4: Run to verify it passes, then commit**
+- [x] **Step 4: Run to verify it passes, then commit**
 
 Run: `swift test --filter ProfileRepositoryTests`
 Expected: PASS (8 tests). If `ProblemText`'s wording differs from "Target kcal is invalid.", print the actual `ProfileError` from the failing assertion and match the existing helper's output rather than changing the helper.
@@ -1391,7 +1391,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `ProfileCache`, `CachedPartnership` (Task 4), `ProblemText`, `unwrapping`, `MealsError` (for `status()`, unchanged).
 - Produces: `PartnerError` (`inviteInvalid`, `alreadyLinked`, `validationFailed(String)`, `unauthorized`, `rateLimited`, `server(String)`); `PartnerRepository(client:cache: ProfileCache? = nil)` with `status() async throws -> Partnership?` (unchanged signature; now stores), `cachedStatus() async -> CachedPartnership`, `createInvite() async throws -> PartnerInvite`, `accept(code:) async throws -> Partnership`, `unlink() async throws`.
 
-- [ ] **Step 1: Write the failing tests** — `PartnerRepositoryProfileTests.swift`
+- [x] **Step 1: Write the failing tests** — `PartnerRepositoryProfileTests.swift`
 
 ```swift
 import API
@@ -1515,12 +1515,12 @@ struct PartnerRepositoryProfileTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `swift test --filter PartnerRepositoryProfileTests`
 Expected: FAIL to compile, "extra argument 'cache' in call".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `PartnerError.swift`:
 
@@ -1648,12 +1648,12 @@ public struct PartnerRepository: Sendable {
             }
 ```
 
-- [ ] **Step 4: Run to verify it passes, then the whole suite**
+- [x] **Step 4: Run to verify it passes, then the whole suite**
 
 Run: `swift test --filter "PartnerRepositoryProfileTests|IngredientsPartnerRepositoryTests"`, then `swift test`.
 Expected: PASS (6 new plus the existing partner tests); whole suite green (the default `cache: nil` keeps the other call sites compiling).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ios/MealPlannerKit/Sources/Repositories ios/MealPlannerKit/Sources/Features/Shared/ErrorText.swift ios/MealPlannerKit/Tests/MealPlannerKitTests/PartnerRepositoryProfileTests.swift
@@ -1676,7 +1676,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `IngredientUpdate` (Task 3), `NullSentinel`/`NullSentinelMiddleware` (Task 1), `ProfileFixtures.ingredientPage`/`.customIngredient`/`.fullInput` (Task 1), existing `IngredientsRepository.validation(_:)` (private static).
 - Produces: `IngredientError.notFound`, `.inUse`, `.unitInUse`; `IngredientsRepository.customIngredients() async throws -> [Ingredient]`, `.update(id:_:) async throws -> Ingredient`, `.delete(id:) async throws`.
 
-- [ ] **Step 1: Write the failing tests** — `IngredientsRepositoryProfileTests.swift`
+- [x] **Step 1: Write the failing tests** — `IngredientsRepositoryProfileTests.swift`
 
 ```swift
 import API
@@ -1791,12 +1791,12 @@ struct IngredientsRepositoryProfileTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `swift test --filter IngredientsRepositoryProfileTests`
 Expected: FAIL to compile, "value of type 'IngredientsRepository' has no member 'customIngredients'".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `MealsError.swift`: replace the `IngredientError` enum with:
 
@@ -1896,12 +1896,12 @@ public enum IngredientError: Error, Equatable, Sendable {
             case .unitInUse: return "A meal uses this ingredient by piece or by volume, so its weight per piece or density can't be cleared."
 ```
 
-- [ ] **Step 4: Run to verify it passes, then the whole suite**
+- [x] **Step 4: Run to verify it passes, then the whole suite**
 
 Run: `swift test --filter "IngredientsRepositoryProfileTests|IngredientSearchViewModelTests|CustomIngredientTests"`, then `swift test`.
 Expected: PASS (6 new); whole suite green. Any other exhaustive `switch` over `IngredientError` must be extended: the compiler lists them.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ios/MealPlannerKit/Sources/Repositories ios/MealPlannerKit/Sources/Features/Shared/ErrorText.swift ios/MealPlannerKit/Tests/MealPlannerKitTests/IngredientsRepositoryProfileTests.swift
@@ -1923,7 +1923,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `ProfileRepository`, `PlanRepository.storeTargets(from:)`, `TargetsDraft`, `ErrorText` (Tasks 2, 5), `NullSentinelMiddleware` (Task 1), `ProfileFixtures`, `RoutingTransport`, `Locked`.
 - Produces: `ProfileViewModel(profile:plan:signOut:)` (`@Observable @MainActor`) with state `user`, `draft`, `fieldErrors`, `banner`, `isSaving`, `isStale`, `loadError`, `isLoading`, `canSave`; methods `appear()`, `saveTargets() -> Bool` (discardable), `deleteAccount(typedEmail:) -> String?`; `static emailMatches(_:_:) -> Bool`. Test helpers `ProfileServer` (`current`, `isDeleted`, `setOffline(_:)`, `force(_:status:)`, `replace(_:)`, `rejectPatch(field:)`) and `ProfileHarness` (`server`, `transport`, `profileCache`, `planCache`, `profile`, `plan`, `signOuts`, `makeViewModel()`).
 
-- [ ] **Step 1: Write the test support — `ProfileTestSupport.swift`**
+- [x] **Step 1: Write the test support — `ProfileTestSupport.swift`**
 
 ```swift
 import API
@@ -2027,7 +2027,7 @@ struct ProfileHarness {
 }
 ```
 
-- [ ] **Step 2: Write the failing tests — `ProfileViewModelTests.swift`**
+- [x] **Step 2: Write the failing tests — `ProfileViewModelTests.swift`**
 
 ```swift
 import API
@@ -2212,12 +2212,12 @@ struct ProfileViewModelTests {
 }
 ```
 
-- [ ] **Step 3: Run to verify it fails**
+- [x] **Step 3: Run to verify it fails**
 
 Run: `swift test --filter ProfileViewModelTests`
 Expected: FAIL to compile, "cannot find 'ProfileViewModel' in scope".
 
-- [ ] **Step 4: Implement `ProfileViewModel.swift`**
+- [x] **Step 4: Implement `ProfileViewModel.swift`**
 
 ```swift
 import API
@@ -2336,7 +2336,7 @@ public final class ProfileViewModel {
 }
 ```
 
-- [ ] **Step 5: Run to verify it passes, then commit**
+- [x] **Step 5: Run to verify it passes, then commit**
 
 Run: `swift test --filter ProfileViewModelTests` three times.
 Expected: PASS (11 tests) each time. If `serverRefusals` shows a different field label, print `vm.fieldErrors` and match `ProblemText`'s output.
@@ -2360,7 +2360,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `PartnerRepository` (`status()`, `cachedStatus()`, `createInvite()`, `accept(code:)`, `unlink()`), `CachedPartnership`, `PartnerError`, `ErrorText` (Task 6), `ProfileFixtures`.
 - Produces: `PartnerViewModel(partner:)` (`@Observable @MainActor`) with `phase: Phase` (`loading`, `none`, `pending(expiresAt: Date?)`, `linked(name: String, since: Date?)`), `invite: PartnerInvite?`, `isStale`, `loadError`, `isBusy`, `codeText` (settable), `acceptError`, `alertMessage` (settable); methods `appear()`, `createInvite()`, `accept()`, `unlink()`.
 
-- [ ] **Step 1: Write the failing tests** — `PartnerViewModelTests.swift`
+- [x] **Step 1: Write the failing tests** — `PartnerViewModelTests.swift`
 
 ```swift
 import API
@@ -2519,12 +2519,12 @@ struct PartnerViewModelTests {
     }
 }
 ```
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `swift test --filter PartnerViewModelTests`
 Expected: FAIL to compile, "cannot find 'PartnerViewModel' in scope".
 
-- [ ] **Step 3: Implement `PartnerViewModel.swift`**
+- [x] **Step 3: Implement `PartnerViewModel.swift`**
 
 ```swift
 import API
@@ -2641,7 +2641,7 @@ public final class PartnerViewModel {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes, then commit**
+- [x] **Step 4: Run to verify it passes, then commit**
 
 Run: `swift test --filter PartnerViewModelTests`
 Expected: PASS (9 tests).
@@ -2666,7 +2666,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `CustomIngredientForm.init(editing:)`, `.validateUpdate(preserving:)` (Task 3), `IngredientsRepository.update/delete/customIngredients` (Task 7), `IngredientError`, `ErrorText`.
 - Produces: `CustomIngredientViewModel.init(editing: Ingredient, repository:)` (the existing `init(name:repository:)` is unchanged); `save()` returns the created or updated ingredient. `MyIngredientsViewModel(repository:)` with `all`, `shown`, `searchText` (settable), `isLoading`, `loadError`; `load()`, `didSave(_:)`, `delete(_:) -> String?`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `CustomIngredientEditViewModelTests.swift`:
 
@@ -2844,12 +2844,12 @@ struct MyIngredientsViewModelTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `swift test --filter "CustomIngredientEditViewModelTests|MyIngredientsViewModelTests"`
 Expected: FAIL to compile, "no exact matches in call to initializer" / "cannot find 'MyIngredientsViewModel'".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `CustomIngredientViewModel.swift` (replace the file):
 
@@ -2995,12 +2995,12 @@ public final class MyIngredientsViewModel {
 }
 ```
 
-- [ ] **Step 4: Run to verify they pass, then the existing ingredient suites and the whole suite**
+- [x] **Step 4: Run to verify they pass, then the existing ingredient suites and the whole suite**
 
 Run: `swift test --filter "CustomIngredientEditViewModelTests|MyIngredientsViewModelTests|CustomIngredientTests|IngredientSearchViewModelTests"`, then `swift test`.
 Expected: PASS (4 + 5 new, existing unchanged); whole suite green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ios/MealPlannerKit/Sources/Features ios/MealPlannerKit/Tests/MealPlannerKitTests/CustomIngredientEditViewModelTests.swift ios/MealPlannerKit/Tests/MealPlannerKitTests/MyIngredientsViewModelTests.swift
@@ -3028,7 +3028,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 
 There is no unit test for SwiftUI views in this codebase (the logic is in the tested view models); the gate for the views is the build, plus the UI test in Task 12. The one unit-tested part is the sign-out clearing (Review focus 5).
 
-- [ ] **Step 1: Extend the failing test — `ClearCachesTests.swift`**
+- [x] **Step 1: Extend the failing test — `ClearCachesTests.swift`**
 
 Make these four edits to the existing test (keep everything else):
 
@@ -3055,7 +3055,7 @@ Also change the test's display name to mention the profile: `"Ending a session e
 Run: `swift test --filter ClearCachesTests`
 Expected: FAIL to compile, "extra argument 'profile' in call".
 
-- [ ] **Step 2: Write the files**
+- [x] **Step 2: Write the files**
 
 `ProfileDependencies.swift`:
 
@@ -3587,7 +3587,7 @@ and in the `MealsDependencies(` call replace `ingredients: IngredientsRepository
 ```
 6. In the `TabShellView(` call replace `shoppingDependencies: shoppingDependencies` with `shoppingDependencies: shoppingDependencies, profileDependencies: profileDependencies`.
 
-- [ ] **Step 3: Build and run the tests**
+- [x] **Step 3: Build and run the tests**
 
 Run, from `ios/MealPlannerKit`: `swift build`, then `swift test --filter ClearCachesTests`, then the whole `swift test`.
 Expected: build succeeds; `ClearCachesTests` PASS; whole suite green. Then, from the worktree root: `make build-ios`.
@@ -3595,7 +3595,7 @@ Expected: `** BUILD SUCCEEDED **` (the first compile of the iOS-only paths: a fa
 
 The plan's SwiftUI was written without compiling. Fix compile errors minimally: a `@ViewBuilder` function whose body is entirely inside `#if` (`copyButton`) may need an explicit `EmptyView()` in an `#else` branch; `confirmationDialog(presenting:)` and `searchable` signatures may differ slightly. Keep every accessibility identifier exactly as listed.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add ios/MealPlannerKit/Sources ios/MealPlannerKit/Tests/MealPlannerKitTests/ClearCachesTests.swift
@@ -3615,7 +3615,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Consumes: `AppUITestCase` helpers (`uniqueEmail`, `createAccountViaAPI`, `apiRequest`, `signIn`, `tabButton`, `profileTabButton`, `waitUntilHittable`, `expectValue`, `typeVerified`, `clearAndType`, `scrollUntilExists`); the accessibility identifiers from Task 11; the existing `customIngredientNameField`, `customIngredientSaveButton`, `showRegisterButton`, `ring-calories`.
 - Produces: the flow in spec §7: set a calorie target and see Today's ring use it, link a partner by invite code, create/edit/delete a custom ingredient, delete the account and land on the welcome screen.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 ```swift
 import XCTest
@@ -3770,18 +3770,18 @@ final class ProfileFlowUITests: AppUITestCase {
 }
 ```
 
-- [ ] **Step 2: Compile the UI-test target**
+- [x] **Step 2: Compile the UI-test target**
 
 Run: `cd ios && xcodegen generate && xcodebuild build-for-testing -project MealPlanner.xcodeproj -scheme MealPlanner -destination 'generic/platform=iOS Simulator' 2>&1 | grep -E "error:|TEST BUILD"`
 Expected: `** TEST BUILD SUCCEEDED **`.
 
-- [ ] **Step 3: Run the flow if the machine allows (optional locally; CI is the signal)**
+- [x] **Step 3: Run the flow if the machine allows (optional locally; CI is the signal)**
 
 Start the API (`make db-up`, `make migrate`, `make run-api` from the worktree root, the API in a second terminal), then:
 `cd ios && xcodebuild test -project MealPlanner.xcodeproj -scheme MealPlanner -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:MealPlannerUITests/ProfileFlowUITests`
 Expected: the test passes. Local XCUITest is unreliable under load (the Shopping flow needed retries for dropped taps); say exactly what you could and could not run, and do not claim a pass you did not see. If a failed run leaves a Keychain session behind, erase the simulator before the next run. Things most likely to need a test-side adjustment: the ring text if the day's calories come back as "no data" (then assert `"2,000"` only after the seeded meal shows), a menu item that is not hittable the first time, a tab tap that is lost. Fix the test; report an app problem with evidence rather than changing the app silently.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add ios/MealPlannerUITests/ProfileFlowUITests.swift
@@ -3800,7 +3800,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 - Modify: `docs/superpowers/specs/2026-09-30-ios-app-design.md` (§6, §9, §15)
 - Modify: `docs/superpowers/plans/2026-10-10-ios-profile.md` (tick the boxes)
 
-- [ ] **Step 1: Update `ios/CLAUDE.md`**
+- [x] **Step 1: Update `ios/CLAUDE.md`**
 
 Read the file first and match its style and place. In the **Layout** list add to the matching bullets:
 - `Sources/Persistence/`: "Also `ProfileCache` (the signed-in `User` and the partnership; `CachedPartnership` is `unknown` / `none` / `present`) and `PlanCache.setTargets`."
@@ -3819,7 +3819,7 @@ In **Gotchas** add (merge with an existing line only where it says the same thin
 - Deleting the account types the email (as web), calls `DELETE /me`, then runs the normal `AppState.signOut()`; its revoke of the already-dead token fails quietly. Nothing is sent while the typed email does not match.
 ```
 
-- [ ] **Step 2: Reconcile the specs with what was built**
+- [x] **Step 2: Reconcile the specs with what was built**
 
 In `docs/superpowers/specs/2026-10-10-ios-profile-design.md`:
 - §3: `CachedPartnership` cases are `unknown`, `none` and `present(Partnership)` (a pending invite is a partnership, not "linked"); `PartnerRepository.init(client:cache:)` takes `ProfileCache? = nil` so existing callers compile; `ProfileViewModel` takes a `signOut` closure; `IngredientError` gains `.notFound`, `.inUse`, `.unitInUse`; `TargetsUpdate` and `IngredientUpdate` live in `Repositories`.
@@ -3829,11 +3829,11 @@ In `docs/superpowers/specs/2026-10-10-ios-profile-design.md`:
 
 In `docs/superpowers/specs/2026-09-30-ios-app-design.md`: §6 cache list says "profile" is `ProfileCache` and its writes are online-only; §9 `Features/Profile` points to `2026-10-10-ios-profile-design.md` and mentions the clear sentinel; §15 plan 4 is complete.
 
-- [ ] **Step 3: Tick this plan's boxes**
+- [x] **Step 3: Tick this plan's boxes**
 
 Run (from the worktree root): `sed -i '' 's/^- \[ \]/- [x]/' docs/superpowers/plans/2026-10-10-ios-profile.md`
 
-- [ ] **Step 4: Run the full gate**
+- [x] **Step 4: Run the full gate**
 
 Run, from the repo root:
 - `make test-ios` — expected: all suites PASS.
@@ -3843,7 +3843,7 @@ Run, from the repo root:
 
 Run `swift test` from `ios/MealPlannerKit` three times and report any intermittent failure with its test name rather than rerunning until green (the Shopping branch saw about one in twelve runs crash inside CoreData when tests create in-memory stores in parallel; say so if it recurs, with the crash report).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ios/CLAUDE.md docs/superpowers
