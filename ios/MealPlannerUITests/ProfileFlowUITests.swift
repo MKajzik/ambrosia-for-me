@@ -133,7 +133,15 @@ final class ProfileFlowUITests: AppUITestCase {
         typeVerified(code, field: codeField)
         tapWhenHittable(app.buttons["partnerLinkButton"], in: app)
         let linked = app.staticTexts["partnerLinkedLabel"]
-        XCTAssertTrue(linked.waitForExistence(timeout: 45), "Expected the linked state after entering the code")
+        let isLinked = linked.waitForExistence(timeout: 45)
+        if !isLinked { print("PROFILE-FLOW-DEBUG link tree:\n\(app.debugDescription)") }
+        let acceptError = app.staticTexts["partnerAcceptError"]
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(
+            isLinked,
+            "Expected the linked state after entering the code. Inline error: \(acceptError.exists ? acceptError.label : "none"). "
+                + "Alert: \(alert.exists ? alert.label : "none")"
+        )
         XCTAssertTrue(linked.label.contains("Profile B"), "Expected the partner's name, got \(linked.label)")
 
         // 3. A custom ingredient: create, rename, delete.
