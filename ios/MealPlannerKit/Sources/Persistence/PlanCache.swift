@@ -19,6 +19,18 @@ public actor PlanCache {
         return try? JSONDecoder().decode(Components.Schemas.Targets.self, from: row.json)
     }
 
+    /// Writes only the targets row. The Today rings read targets from here; `PATCH /me` answers with the new ones, so
+    /// they are stored without refetching the plan.
+    public func setTargets(_ targets: Components.Schemas.Targets) {
+        guard let json = try? JSONEncoder().encode(targets) else { return }
+        if let row = (try? modelContext.fetch(FetchDescriptor<CachedTargets>()))?.first {
+            row.json = json
+        } else {
+            modelContext.insert(CachedTargets(json: json))
+        }
+        try? modelContext.save()
+    }
+
     /// Upserts each given date and the targets in one save. `GET /plan` returns every date in the range it was
     /// asked for, so a refresh replaces exactly that range; other dates are untouched.
     public func replace(days: [Components.Schemas.DailyTotal], targets: Components.Schemas.Targets) {
