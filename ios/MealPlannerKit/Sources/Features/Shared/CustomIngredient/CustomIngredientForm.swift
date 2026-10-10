@@ -1,8 +1,9 @@
 import API
 import Foundation
+import Repositories
 
-/// The custom-ingredient creation form's text and validation, ported from web's `custom-ingredient.ts`.
-/// Only the four macros are asked for here; the full 18-nutrient editor belongs to the Profile plan.
+/// The custom-ingredient form's text and validation, ported from web's `custom-ingredient.ts`. It asks for the four
+/// macros only; editing an existing ingredient keeps every other nutrient it has (see `validateUpdate(preserving:)`).
 public struct CustomIngredientForm: Equatable, Sendable {
     public enum Field: Hashable, Sendable {
         case name, calories, protein, carbohydrates, fat, gramsPerPiece, density
@@ -27,6 +28,11 @@ public struct CustomIngredientForm: Equatable, Sendable {
         case invalid([Field: String])
     }
 
+    public enum UpdateValidation: Equatable, Sendable {
+        case valid(IngredientUpdate)
+        case invalid([Field: String])
+    }
+
     public var name = ""
     public var category: Components.Schemas.IngredientCategory = .other
     public var calories = ""
@@ -37,6 +43,18 @@ public struct CustomIngredientForm: Equatable, Sendable {
     public var density = ""
 
     public init(name: String = "") { self.name = name }
+
+    /// The form for editing an existing ingredient: every field prefilled from it.
+    public init(editing ingredient: Components.Schemas.Ingredient) {
+        name = ingredient.name
+        category = ingredient.category
+        calories = ingredient.nutrients.calories.map(plainNumber) ?? ""
+        protein = ingredient.nutrients.protein.map(plainNumber) ?? ""
+        carbohydrates = ingredient.nutrients.carbohydrates.map(plainNumber) ?? ""
+        fat = ingredient.nutrients.fat.map(plainNumber) ?? ""
+        gramsPerPiece = ingredient.gramsPerPiece.map(plainNumber) ?? ""
+        density = ingredient.densityGPerMl.map(plainNumber) ?? ""
+    }
 
     private static let numberHelp = "Enter a number, for example 12.5."
 
@@ -86,6 +104,31 @@ public struct CustomIngredientForm: Equatable, Sendable {
             gramsPerPiece: piece.value, densityGPerMl: densityValue.value,
             nutrients: anyNutrient ? nutrients : nil
         ))
+    }
+
+    /// Validates like `validate()`, then builds the update for `existing`: `nutrients` replaces the whole set on the API,
+    /// so all 18 are sent. The four shown here come from the form (a blank one is left out, meaning unknown); the other
+    /// 14 are copied from `existing`, so editing a name never erases the vitamins. A blank weight per piece or density
+    /// is `nil`, which clears it.
+    public func validateUpdate(preserving existing: Components.Schemas.Ingredient) -> UpdateValidation {
+        switch validate() {
+        case .invalid(let errors):
+            return .invalid(errors)
+        case .valid(let request):
+            let shown = request.nutrients ?? Components.Schemas.NutrientAmountsInput()
+            let kept = existing.nutrients
+            let nutrients = Components.Schemas.NutrientAmountsInput(
+                calories: shown.calories, protein: shown.protein, carbohydrates: shown.carbohydrates,
+                sugar: kept.sugar, fibre: kept.fibre, fat: shown.fat, saturatedFat: kept.saturatedFat,
+                sodium: kept.sodium, potassium: kept.potassium, calcium: kept.calcium, iron: kept.iron,
+                magnesium: kept.magnesium, zinc: kept.zinc, vitaminA: kept.vitaminA, vitaminC: kept.vitaminC,
+                vitaminD: kept.vitaminD, vitaminB12: kept.vitaminB12, folate: kept.folate
+            )
+            return .valid(IngredientUpdate(
+                name: request.name, category: request.category, gramsPerPiece: request.gramsPerPiece,
+                densityGPerMl: request.densityGPerMl, nutrients: nutrients
+            ))
+        }
     }
 
     private static func positive(_ text: String, limit: Double, what: String) -> (value: Double?, error: String?) {
