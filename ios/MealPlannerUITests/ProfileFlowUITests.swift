@@ -22,7 +22,9 @@ final class ProfileFlowUITests: AppUITestCase {
         for _ in 0..<8 {
             let frame = element.frame
             let top = screen.minY + 140
-            let bottom = screen.maxY - (app.keyboards.count > 0 ? 360 : 120)
+            // The keyboard's real top (its height varies with the keyboard type), plus room for its accessory bar.
+            let keyboard = app.keyboards.firstMatch
+            let bottom = keyboard.exists ? keyboard.frame.minY - 60 : screen.maxY - 120
             if frame.minY < top {
                 drag(by: min(top - frame.minY + 20, 300))
             } else if frame.maxY > bottom {
@@ -77,6 +79,10 @@ final class ProfileFlowUITests: AppUITestCase {
         addTeardownBlock {
             let profileTab = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "profileTab", "Profile")).firstMatch
             guard app.state == .runningForeground, profileTab.waitForExistence(timeout: 5) else { return }
+            // A failure can leave the keyboard up over the tab bar and the form: dismiss it, or Sign Out is out of reach
+            // and this user stays signed in (the Keychain survives relaunch) for the next test.
+            let keyboardDone = app.buttons["keyboardDoneButton"]
+            if keyboardDone.exists { keyboardDone.tap() }
             profileTab.tap()
             let signOut = app.buttons["signOutButton"]
             // Sign Out is at the bottom of a long Form and not rendered until scrolled near.
@@ -131,6 +137,12 @@ final class ProfileFlowUITests: AppUITestCase {
         waitUntilHittable(codeField, timeout: 45)
         codeField.tap()
         typeVerified(code, field: codeField)
+        // The keyboard's Done bar can sit over the Link button, so dismiss the keyboard before tapping it.
+        let codeDone = app.buttons["keyboardDoneButton"]
+        if codeDone.waitForExistence(timeout: 5) {
+            codeDone.tap()
+            _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 10)
+        }
         tapWhenHittable(app.buttons["partnerLinkButton"], in: app)
         let linked = app.staticTexts["partnerLinkedLabel"]
         let isLinked = linked.waitForExistence(timeout: 45)
