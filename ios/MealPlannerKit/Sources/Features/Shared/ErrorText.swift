@@ -60,6 +60,15 @@ public enum ErrorText {
             case .rateLimited: return rateLimited
             case .server(let message): return message
             }
+        case let error as PartnerError:
+            switch error {
+            case .inviteInvalid: return "That code didn't work. Check it, or ask your partner for a new one."
+            case .alreadyLinked: return "You're already linked with a partner."
+            case .validationFailed(let message): return message
+            case .unauthorized: return "Please sign in again."
+            case .rateLimited: return "Too many tries. Wait a minute and try again."
+            case .server(let message): return message
+            }
         case is URLError:
             return "Can't reach the server. Check your connection and try again."
         default:
