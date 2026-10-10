@@ -5,6 +5,7 @@ struct TabShellView: View {
     let appState: AppState
     let mealsDependencies: MealsDependencies
     let planDependencies: PlanDependencies
+    let shoppingDependencies: ShoppingDependencies
 
     var body: some View {
         TabView {
@@ -14,7 +15,7 @@ struct TabShellView: View {
                 .tabItem { Label("Plan", systemImage: "calendar").accessibilityIdentifier("planTab") }
             NavigationStack { MealsView(dependencies: mealsDependencies) }
                 .tabItem { Label("Meals", systemImage: "fork.knife").accessibilityIdentifier("mealsTab") }
-            NavigationStack { ShoppingView() }
+            NavigationStack { ShoppingView(dependencies: shoppingDependencies) }
                 .tabItem { Label("Shopping", systemImage: "cart").accessibilityIdentifier("shoppingTab") }
             NavigationStack {
                 ProfileView(onSignOut: { Task { await appState.signOut() } })

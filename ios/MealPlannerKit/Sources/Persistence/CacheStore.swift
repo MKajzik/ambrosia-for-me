@@ -1,12 +1,13 @@
 import Foundation
 import SwiftData
 
-/// Builds the SwiftData container. The cache is rebuildable from the API, so there are no migrations:
-/// a store that will not open is deleted and recreated.
+/// Builds the SwiftData container. Most of the store is rebuildable from the API, but `CachedIntent` rows are the
+/// user's unsynced shopping changes and are not: a schema change must stay lightweight-migratable, because the
+/// fallback below (a store that will not open is deleted and recreated) drops those changes.
 public enum CacheStore {
     private static let schema = Schema([
         CachedMeal.self, CachedMealIngredient.self, CachedPlanDay.self, CachedTargets.self,
-        CachedTemplate.self,
+        CachedTemplate.self, CachedShoppingSummary.self, CachedShoppingList.self, CachedIntent.self,
     ])
 
     public static var defaultStoreURL: URL {
@@ -50,6 +51,10 @@ public enum CacheStore {
 
     public static func makeTemplateCache(_ container: ModelContainer) -> TemplateCache {
         TemplateCache(modelContainer: container)
+    }
+
+    public static func makeShoppingCache(_ container: ModelContainer) -> ShoppingCache {
+        ShoppingCache(modelContainer: container)
     }
 
     private static func open(_ url: URL) throws -> ModelContainer {

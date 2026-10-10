@@ -43,6 +43,16 @@ public enum ErrorText {
             case .rateLimited: return rateLimited
             case .server(let message): return message
             }
+        case let error as ShoppingError:
+            switch error {
+            case .notFound: return "This list isn't available anymore."
+            case .partnerNotLinked: return "You're not linked with a partner."
+            case .versionConflict: return "Someone else changed this item."
+            case .validationFailed(let message): return message
+            case .unauthorized: return "Please sign in again."
+            case .rateLimited: return rateLimited
+            case .server(let message): return message
+            }
         case is URLError:
             return "Can't reach the server. Check your connection and try again."
         default:

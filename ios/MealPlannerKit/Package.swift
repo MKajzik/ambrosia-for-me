@@ -37,9 +37,10 @@ let package = Package(
             dependencies: [
                 "API", "Persistence",
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
             ]
         ),
-        .target(name: "Features", dependencies: ["API", "Auth", "Repositories"]),
+        .target(name: "Features", dependencies: ["API", "Auth", "Persistence", "Repositories"]),
         .target(name: "AppCore", dependencies: ["API", "Auth", "Features", "Persistence", "Repositories"]),
         .testTarget(
             name: "MealPlannerKitTests",

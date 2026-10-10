@@ -2,9 +2,16 @@ import API
 import Auth
 import Features
 import Foundation
+import OpenAPIRuntime
 import Persistence
 import Repositories
 import SwiftUI
+
+/// Carries the signed-in user's id to `ShoppingDependencies`, which is built before `appState` exists.
+@MainActor
+final class UserBox {
+    var id: String?
+}
 
 public struct RootView: View {
     @State private var appState: AppState
@@ -20,11 +27,17 @@ public struct RootView: View {
     private let refresher: TokenRefresher
     private let mealsDependencies: MealsDependencies
     private let planDependencies: PlanDependencies
+    private let shoppingDependencies: ShoppingDependencies
+    private let userBox: UserBox
 
     public init(baseURL: URL = APIEnvironment.baseURL) {
         let tokenStore = KeychainTokenStore()
         let refresher = TokenRefresher(refreshClient: makeAuthlessClient(baseURL: baseURL), tokenStore: tokenStore)
-        let client = makeClient(baseURL: baseURL, middlewares: [BearerAuthMiddleware(refresher: refresher)])
+        let networkSwitch: NetworkSwitch? = CommandLine.arguments.contains("-uiTesting") ? NetworkSwitch() : nil
+        let client = makeClient(
+            baseURL: baseURL,
+            middlewares: (networkSwitch.map { [OfflineMiddleware($0) as any ClientMiddleware] } ?? []) + [BearerAuthMiddleware(refresher: refresher)]
+        )
         let authRepository = AuthRepository(client: client, tokenStore: tokenStore)
 
         let container = CacheStore.launchContainer()
@@ -32,6 +45,9 @@ public struct RootView: View {
         let planRepository = PlanRepository(client: client, cache: CacheStore.makePlanCache(container))
         let templatesRepository = TemplatesRepository(client: client, cache: CacheStore.makeTemplateCache(container))
         let partnerRepository = PartnerRepository(client: client)
+        let shoppingCache = CacheStore.makeShoppingCache(container)
+        let shoppingRepository = ShoppingListsRepository(client: client, cache: shoppingCache)
+        let syncEngine = ShoppingSyncEngine(client: client, cache: shoppingCache)
 
         self.refresher = refresher
         self.mealsDependencies = MealsDependencies(
@@ -42,11 +58,27 @@ public struct RootView: View {
         self.planDependencies = PlanDependencies(
             plan: planRepository, templates: templatesRepository, meals: mealsRepository, partner: partnerRepository
         )
+        let userBox = UserBox()
+        self.userBox = userBox
+        self.shoppingDependencies = ShoppingDependencies(
+            shopping: shoppingRepository, sync: syncEngine, partner: partnerRepository,
+            events: ListEventStream(
+                baseURL: baseURL,
+                accessToken: { await refresher.currentAccessToken() },
+                refreshToken: { try? await refresher.refreshAccessToken() },
+                networkSwitch: networkSwitch
+            ),
+            monitor: NetworkMonitor(), networkSwitch: networkSwitch,
+            currentUserID: { userBox.id }
+        )
         _appState = State(initialValue: AppState(
             authRepository: authRepository,
             tokenStore: tokenStore,
             clearCaches: {
-                await clearAllCaches(meals: mealsRepository, plan: planRepository, templates: templatesRepository)
+                await clearAllCaches(
+                    meals: mealsRepository, plan: planRepository, templates: templatesRepository, shopping: shoppingRepository,
+                    sync: syncEngine
+                )
             }
         ))
         _signInViewModel = State(initialValue: AuthViewModel(authRepository: authRepository))
@@ -76,7 +108,10 @@ public struct RootView: View {
                         }
                     }
                 case .signedIn, .unverified:
-                    TabShellView(appState: appState, mealsDependencies: mealsDependencies, planDependencies: planDependencies)
+                    TabShellView(
+                        appState: appState, mealsDependencies: mealsDependencies, planDependencies: planDependencies,
+                        shoppingDependencies: shoppingDependencies
+                    )
                 }
             }
         }
@@ -85,7 +120,17 @@ public struct RootView: View {
             await appState.restoreSession()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await appState.retryVerification() } }
+            if phase == .active {
+                Task { await appState.retryVerification() }
+                Task { await shoppingDependencies.sync.drain() }
+            }
+        }
+        .task(id: isSignedOut) {
+            guard !isSignedOut else { return }
+            await shoppingDependencies.runSyncLoop()
+        }
+        .onChange(of: appState.session) { _, session in
+            if case .signedIn(let user) = session { userBox.id = user.id } else { userBox.id = nil }
         }
         .onChange(of: isSignedOut) { _, nowSignedOut in
             // Otherwise a user who registered, then signed out, lands back on the register
