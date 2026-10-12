@@ -7,6 +7,9 @@ set -euo pipefail
 BOOT_TIMEOUT=${BOOT_TIMEOUT:-180}   # seconds for one simulator boot
 START_TIMEOUT=${START_TIMEOUT:-480} # seconds for the first test suite to start after xcodebuild launches
 ATTEMPTS=${ATTEMPTS:-3}
+# One .xcresult per test run (screenshots, the UI hierarchy at each failure). The workflow uploads this directory when
+# the job fails; without it a failing UI test leaves nothing but its log to read. It is git-ignored (`ios/build/`).
+RESULTS_DIR=${RESULTS_DIR:-$PWD/build/test-results}
 
 # Kills a process and everything it started.
 kill_tree() {
@@ -48,7 +51,10 @@ boot_simulator() {
 run_tests() {
   local log pid waited=0
   log=$(mktemp)
-  "${XCODEBUILD[@]}" test-without-building > >(tee "$log") 2>&1 &
+  # xcodebuild refuses a result bundle path that already exists, so each run gets its own.
+  local bundle="$RESULTS_DIR/run-${RUN_NUMBER:-1}.xcresult"
+  rm -rf "$bundle"
+  "${XCODEBUILD[@]}" test-without-building -resultBundlePath "$bundle" > >(tee "$log") 2>&1 &
   pid=$!
   until grep -q "Test Suite 'All tests' started" "$log" || ! kill -0 "$pid" 2>/dev/null; do
     if [ "$waited" -ge "$START_TIMEOUT" ]; then
@@ -82,6 +88,7 @@ for runtime, devices in data.items():
     echo "::error::No iOS 26 iPhone simulator runtime found on this runner"
     exit 1
   fi
+  mkdir -p "$RESULTS_DIR"
   XCODEBUILD=(xcodebuild -project MealPlanner.xcodeproj -scheme MealPlanner -destination "id=$DEVICE_UDID")
 
   "${XCODEBUILD[@]}" build-for-testing
@@ -90,6 +97,7 @@ for runtime, devices in data.items():
   for attempt in $(seq 1 "$ATTEMPTS"); do
     boot_simulator || { echo "::error::the simulator never booted"; exit 1; }
     status=0
+    RUN_NUMBER=$attempt
     run_tests || status=$?
     if [ "$status" -ne 124 ]; then
       exit "$status"

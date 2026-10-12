@@ -73,7 +73,8 @@ jobs:
         run: |
           set -euo pipefail
           go run ./cmd/migrate
-          go run ./cmd/api &
+          # The API log is uploaded when the job fails: a failing UI test shows only the app's side of a request.
+          go run ./cmd/api > "$RUNNER_TEMP/api.log" 2>&1 &
           ready=""
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8080/v1/readyz; then ready=1; break; fi
@@ -81,6 +82,7 @@ jobs:
           done
           if [ -z "$ready" ]; then
             echo "::error::API never became ready on :8080"
+            tail -n 50 "$RUNNER_TEMP/api.log" || true
             exit 1
           fi
       - run: brew install xcodegen
@@ -88,3 +90,13 @@ jobs:
         # The script bounds the two steps that have hung this job until its timeout with no test output (booting the
         # simulator, the test runner starting) and retries them.
         run: ios/scripts/ci-ui-tests.sh
+      - name: Upload the UI test results and the API log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ui-failure
+          path: |
+            ios/build/test-results
+            ${{ runner.temp }}/api.log
+          retention-days: 7
+          if-no-files-found: ignore
