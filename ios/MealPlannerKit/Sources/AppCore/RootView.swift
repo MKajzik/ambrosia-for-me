@@ -28,6 +28,7 @@ public struct RootView: View {
     private let mealsDependencies: MealsDependencies
     private let planDependencies: PlanDependencies
     private let shoppingDependencies: ShoppingDependencies
+    private let profileDependencies: ProfileDependencies
     private let userBox: UserBox
 
     public init(baseURL: URL = APIEnvironment.baseURL) {
@@ -36,7 +37,10 @@ public struct RootView: View {
         let networkSwitch: NetworkSwitch? = CommandLine.arguments.contains("-uiTesting") ? NetworkSwitch() : nil
         let client = makeClient(
             baseURL: baseURL,
-            middlewares: (networkSwitch.map { [OfflineMiddleware($0) as any ClientMiddleware] } ?? []) + [BearerAuthMiddleware(refresher: refresher)]
+            // The null sentinel is rewritten before the bearer middleware sees the request, so a retry after a 401
+            // still has a replayable body.
+            middlewares: (networkSwitch.map { [OfflineMiddleware($0) as any ClientMiddleware] } ?? [])
+                + ([NullSentinelMiddleware(), BearerAuthMiddleware(refresher: refresher)] as [any ClientMiddleware])
         )
         let authRepository = AuthRepository(client: client, tokenStore: tokenStore)
 
@@ -44,7 +48,10 @@ public struct RootView: View {
         let mealsRepository = MealsRepository(client: client, cache: CacheStore.makeMealCache(container))
         let planRepository = PlanRepository(client: client, cache: CacheStore.makePlanCache(container))
         let templatesRepository = TemplatesRepository(client: client, cache: CacheStore.makeTemplateCache(container))
-        let partnerRepository = PartnerRepository(client: client)
+        let profileCache = CacheStore.makeProfileCache(container)
+        let profileRepository = ProfileRepository(client: client, cache: profileCache)
+        let partnerRepository = PartnerRepository(client: client, cache: profileCache)
+        let ingredientsRepository = IngredientsRepository(client: client)
         let shoppingCache = CacheStore.makeShoppingCache(container)
         let shoppingRepository = ShoppingListsRepository(client: client, cache: shoppingCache)
         let syncEngine = ShoppingSyncEngine(client: client, cache: shoppingCache)
@@ -52,11 +59,14 @@ public struct RootView: View {
         self.refresher = refresher
         self.mealsDependencies = MealsDependencies(
             meals: mealsRepository,
-            ingredients: IngredientsRepository(client: client),
+            ingredients: ingredientsRepository,
             partner: partnerRepository
         )
         self.planDependencies = PlanDependencies(
             plan: planRepository, templates: templatesRepository, meals: mealsRepository, partner: partnerRepository
+        )
+        self.profileDependencies = ProfileDependencies(
+            profile: profileRepository, plan: planRepository, partner: partnerRepository, ingredients: ingredientsRepository
         )
         let userBox = UserBox()
         self.userBox = userBox
@@ -77,7 +87,7 @@ public struct RootView: View {
             clearCaches: {
                 await clearAllCaches(
                     meals: mealsRepository, plan: planRepository, templates: templatesRepository, shopping: shoppingRepository,
-                    sync: syncEngine
+                    profile: profileRepository, sync: syncEngine
                 )
             }
         ))
@@ -110,7 +120,7 @@ public struct RootView: View {
                 case .signedIn, .unverified:
                     TabShellView(
                         appState: appState, mealsDependencies: mealsDependencies, planDependencies: planDependencies,
-                        shoppingDependencies: shoppingDependencies
+                        shoppingDependencies: shoppingDependencies, profileDependencies: profileDependencies
                     )
                 }
             }

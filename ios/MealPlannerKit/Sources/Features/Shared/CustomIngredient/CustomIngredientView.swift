@@ -2,16 +2,24 @@ import API
 import Repositories
 import SwiftUI
 
-/// The creation form reachable from search (a sheet over the search sheet). Listing, editing, deleting and the
-/// full 18-nutrient editor belong to the Profile plan.
+/// The custom-ingredient form, as a sheet: creating one (reachable from search, over the search sheet) or editing one
+/// of mine (from Profile's "My ingredients"). Editing shows the four main nutrients and keeps every other one.
 struct CustomIngredientView: View {
     @State private var viewModel: CustomIngredientViewModel
     @Environment(\.dismiss) private var dismiss
-    private let onCreated: (Components.Schemas.Ingredient) -> Void
+    private let title: String
+    private let onSaved: (Components.Schemas.Ingredient) -> Void
 
     init(name: String, repository: IngredientsRepository, onCreated: @escaping (Components.Schemas.Ingredient) -> Void) {
-        self.onCreated = onCreated
+        self.title = "Custom ingredient"
+        self.onSaved = onCreated
         _viewModel = State(initialValue: CustomIngredientViewModel(name: name, repository: repository))
+    }
+
+    init(editing ingredient: Components.Schemas.Ingredient, repository: IngredientsRepository, onSaved: @escaping (Components.Schemas.Ingredient) -> Void) {
+        self.title = "Edit ingredient"
+        self.onSaved = onSaved
+        _viewModel = State(initialValue: CustomIngredientViewModel(editing: ingredient, repository: repository))
     }
 
     var body: some View {
@@ -39,14 +47,14 @@ struct CustomIngredientView: View {
                 }
                 Section {
                     Button("Save ingredient") {
-                        Task { if let ingredient = await viewModel.save() { onCreated(ingredient) } }
+                        Task { if let ingredient = await viewModel.save() { onSaved(ingredient) } }
                     }
                     .disabled(viewModel.isSaving)
                     .accessibilityIdentifier("customIngredientSaveButton")
                 }
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Custom ingredient")
+            .navigationTitle(title)
             .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

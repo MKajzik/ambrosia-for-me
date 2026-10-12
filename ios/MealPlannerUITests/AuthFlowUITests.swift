@@ -56,6 +56,24 @@ final class AuthFlowUITests: AppUITestCase {
         XCTAssertTrue(app.buttons["showRegisterButton"].waitForExistence(timeout: 45), "Expected the welcome screen after signing out")
     }
 
+    /// Pins the text-entry helpers themselves. On CI, dropped keystrokes left a field holding leftover characters, and
+    /// the helper's blind "send 60 deletes" never cleared it: every retry appended to the garbage (reads of 31, 35, 39,
+    /// ... characters for a 27-character email) until sign-in failed with "Invalid email or password.". Leftover text
+    /// longer than any fixed delete count reproduces that deterministically, without needing a slow machine.
+    func testTypingReplacesLeftoverText() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let field = app.textFields["signInEmailField"]
+        waitUntilHittable(field, timeout: 45)
+        focus(field)
+        field.typeText(String(repeating: "x", count: 90))
+
+        let email = "ios-ui-abcdef12@example.com"
+        typeVerified(email, field: field)
+        XCTAssertEqual(field.value as? String, email, "Expected the leftover text to be replaced, not appended to")
+    }
+
     func testWrongPasswordShowsGenericError() throws {
         let app = XCUIApplication()
         app.launch()

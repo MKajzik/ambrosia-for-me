@@ -8,6 +8,7 @@ public enum CacheStore {
     private static let schema = Schema([
         CachedMeal.self, CachedMealIngredient.self, CachedPlanDay.self, CachedTargets.self,
         CachedTemplate.self, CachedShoppingSummary.self, CachedShoppingList.self, CachedIntent.self,
+        CachedProfileUser.self, CachedPartnershipRow.self,
     ])
 
     public static var defaultStoreURL: URL {
@@ -47,6 +48,10 @@ public enum CacheStore {
 
     public static func makePlanCache(_ container: ModelContainer) -> PlanCache {
         PlanCache(modelContainer: container)
+    }
+
+    public static func makeProfileCache(_ container: ModelContainer) -> ProfileCache {
+        ProfileCache(modelContainer: container)
     }
 
     public static func makeTemplateCache(_ container: ModelContainer) -> TemplateCache {
