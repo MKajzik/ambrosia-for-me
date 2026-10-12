@@ -53,14 +53,40 @@ class AppUITestCase: XCTestCase {
         return signOutButton
     }
 
-    /// Clears a field before retyping into it — `.typeText` appends at the cursor, so a field with
-    /// leftover content from a previous attempt must be cleared first. Always sends a generous
-    /// fixed number of deletes rather than computing the field's exact current length (unknowable
-    /// for a privacy-masked `SecureField` anyway); extra deletes on an already-empty field are
-    /// harmless no-ops.
+    /// Empties a field. The old "send 60 deletes" never did: `focus` taps the middle of the field, which puts the caret
+    /// mid-text, and backspace only removes what is before the caret, so the characters after it survived every clear.
+    /// A retry then typed into that leftover, and the field grew by the same few characters each time (reads of 31, 35,
+    /// 39, ... for a 27-character email) until sign-in failed with "Invalid email or password." and registration with
+    /// "Password must be at least 10 characters.". So: put the caret at the end first, then delete.
+    ///
+    /// A plain field is also read back: delete what is there and look again until nothing is left (deletes are
+    /// keystrokes, and CI drops keystrokes). A secure field does not reliably read back as empty, so it gets one
+    /// generous fixed number of deletes; the same is used when any field's value cannot be read.
+    func clearField(_ field: XCUIElement) {
+        let delete = XCUIKeyboardKey.delete.rawValue
+        func caretToEnd() { field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap() }
+        if field.elementType == .secureTextField {
+            caretToEnd()
+            field.typeText(String(repeating: delete, count: 60))
+            return
+        }
+        let placeholder = field.placeholderValue ?? ""
+        for _ in 0..<12 {
+            guard let value = field.value as? String else {
+                caretToEnd()
+                field.typeText(String(repeating: delete, count: 60))
+                return
+            }
+            if value.isEmpty || value == placeholder { return }
+            caretToEnd()
+            field.typeText(String(repeating: delete, count: value.count))
+        }
+    }
+
+    /// Replaces a field's content with `text`: focus, clear until empty, type.
     func clearAndType(_ text: String, field: XCUIElement) {
         focus(field)
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60))
+        clearField(field)
         field.typeText(text)
     }
 
