@@ -10,6 +10,7 @@ public struct ShoppingListView: View {
     @State private var showingRename = false
     @State private var renameText = ""
     @State private var confirmingDelete = false
+    @State private var confirmingRegenerate = false
     @State private var debugOffline = false
     private let dependencies: ShoppingDependencies
     @Environment(\.dismiss) private var dismiss
@@ -42,9 +43,10 @@ public struct ShoppingListView: View {
         .navigationTitle(viewModel.displayed?.name ?? "List")
         .inlineNavigationTitle()
         .toolbar { toolbarContent }
-        .task { await viewModel.run() }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await viewModel.load() } }
+        // Only while the app is active: leaving it cancels the live-update stream, and returning runs again, which
+        // loads the list first.
+        .task(id: scenePhase == .active) {
+            if scenePhase == .active { await viewModel.run() }
         }
         .sheet(item: $editing) { item in
             EditItemSheet(
@@ -69,6 +71,11 @@ public struct ShoppingListView: View {
             TextField("Name", text: $renameText)
             Button("Save") { Task { await viewModel.rename(renameText) } }
             Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog("Regenerate from plan?", isPresented: $confirmingRegenerate, titleVisibility: .visible) {
+            Button("Regenerate") { Task { await viewModel.regenerate() } }
+        } message: {
+            Text("Items made from your plan are rebuilt, so ticks and edits on them are reset. Items you added yourself are kept.")
         }
         .confirmationDialog("Delete this list?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete list", role: .destructive) {
@@ -131,7 +138,7 @@ public struct ShoppingListView: View {
                         Task { await viewModel.setShared(!(viewModel.displayed?.sharedWithPartner ?? false)) }
                     }
                     if viewModel.displayed?.sourceFrom != nil {
-                        Button("Regenerate from plan") { Task { await viewModel.regenerate() } }
+                        Button("Regenerate from plan") { confirmingRegenerate = true }
                     }
                     Button("Delete", role: .destructive) { confirmingDelete = true }
                 } label: {

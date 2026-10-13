@@ -7,6 +7,10 @@ import SwiftData
 /// not, which is why intents are written in the same save as the change that produced them.
 @ModelActor
 public actor ShoppingCache {
+    /// Temp id -> server id for adds that synced this session. The screen can still show (and tap) the row under its
+    /// temp id until it reloads; a change queued for that id would find no item to send to, so `enqueue` follows this.
+    private var syncedTempIDs: [String: String] = [:]
+
     // MARK: Summaries
 
     public func summaries(scope: MealScope) -> [Components.Schemas.ShoppingListSummary] {
@@ -117,7 +121,9 @@ public actor ShoppingCache {
     /// Adds a change, collapsing it against what is already pending (`IntentQueue`), in one save. Returns the
     /// list's pending changes afterwards.
     @discardableResult
-    public func enqueue(kind: ShoppingIntent.Kind, listID: String, itemID: String, payload: ShoppingIntent.AddPayload?) -> [ShoppingIntent] {
+    public func enqueue(kind: ShoppingIntent.Kind, listID: String, itemID rawItemID: String, payload: ShoppingIntent.AddPayload?) -> [ShoppingIntent] {
+        // A row the screen still shows under its temp id, whose add has just synced.
+        let itemID = syncedTempIDs[rawItemID] ?? rawItemID
         let all = intents()
         let next = ShoppingIntent(
             sequence: (all.map(\.sequence).max() ?? 0) + 1, kind: kind, listID: listID, itemID: itemID, payload: payload
@@ -149,11 +155,13 @@ public actor ShoppingCache {
 
     /// An add succeeded: later changes addressed to `temp` now go to the server's id.
     public func rewriteTempID(_ temp: String, to real: String) {
+        syncedTempIDs[temp] = real
         for row in intentRows() where row.itemID == temp { row.itemID = real }
         try? modelContext.save()
     }
 
     public func clearAll() {
+        syncedTempIDs = [:]
         for row in summaryRows() { modelContext.delete(row) }
         for row in (try? modelContext.fetch(FetchDescriptor<CachedShoppingList>())) ?? [] { modelContext.delete(row) }
         for row in intentRows() { modelContext.delete(row) }

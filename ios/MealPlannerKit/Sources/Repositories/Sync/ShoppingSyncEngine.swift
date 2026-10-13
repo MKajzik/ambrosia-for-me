@@ -20,7 +20,8 @@ public actor ShoppingSyncEngine {
     private let cache: ShoppingCache
     private var isDraining = false
     private var wantsAnotherPass = false
-    private var pendingNotice: String?
+    /// Lists with a refused change nobody has been told about yet.
+    private var listsWithNotice: Set<String> = []
     private var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     public init(client: Client, cache: ShoppingCache) {
@@ -37,15 +38,14 @@ public actor ShoppingSyncEngine {
         return stream
     }
 
-    /// The text for a change that was refused, once.
-    public func takeNotice() -> String? {
-        defer { pendingNotice = nil }
-        return pendingNotice
+    /// The text for a change to `listID` that was refused, once. Another list's screen never takes it.
+    public func takeNotice(listID: String) -> String? {
+        listsWithNotice.remove(listID) == nil ? nil : Self.notice
     }
 
     /// The session ended: forget a notice meant for the user who just signed out.
     public func reset() {
-        pendingNotice = nil
+        listsWithNotice = []
     }
 
     public func drain() async {
@@ -71,7 +71,7 @@ public actor ShoppingSyncEngine {
                 await cache.removeIntent(id: next.id)
                 // Its later changes are addressed to an item that will never exist.
                 if next.kind == .add { await cache.dropIntents(itemID: next.itemID) }
-                if notify { pendingNotice = Self.notice }
+                if notify { listsWithNotice.insert(next.listID) }
             case .retryLater:
                 blocked.insert(next.listID)
             }
