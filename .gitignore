@@ -33,3 +33,6 @@ ios/*.xcodeproj/
 ios/Generated/
 ios/MealPlannerKit/.build/
 ios/MealPlannerKit/.swiftpm/
+
+# iOS local signing and API overrides
+ios/Config/Local.xcconfig
