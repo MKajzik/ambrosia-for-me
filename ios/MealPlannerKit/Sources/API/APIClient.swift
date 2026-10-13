@@ -3,11 +3,22 @@ import OpenAPIRuntime
 import OpenAPIURLSession
 
 public enum APIEnvironment {
-    /// Matches `openapi.yaml`'s `servers[0]`. A `let`, not a `var`: Swift 6 strict concurrency
-    /// flags a mutable global as unsafe shared state, and nothing in this app needs to change
-    /// the base URL after launch — `RootView.init(baseURL:)` already takes an override for
-    /// tests or a differently-hosted device.
-    public static let baseURL = URL(string: "http://localhost:8080/v1")!
+    /// The app target's `APIBaseURL` Info.plist key (build setting `API_BASE_URL`), else the local API. A `let`, not a
+    /// `var`: Swift 6 strict concurrency flags a mutable global as unsafe shared state, and nothing in this app needs
+    /// to change the base URL after launch — `RootView.init(baseURL:)` already takes an override for tests. A release
+    /// build without an https URL stops here rather than ship talking to localhost.
+    public static let baseURL: URL = {
+        let local = URL(string: "http://localhost:8080/v1")!
+        let configured = (Bundle.main.object(forInfoDictionaryKey: "APIBaseURL") as? String).flatMap { URL(string: $0) }
+        #if DEBUG
+        return configured ?? local
+        #else
+        guard let configured, configured.scheme == "https" else {
+            preconditionFailure("Set API_BASE_URL to the https API URL for release builds (ios/CLAUDE.md, Release).")
+        }
+        return configured
+        #endif
+    }()
 }
 
 /// The generated client's default `Configuration` decodes `date-time` strings with

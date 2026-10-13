@@ -83,7 +83,7 @@ public struct PlanView: View {
     private var weekBar: some View {
         HStack {
             Button { Task { await moveTo(viewModel.localDay.addDays(weekStart, -7)) } } label: {
-                Image(systemName: "chevron.left")
+                Image(systemName: "chevron.left").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
             .accessibilityLabel("Previous week")
             Spacer()
@@ -92,7 +92,7 @@ public struct PlanView: View {
                 .accessibilityIdentifier("planWeekLabel")
             Spacer()
             Button { Task { await moveTo(viewModel.localDay.addDays(weekStart, 7)) } } label: {
-                Image(systemName: "chevron.right")
+                Image(systemName: "chevron.right").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
             .accessibilityLabel("Next week")
             Button("This week") {
