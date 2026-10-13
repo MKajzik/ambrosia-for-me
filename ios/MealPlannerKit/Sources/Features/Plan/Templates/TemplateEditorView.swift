@@ -53,6 +53,7 @@ struct TemplateEditorView: View {
                     .accessibilityIdentifier("deleteTemplateButton")
             }
         }
+        .keyboardDoneToolbar()
         .scrollDismissesKeyboard(.interactively)
         .onDisappear { editor.flushOnLeave() }
         .onChange(of: scenePhase) { _, phase in

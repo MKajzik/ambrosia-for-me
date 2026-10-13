@@ -35,6 +35,7 @@ struct NewTemplateForm: View {
                 .accessibilityIdentifier("newTemplateCreateButton")
             }
         }
+        .keyboardDoneToolbar()
         .navigationTitle("New template")
         .inlineNavigationTitle()
         .toolbar {

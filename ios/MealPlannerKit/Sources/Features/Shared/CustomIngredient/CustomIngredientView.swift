@@ -54,6 +54,7 @@ struct CustomIngredientView: View {
                 }
             }
             .scrollDismissesKeyboard(.interactively)
+            .keyboardDoneToolbar()
             .navigationTitle(title)
             .inlineNavigationTitle()
             .toolbar {
@@ -66,9 +67,9 @@ struct CustomIngredientView: View {
     private func field(_ title: String, text: Binding<String>, field: CustomIngredientForm.Field, id: String, numeric: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             if numeric {
-                TextField(title, text: text).decimalKeyboard().accessibilityIdentifier(id)
+                TextField(title, text: text).decimalKeyboard().accessibilityFieldError(viewModel.fieldErrors[field]).accessibilityIdentifier(id)
             } else {
-                TextField(title, text: text).accessibilityIdentifier(id)
+                TextField(title, text: text).accessibilityFieldError(viewModel.fieldErrors[field]).accessibilityIdentifier(id)
             }
             if let message = viewModel.fieldErrors[field] {
                 Text(message).font(.caption).foregroundStyle(.red)
