@@ -136,7 +136,7 @@ public final class ShoppingListViewModel {
         Task {
             await sync.drain()
             await reload()
-            if let notice = await sync.takeNotice() { alertMessage = notice }
+            if let notice = await sync.takeNotice(listID: listID) { alertMessage = notice }
         }
     }
 
@@ -144,7 +144,7 @@ public final class ShoppingListViewModel {
         let changes = await sync.changes()
         for await _ in changes {
             await reload()
-            if let notice = await sync.takeNotice() { alertMessage = notice }
+            if let notice = await sync.takeNotice(listID: listID) { alertMessage = notice }
         }
     }
 

@@ -1,31 +1,44 @@
 import Foundation
 import SwiftData
 
-/// Builds the SwiftData container. Most of the store is rebuildable from the API, but `CachedIntent` rows are the
-/// user's unsynced shopping changes and are not: a schema change must stay lightweight-migratable, because the
-/// fallback below (a store that will not open is deleted and recreated) drops those changes.
+/// Builds the SwiftData container. Two stores sit behind it. Almost everything is rebuildable from the API and lives in
+/// the cache store, which is deleted and recreated if it will not open. `CachedIntent` rows are the user's unsynced
+/// shopping changes and are not rebuildable, so they have a store of their own that is never deleted: if it will not
+/// open, the launch container falls back to memory and leaves the file for a fix. Keep schema changes
+/// lightweight-migratable (`CacheStoreTests.previousSchemaMigrates` is the guard).
 public enum CacheStore {
-    private static let schema = Schema([
+    private static let queueModels: [any PersistentModel.Type] = [CachedIntent.self]
+    private static let cacheModels: [any PersistentModel.Type] = [
         CachedMeal.self, CachedMealIngredient.self, CachedPlanDay.self, CachedTargets.self,
-        CachedTemplate.self, CachedShoppingSummary.self, CachedShoppingList.self, CachedIntent.self,
+        CachedTemplate.self, CachedShoppingSummary.self, CachedShoppingList.self,
         CachedProfileUser.self, CachedPartnershipRow.self,
-    ])
+    ]
 
-    public static var defaultStoreURL: URL {
+    /// The queue keeps the file name the single combined store always had, so queued changes from before the split carry
+    /// over (its other tables are dropped by the migration).
+    public static var defaultQueueURL: URL {
         URL.applicationSupportDirectory.appending(path: "MealPlannerCache.store")
     }
 
-    public static func inMemoryContainer() throws -> ModelContainer {
-        try ModelContainer(for: schema, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    public static var defaultCacheURL: URL {
+        URL.applicationSupportDirectory.appending(path: "MealPlannerRebuildableCache.store")
     }
 
-    public static func persistentContainer(at url: URL = defaultStoreURL) throws -> ModelContainer {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    public static func inMemoryContainer() throws -> ModelContainer {
+        try ModelContainer(for: Schema(queueModels + cacheModels), configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    }
+
+    public static func persistentContainer(
+        queueURL: URL = defaultQueueURL, cacheURL: URL = defaultCacheURL
+    ) throws -> ModelContainer {
+        for url in [queueURL, cacheURL] {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
         do {
-            return try open(url)
+            return try open(queueURL: queueURL, cacheURL: cacheURL)
         } catch {
-            removeStore(at: url)
-            return try open(url)
+            removeStore(at: cacheURL) // never the queue
+            return try open(queueURL: queueURL, cacheURL: cacheURL)
         }
     }
 
@@ -62,8 +75,12 @@ public enum CacheStore {
         ShoppingCache(modelContainer: container)
     }
 
-    private static func open(_ url: URL) throws -> ModelContainer {
-        try ModelContainer(for: schema, configurations: ModelConfiguration(url: url))
+    private static func open(queueURL: URL, cacheURL: URL) throws -> ModelContainer {
+        try ModelContainer(
+            for: Schema(queueModels + cacheModels),
+            configurations: ModelConfiguration("Queue", schema: Schema(queueModels), url: queueURL),
+            ModelConfiguration("Cache", schema: Schema(cacheModels), url: cacheURL)
+        )
     }
 
     private static func removeStore(at url: URL) {

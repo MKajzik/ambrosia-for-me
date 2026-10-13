@@ -31,8 +31,15 @@ final class ProfileServer: @unchecked Sendable {
     /// a later write overtakes.
     func holdReads(until gate: Gate?) { lock.lock(); readGate = gate; lock.unlock() }
 
+    /// `PATCH /me` is applied at once but answers only once this gate opens: a slow save the person can type through.
+    func holdPatches(until gate: Gate?) { lock.lock(); patchGate = gate; lock.unlock() }
+
     func route(_ call: RoutingTransport.Call) async throws -> (status: Int, body: String) {
         let answer = try handle(call)
+        if call.route == "PATCH /me", let gate = heldPatchGate {
+            patchesWaiting.mutate { $0 += 1 }
+            await gate.wait()
+        }
         if call.route == "GET /me", let gate = heldReadGate {
             readsWaiting.mutate { $0 += 1 }
             await gate.wait()
@@ -42,6 +49,9 @@ final class ProfileServer: @unchecked Sendable {
 
     /// How many reads have been held so far, so a test can wait until its slow read is really in flight.
     let readsWaiting = Locked(0)
+    let patchesWaiting = Locked(0)
+    private var patchGate: Gate?
+    private var heldPatchGate: Gate? { lock.lock(); defer { lock.unlock() }; return patchGate }
     private var readGate: Gate?
     private var heldReadGate: Gate? { lock.lock(); defer { lock.unlock() }; return readGate }
 

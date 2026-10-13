@@ -38,5 +38,8 @@ public func parseDecimal(_ text: String) -> ParsedDecimal {
 /// A number as editable text: "2" rather than "2.0", "0.5" as is.
 public func plainNumber(_ value: Double) -> String {
     if value == value.rounded(), abs(value) < 1e15 { return String(Int(value)) }
-    return String(value)
+    let text = String(value)
+    // `String(5e-05)` is "5e-05", which `parseDecimal` rejects. `Decimal` prints the same digits without an exponent.
+    guard text.contains("e"), let decimal = Decimal(string: text) else { return text }
+    return "\(decimal)"
 }

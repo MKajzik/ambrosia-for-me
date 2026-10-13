@@ -46,6 +46,6 @@ struct ClearCachesTests {
         #expect(await profileCache.partnership() == .unknown)
         #expect(await shoppingCache.list(id: "l1") == nil)
         #expect(await shoppingCache.intents().isEmpty) // the next user never drains this user's queue
-        #expect(await engine.takeNotice() == nil) // nor sees this user's "couldn't be saved"
+        #expect(await engine.takeNotice(listID: "l1") == nil) // nor sees this user's "couldn't be saved"
     }
 }

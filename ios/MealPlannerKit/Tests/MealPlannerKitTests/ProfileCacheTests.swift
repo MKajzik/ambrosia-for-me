@@ -54,4 +54,18 @@ struct ProfileCacheTests {
         #expect(await cache.user() == nil)
         #expect(await cache.partnership() == .unknown)
     }
+
+    @Test("An answer requested before clearAll is dropped, so a late response never refills a signed-out cache")
+    func lateAnswerAfterClear() async throws {
+        let (cache, _) = try make()
+        let epoch = await cache.epoch()
+        await cache.clearAll()
+        await cache.store(user: ProfileFixtures.user(), epoch: epoch)
+        await cache.store(partnership: nil, epoch: epoch)
+        #expect(await cache.user() == nil)
+        #expect(await cache.partnership() == .unknown)
+
+        await cache.store(user: ProfileFixtures.user(), epoch: await cache.epoch())
+        #expect(await cache.user() != nil)
+    }
 }

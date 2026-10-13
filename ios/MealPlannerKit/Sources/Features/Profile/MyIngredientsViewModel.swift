@@ -9,7 +9,7 @@ import Repositories
 @MainActor
 public final class MyIngredientsViewModel {
     public private(set) var all: [Components.Schemas.Ingredient] = []
-    public private(set) var isLoading = false
+    public var isLoading: Bool { loadsInFlight > 0 }
     public private(set) var loadError: String?
     public var searchText = ""
 
@@ -19,6 +19,12 @@ public final class MyIngredientsViewModel {
         return query.isEmpty ? all : all.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }
 
+    /// Loads can overlap (appear, retry), so this counts them.
+    private var loadsInFlight = 0
+    /// Rows saved and ids deleted while a load is in flight. That load's answer may predate them, so they are applied
+    /// on top of it. Forgotten once no load is in flight.
+    @ObservationIgnored private var savedDuringLoad: [String: Components.Schemas.Ingredient] = [:]
+    @ObservationIgnored private var deletedDuringLoad: Set<String> = []
     @ObservationIgnored private let repository: IngredientsRepository
 
     public init(repository: IngredientsRepository) {
@@ -26,10 +32,18 @@ public final class MyIngredientsViewModel {
     }
 
     public func load() async {
-        isLoading = true
-        defer { isLoading = false }
+        loadsInFlight += 1
+        defer {
+            loadsInFlight -= 1
+            if loadsInFlight == 0 {
+                savedDuringLoad = [:]
+                deletedDuringLoad = []
+            }
+        }
         do {
-            all = Self.sorted(try await repository.customIngredients())
+            let fetched = try await repository.customIngredients()
+            let kept = fetched.filter { !deletedDuringLoad.contains($0.id) && savedDuringLoad[$0.id] == nil }
+            all = Self.sorted(kept + savedDuringLoad.values)
             loadError = nil
         } catch {
             // A list already on screen stays; with nothing there the error is shown.
@@ -39,6 +53,10 @@ public final class MyIngredientsViewModel {
 
     /// A created or edited ingredient: replaces its row (or adds it) and keeps the order.
     public func didSave(_ ingredient: Components.Schemas.Ingredient) {
+        if loadsInFlight > 0 {
+            savedDuringLoad[ingredient.id] = ingredient
+            deletedDuringLoad.remove(ingredient.id)
+        }
         var next = all.filter { $0.id != ingredient.id }
         next.append(ingredient)
         all = Self.sorted(next)
@@ -52,6 +70,10 @@ public final class MyIngredientsViewModel {
             // Already gone: the goal is met.
         } catch {
             return ErrorText.message(for: error)
+        }
+        if loadsInFlight > 0 {
+            deletedDuringLoad.insert(ingredient.id)
+            savedDuringLoad[ingredient.id] = nil
         }
         all.removeAll { $0.id == ingredient.id }
         return nil

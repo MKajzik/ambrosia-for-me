@@ -199,4 +199,26 @@ struct ProfileViewModelTests {
         #expect(vm.draft.calories == "2000")
         #expect(await h.profileCache.user()?.targetKcal == 2000)
     }
+
+    @Test("Typing while a save is in flight is kept when the save returns")
+    func typingDuringSaveSurvives() async throws {
+        let h = try ProfileHarness(ProfileServer(ProfileFixtures.user(kcal: nil)))
+        let vm = h.makeViewModel()
+        await vm.appear()
+
+        let gate = Gate()
+        h.server.holdPatches(until: gate)
+        vm.draft.calories = "2000"
+        let save = Task { await vm.saveTargets() }
+        #expect(await waitUntil { h.server.patchesWaiting.value == 1 })
+
+        vm.draft.protein = "150" // typed after Save was tapped
+        await gate.release()
+        #expect(await save.value)
+
+        #expect(vm.user?.targetKcal == 2000)
+        #expect(vm.draft.calories == "2000")
+        #expect(vm.draft.protein == "150")
+        #expect(vm.canSave) // the new typing is still unsaved
+    }
 }

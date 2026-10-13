@@ -95,6 +95,17 @@ struct ShoppingCacheTests {
         #expect(await cache.intents().isEmpty)
     }
 
+    @Test("A change addressed to a temp id whose add has just synced goes to the server id instead of being lost")
+    func tapOnSyncedTempItem() async throws {
+        let (cache, _) = try make()
+        let temp = ShoppingIntent.newTempID()
+        _ = await cache.enqueue(kind: .add, listID: "l1", itemID: temp, payload: .init(name: "Bread"))
+        await cache.rewriteTempID(temp, to: "srv-1") // the add was sent; the screen still shows the temp row
+        _ = await cache.enqueue(kind: .check, listID: "l1", itemID: temp, payload: nil)
+        #expect(await cache.intents().map(\.itemID) == ["srv-1", "srv-1"])
+        #expect(await cache.intents().map(\.kind) == [.add, .check])
+    }
+
     @Test("removeList deletes the list, its summary row and its intents (review focus 4)")
     func removeList() async throws {
         let (cache, _) = try make()

@@ -105,7 +105,7 @@ struct MealCacheTests {
         let url = directory.appending(path: "Cache.store")
         try Data("this is not a database".utf8).write(to: url)
 
-        let cache = CacheStore.makeMealCache(try CacheStore.persistentContainer(at: url))
+        let cache = CacheStore.makeMealCache(try CacheStore.persistentContainer(queueURL: directory.appending(path: "Queue.store"), cacheURL: url))
         await cache.replaceSummaries([Fixtures.summary()], scope: .mine)
         #expect(await cache.summaries(scope: .mine).count == 1)
     }

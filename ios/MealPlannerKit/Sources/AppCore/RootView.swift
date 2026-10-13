@@ -34,7 +34,11 @@ public struct RootView: View {
     public init(baseURL: URL = APIEnvironment.baseURL) {
         let tokenStore = KeychainTokenStore()
         let refresher = TokenRefresher(refreshClient: makeAuthlessClient(baseURL: baseURL), tokenStore: tokenStore)
+        #if DEBUG
         let networkSwitch: NetworkSwitch? = CommandLine.arguments.contains("-uiTesting") ? NetworkSwitch() : nil
+        #else
+        let networkSwitch: NetworkSwitch? = nil // the UI-test offline switch never exists in a release build
+        #endif
         let client = makeClient(
             baseURL: baseURL,
             // The null sentinel is rewritten before the bearer middleware sees the request, so a retry after a 401

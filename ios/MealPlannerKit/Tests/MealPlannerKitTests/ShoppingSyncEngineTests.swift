@@ -89,7 +89,7 @@ struct ShoppingSyncEngineTests {
         await engine.drain()
         #expect(await cache.intents().isEmpty)
         #expect(await cache.list(id: "l1")?.items.map(\.id) == ["i2"])
-        #expect(await engine.takeNotice() == nil)
+        #expect(await engine.takeNotice(listID: "l1") == nil)
     }
 
     @Test("A remove of an item that is already gone counts as done")
@@ -115,8 +115,9 @@ struct ShoppingSyncEngineTests {
         await engine.drain()
         #expect(await cache.intents().isEmpty)
         #expect(await transport.calls.count == 1)
-        #expect(await engine.takeNotice() == "A change couldn't be saved.")
-        #expect(await engine.takeNotice() == nil)
+        #expect(await engine.takeNotice(listID: "l2") == nil) // another list's screen does not show it
+        #expect(await engine.takeNotice(listID: "l1") == "A change couldn't be saved.")
+        #expect(await engine.takeNotice(listID: "l1") == nil)
     }
 
     @Test("Concurrent drains coalesce: the request is sent once")

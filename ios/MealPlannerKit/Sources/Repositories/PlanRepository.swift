@@ -24,11 +24,12 @@ public struct PlanRepository: Sendable {
 
     /// `GET /plan` for `[from, to]`; replaces exactly those dates and the targets. A failure leaves the cache untouched.
     public func refresh(from: String, to: String) async throws {
+        let targetsEpoch = await cache.targetsEpoch()
         let response = try await unwrapping { try await client.getPlan(.init(query: .init(from: from, to: to))) }
         switch response {
         case .ok(let ok):
             let range = try ok.body.json
-            await cache.replace(days: range.days, targets: range.targets)
+            await cache.replace(days: range.days, targets: range.targets, targetsEpoch: targetsEpoch)
         case .badRequest(let r): throw PlanError.validation(r.problem)
         case .unauthorized: throw PlanError.unauthorized
         case .conflict(let r): throw PlanError.server(r.problem?.detail ?? r.problem?.title ?? "The request conflicts with the current state.")

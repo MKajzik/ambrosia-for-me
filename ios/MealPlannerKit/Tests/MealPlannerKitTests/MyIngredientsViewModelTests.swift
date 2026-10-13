@@ -92,4 +92,28 @@ struct MyIngredientsViewModelTests {
         #expect(await vm.delete(banana) == nil)
         #expect(vm.all.isEmpty)
     }
+
+    @Test("A row saved or deleted while an earlier load is in flight is not undone when that load answers")
+    func lateLoadKeepsLocalChanges() async throws {
+        let gate = Gate()
+        let waiting = Locked(0)
+        let (vm, _) = make { call in
+            if call.method == "DELETE" { return (204, "") }
+            if call.method == "GET" {
+                waiting.mutate { $0 += 1 }
+                await gate.wait()
+            }
+            return (200, Self.page()) // the server's answer predates the save and the delete
+        }
+        let load = Task { await vm.load() }
+        #expect(await waitUntil { waiting.value == 1 })
+
+        vm.didSave(ProfileFixtures.customIngredient(id: "c", name: "Cherry jam"))
+        _ = await vm.delete(ProfileFixtures.customIngredient(id: "a", name: "Apple jam"))
+        await gate.release()
+        await load.value
+
+        #expect(vm.all.map(\.id) == ["b", "c"])
+        #expect(!vm.isLoading)
+    }
 }

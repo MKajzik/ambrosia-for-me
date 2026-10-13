@@ -41,7 +41,7 @@ public final class ProfileViewModel {
     public func appear() async {
         loadsInFlight += 1
         defer { loadsInFlight -= 1 }
-        if let cached = await profile.cachedUser() { adopt(cached, keepEdits: true) }
+        if let cached = await profile.cachedUser() { adopt(cached, keepDraft: hasUnsavedEdits) }
         let epoch = saveEpoch
         do {
             var fresh = try await profile.refreshUser()
@@ -51,7 +51,7 @@ public final class ProfileViewModel {
                 if isSaving { return }
                 fresh = try await profile.refreshUser()
             }
-            adopt(fresh, keepEdits: true)
+            adopt(fresh, keepDraft: hasUnsavedEdits)
             isStale = false
             loadError = nil
         } catch {
@@ -75,6 +75,7 @@ public final class ProfileViewModel {
         case .valid(let valid):
             update = valid
         }
+        let submitted = draft
         isSaving = true
         saveEpoch += 1
         defer {
@@ -84,7 +85,8 @@ public final class ProfileViewModel {
         do {
             let saved = try await profile.updateTargets(update)
             await plan.storeTargets(from: saved)
-            adopt(saved, keepEdits: false)
+            // Anything typed while the request ran is newer than the answer and stays.
+            adopt(saved, keepDraft: draft != submitted)
             return true
         } catch let ProfileError.validationFailed(fields, message) {
             var inline: [TargetsDraft.Field: String] = [:]
@@ -118,12 +120,12 @@ public final class ProfileViewModel {
         return nil
     }
 
-    /// Takes in a user from the cache, the server or a save. The draft follows it unless the person has typed
-    /// something (`keepEdits`).
-    private func adopt(_ next: Components.Schemas.User, keepEdits: Bool) {
-        let edited = keepEdits && draft != savedDraft
+    private var hasUnsavedEdits: Bool { draft != savedDraft }
+
+    /// Takes in a user from the cache, the server or a save. The draft follows it unless `keepDraft`.
+    private func adopt(_ next: Components.Schemas.User, keepDraft: Bool) {
         user = next
         savedDraft = TargetsDraft(user: next)
-        if !edited { draft = savedDraft }
+        if !keepDraft { draft = savedDraft }
     }
 }
