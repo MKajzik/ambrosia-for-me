@@ -28,4 +28,14 @@ struct ParseDecimalTests {
         #expect(plainNumber(0.5) == "0.5")
         #expect(plainNumber(2.25) == "2.25")
     }
+
+    @Test("plainNumber never uses exponent notation, so parseDecimal accepts what it prints")
+    func plainNumberHasNoExponent() {
+        for value in [5e-05, 1e-07, 0.000123, 1.5e20] {
+            let text = plainNumber(value)
+            #expect(!text.lowercased().contains("e"))
+            #expect(parseDecimal(text) == .value(value))
+        }
+        #expect(plainNumber(5e-05) == "0.00005")
+    }
 }
