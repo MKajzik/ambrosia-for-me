@@ -81,13 +81,7 @@ public struct IngredientSearchView: View {
                         Text(ingredient.category.label).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if ingredient.isCustom {
-                        Text("Custom")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.quaternary, in: Capsule())
-                    }
+                    if ingredient.isCustom { CustomBadge() }
                 }
             }
             .accessibilityIdentifier("ingredientResult-\(ingredient.name)")

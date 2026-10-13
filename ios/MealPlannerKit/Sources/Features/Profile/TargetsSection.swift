@@ -24,7 +24,7 @@ struct TargetsSection: View {
 
     private func field(_ title: String, text: Binding<String>, field: TargetsDraft.Field, id: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            TextField(title, text: text).decimalKeyboard().accessibilityIdentifier(id)
+            TextField(title, text: text).decimalKeyboard().accessibilityFieldError(viewModel.fieldErrors[field]).accessibilityIdentifier(id)
             if let message = viewModel.fieldErrors[field] {
                 Text(message).font(.caption).foregroundStyle(.red)
             }

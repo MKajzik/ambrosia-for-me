@@ -88,6 +88,7 @@ struct MyIngredientsView: View {
                 Text(ingredient.category.label).font(.footnote).foregroundStyle(.secondary)
             }
             Spacer()
+            CustomBadge()
             Menu {
                 Button("Edit") { editing = IngredientRef(ingredient: ingredient) }
                     .accessibilityIdentifier("ingredientEditButton")
