@@ -14,6 +14,11 @@ extension View {
         #endif
     }
 
+    /// Ties a field's validation message to the field for VoiceOver, which reads it after the field's label.
+    func accessibilityFieldError(_ message: String?) -> some View {
+        accessibilityHint(message ?? "")
+    }
+
     @ViewBuilder
     func inlineNavigationTitle() -> some View {
         #if os(iOS)

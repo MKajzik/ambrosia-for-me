@@ -31,6 +31,7 @@ struct NewMealForm: View {
                 .accessibilityIdentifier("newMealCreateButton")
             }
         }
+        .keyboardDoneToolbar()
         .navigationTitle("New meal")
         .inlineNavigationTitle()
         .toolbar {

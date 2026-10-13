@@ -54,6 +54,7 @@ struct MealEditorView: View {
                     .accessibilityIdentifier("deleteMealButton")
             }
         }
+        .keyboardDoneToolbar()
         .scrollDismissesKeyboard(.interactively)
         .onDisappear { editor.flushOnLeave() }
         .onChange(of: scenePhase) { _, phase in

@@ -62,6 +62,13 @@ struct PartnerSection: View {
         }
     }
 
+    /// A pending invite exists (even when its code is not on this screen) or a code was just created: the button replaces it.
+    private var hasCode: Bool {
+        if viewModel.invite != nil { return true }
+        if case .pending = viewModel.phase { return true }
+        return false
+    }
+
     @ViewBuilder
     private var inviteBlock: some View {
         if let invite = viewModel.invite {
@@ -81,7 +88,7 @@ struct PartnerSection: View {
                 }
             }
         }
-        Button(viewModel.invite == nil ? "Create invite code" : "Create a new code") { Task { await viewModel.createInvite() } }
+        Button(hasCode ? "Create a new code" : "Create invite code") { Task { await viewModel.createInvite() } }
             .disabled(viewModel.isBusy)
             .accessibilityIdentifier("partnerCreateInviteButton")
     }
@@ -101,6 +108,7 @@ struct PartnerSection: View {
         VStack(alignment: .leading, spacing: 4) {
             TextField("Enter your partner's code", text: $viewModel.codeText)
                 .noAutocapitalization()
+                .accessibilityFieldError(viewModel.acceptError)
                 .accessibilityIdentifier("partnerCodeField")
             if let message = viewModel.acceptError {
                 Text(message).font(.caption).foregroundStyle(.red).accessibilityIdentifier("partnerAcceptError")

@@ -44,6 +44,7 @@ struct EditItemSheet: View {
                 }
                 if let message { Text(message).foregroundStyle(.red).accessibilityIdentifier("editItemMessage") }
             }
+            .keyboardDoneToolbar()
             .navigationTitle("Edit item")
             .inlineNavigationTitle()
             .toolbar {

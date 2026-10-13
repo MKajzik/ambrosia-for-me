@@ -42,6 +42,7 @@ struct PortionSheetView: View {
                     .accessibilityIdentifier("portionSaveButton")
                 }
             }
+            .keyboardDoneToolbar()
             .navigationTitle("Change portion")
             .inlineNavigationTitle()
             .toolbar {
