@@ -15,14 +15,15 @@ public struct PartnerRepository: Sendable {
     /// The caller's partnership, or `nil` on `404 partner_not_linked` (no partner, no pending invite,
     /// or an expired one). Callers treat only `status == .active` as linked.
     public func status() async throws -> Components.Schemas.Partnership? {
+        let epoch = await cache?.epoch()
         let response = try await unwrapping { try await client.getPartner(.init()) }
         switch response {
         case .ok(let ok):
             let partnership = try ok.body.json
-            await cache?.store(partnership: partnership)
+            await store(partnership, epoch)
             return partnership
         case .notFound:
-            await cache?.store(partnership: nil)
+            await store(nil, epoch)
             return nil
         case .unauthorized: throw MealsError.unauthorized
         case .tooManyRequests: throw MealsError.rateLimited
@@ -49,11 +50,12 @@ public struct PartnerRepository: Sendable {
 
     /// Links with whoever issued `code`. The server ignores case, spaces and dashes, so the text goes as given.
     public func accept(code: String) async throws -> Components.Schemas.Partnership {
+        let epoch = await cache?.epoch()
         let response = try await unwrapping { try await client.acceptPartnerInvite(.init(body: .json(.init(code: code)))) }
         switch response {
         case .ok(let ok):
             let partnership = try ok.body.json
-            await cache?.store(partnership: partnership)
+            await store(partnership, epoch)
             return partnership
         case .badRequest(let r): throw PartnerError.validation(r.problem)
         case .unauthorized: throw PartnerError.unauthorized
@@ -67,13 +69,19 @@ public struct PartnerRepository: Sendable {
 
     /// Ends the link or cancels a pending invite. Either side may do it. Nothing to end (`404`) counts as done.
     public func unlink() async throws {
+        let epoch = await cache?.epoch()
         let response = try await unwrapping { try await client.unlinkPartner(.init()) }
         switch response {
-        case .noContent, .notFound: await cache?.store(partnership: nil)
+        case .noContent, .notFound: await store(nil, epoch)
         case .unauthorized: throw PartnerError.unauthorized
         case .tooManyRequests: throw PartnerError.rateLimited
         case .internalServerError: throw PartnerError.server("The server had a problem ending the link.")
         case .undocumented(let status, _): throw PartnerError.unexpected(status)
         }
+    }
+
+    /// Dropped when the session ended (caches were cleared) after `epoch` was read, i.e. while the request ran.
+    private func store(_ partnership: Components.Schemas.Partnership?, _ epoch: Int?) async {
+        await cache?.store(partnership: partnership, epoch: epoch)
     }
 }

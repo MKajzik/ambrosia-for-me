@@ -23,4 +23,17 @@ struct PlanCacheTargetsTests {
         await cache.setTargets(.init(targetKcal: 1500))
         #expect(await cache.targets()?.targetKcal == 1500)
     }
+
+    @Test("A plan answer read before setTargets keeps its days but cannot write its older targets back")
+    func staleTargetsAreSkipped() async throws {
+        let cache = CacheStore.makePlanCache(try CacheStore.inMemoryContainer())
+        let epoch = await cache.targetsEpoch()
+        await cache.setTargets(.init(targetKcal: 2000))
+        await cache.replace(days: [Fixtures.day("2026-10-05", calories: 7)], targets: Fixtures.targets(kcal: 1800), targetsEpoch: epoch)
+        #expect(await cache.targets()?.targetKcal == 2000)
+        #expect(await cache.days(from: "2026-10-05", to: "2026-10-05").count == 1)
+
+        await cache.replace(days: [], targets: Fixtures.targets(kcal: 1900), targetsEpoch: await cache.targetsEpoch())
+        #expect(await cache.targets()?.targetKcal == 1900)
+    }
 }

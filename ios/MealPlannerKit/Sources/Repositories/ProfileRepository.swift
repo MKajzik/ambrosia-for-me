@@ -19,9 +19,10 @@ public struct ProfileRepository: Sendable {
     /// `GET /me`; the answer replaces the cached user. A failure leaves the cache untouched.
     @discardableResult
     public func refreshUser() async throws -> Components.Schemas.User {
+        let epoch = await cache.epoch()
         let response = try await unwrapping { try await client.getMe(.init()) }
         switch response {
-        case .ok(let ok): return await keep(try ok.body.json)
+        case .ok(let ok): return await keep(try ok.body.json, epoch)
         case .unauthorized: throw ProfileError.unauthorized
         case .tooManyRequests: throw ProfileError.rateLimited
         case .internalServerError: throw ProfileError.server("The server had a problem loading your profile.")
@@ -31,6 +32,7 @@ public struct ProfileRepository: Sendable {
 
     /// Saves all four targets (`nil` clears one). Returns, and caches, the updated user.
     public func updateTargets(_ update: TargetsUpdate) async throws -> Components.Schemas.User {
+        let epoch = await cache.epoch()
         let body = Components.Schemas.UpdateProfileRequest(
             targetKcal: update.kcal ?? NullSentinel.value,
             targetProteinG: update.protein ?? NullSentinel.value,
@@ -39,7 +41,7 @@ public struct ProfileRepository: Sendable {
         )
         let response = try await unwrapping { try await client.updateMe(.init(body: .json(body))) }
         switch response {
-        case .ok(let ok): return await keep(try ok.body.json)
+        case .ok(let ok): return await keep(try ok.body.json, epoch)
         case .badRequest(let r): throw ProfileError.validation(r.problem)
         case .unauthorized: throw ProfileError.unauthorized
         case .tooManyRequests: throw ProfileError.rateLimited
@@ -63,8 +65,9 @@ public struct ProfileRepository: Sendable {
     /// Called whenever the session ends, so a second user on this device never sees the first user's profile.
     public func clearCaches() async { await cache.clearAll() }
 
-    private func keep(_ user: Components.Schemas.User) async -> Components.Schemas.User {
-        await cache.store(user: user)
+    /// Dropped when the session ended (caches were cleared) after `epoch` was read, i.e. while the request ran.
+    private func keep(_ user: Components.Schemas.User, _ epoch: Int) async -> Components.Schemas.User {
+        await cache.store(user: user, epoch: epoch)
         return user
     }
 }

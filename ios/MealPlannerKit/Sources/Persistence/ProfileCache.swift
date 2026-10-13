@@ -15,13 +15,19 @@ public enum CachedPartnership: Equatable, Sendable {
 /// best-effort like the other caches (rebuildable from the API, so a failed save is dropped, not surfaced).
 @ModelActor
 public actor ProfileCache {
+    /// Bumped by `clearAll` (the session ended). A request that started before it passes the value it saw, and its
+    /// answer is dropped, so a late response never refills the cache of a signed-out (or the next) user.
+    private var generation = 0
+
+    public func epoch() -> Int { generation }
+
     public func user() -> Components.Schemas.User? {
         guard let row = userRow() else { return nil }
         return try? JSONDecoder().decode(Components.Schemas.User.self, from: row.json)
     }
 
-    public func store(user: Components.Schemas.User) {
-        guard let json = try? JSONEncoder().encode(user) else { return }
+    public func store(user: Components.Schemas.User, epoch: Int? = nil) {
+        guard epoch == nil || epoch == generation, let json = try? JSONEncoder().encode(user) else { return }
         if let row = userRow() {
             row.json = json
         } else {
@@ -38,7 +44,8 @@ public actor ProfileCache {
     }
 
     /// `nil` records "fetched, and there is none".
-    public func store(partnership: Components.Schemas.Partnership?) {
+    public func store(partnership: Components.Schemas.Partnership?, epoch: Int? = nil) {
+        guard epoch == nil || epoch == generation else { return }
         let json = partnership.flatMap { try? JSONEncoder().encode($0) }
         if let row = partnershipRow() {
             row.json = json
@@ -49,6 +56,7 @@ public actor ProfileCache {
     }
 
     public func clearAll() {
+        generation += 1
         for row in (try? modelContext.fetch(FetchDescriptor<CachedProfileUser>())) ?? [] { modelContext.delete(row) }
         for row in (try? modelContext.fetch(FetchDescriptor<CachedPartnershipRow>())) ?? [] { modelContext.delete(row) }
         try? modelContext.save()
