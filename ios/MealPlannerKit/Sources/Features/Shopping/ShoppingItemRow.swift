@@ -36,6 +36,8 @@ struct ShoppingItemRow: View {
                 Button("Remove", role: .destructive, action: onRemove)
             } label: {
                 Image(systemName: "ellipsis.circle")
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("More actions for \(item.name)")
         }

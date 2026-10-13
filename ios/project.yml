@@ -19,9 +19,14 @@ targets:
       path: Generated/MealPlanner-Info.plist
       properties:
         UILaunchScreen: {}
+        CFBundleDisplayName: Meal Planner
+        # The app only speaks HTTPS to the API, which is exempt from export documentation.
+        ITSAppUsesNonExemptEncryption: false
+        APIBaseURL: $(API_BASE_URL)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.ambrosiaforme.mealplanner
+        TARGETED_DEVICE_FAMILY: "1"
         # CODE_SIGNING_ALLOWED: NO produces a binary with no entitlements at all, including no
         # application-identifier entitlement — the Security framework then has no default
         # keychain access group to use and every SecItemAdd/SecItemCopyMatching fails with
@@ -29,6 +34,13 @@ targets:
         # Developer Team required) carries that entitlement and is all the Keychain needs.
         CODE_SIGN_STYLE: Automatic
         SWIFT_VERSION: "6.0"
+      configs:
+        Debug:
+          API_BASE_URL: http://localhost:8080/v1
+        # Release has no API yet: the value must be set to the deployed https URL before archiving (ios/CLAUDE.md,
+        # "Release"). Left empty, a release build stops at launch instead of calling localhost.
+        Release:
+          API_BASE_URL: ""
   MealPlannerUITests:
     type: bundle.ui-testing
     platform: iOS

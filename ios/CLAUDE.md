@@ -87,3 +87,10 @@ SwiftUI, iOS 26+, Swift 6 language mode. Design: `docs/superpowers/specs/2026-09
 - "My ingredients" loads every page of `GET /ingredients` (limit 100) and keeps `isCustom`, because the API has no owner filter. It is not cached.
 - Deleting the account types the email (as web), calls `DELETE /me`, then runs the normal `AppState.signOut()`; its revoke of the already-dead token fails quietly. Nothing is sent while the typed email does not match.
 - Test helpers: `ProfileServer` (in-memory `/me`: an explicit `null` clears, an omitted field is unchanged, out-of-range is a `400`) and `ProfileHarness` (profile and plan repositories over one server, with the real null-sentinel middleware). A `@MainActor` suite whose `@Sendable` route closure needs a helper must make it `nonisolated static`.
+
+## Release
+
+- `AccessibilityAuditUITests` runs Xcode's accessibility audit on every screen (hit regions, descriptions, clipped text, traits, element detection). Contrast and Dynamic Type are not audited: iOS 26 flags system labels, footers and tinted buttons there that cannot be fixed from the app (see the test's doc comment). They need a manual pass on a device with VoiceOver and the large text sizes.
+- `MealPlanner/PrivacyInfo.xcprivacy`: no tracking, no required-reason APIs used by our code; collected (linked, app functionality): email, name, user id, health (daily nutrition targets), other user content (meals, plans, lists). Keep it, and the App Store privacy answers, in step with the API's data.
+- The API URL comes from the `API_BASE_URL` build setting (`project.yml`, per configuration) via the `APIBaseURL` Info.plist key. Debug is `http://localhost:8080/v1`. Release is empty on purpose: a release build stops at launch until it is set to the deployed https URL.
+- Still needed before TestFlight: the production API URL above, an app icon (`Assets.xcassets/AppIcon` has no image), `DEVELOPMENT_TEAM` for signing, the App Store Connect record, and the privacy policy URL. iPhone only (`TARGETED_DEVICE_FAMILY: 1`); display name "Meal Planner".

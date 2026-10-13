@@ -96,6 +96,8 @@ struct MyIngredientsView: View {
                     .accessibilityIdentifier("ingredientDeleteButton")
             } label: {
                 Image(systemName: "ellipsis.circle")
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("Actions for \(ingredient.name)")
             .accessibilityIdentifier("ingredientMenu-\(ingredient.name)")

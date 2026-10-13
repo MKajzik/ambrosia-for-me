@@ -21,6 +21,8 @@ struct RingView: View {
     let target: Double?
     var isDimmed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Grows with Dynamic Type so the amount and percent inside never outgrow the ring.
+    @ScaledMetric(relativeTo: .caption) private var ringSize: CGFloat = 84
 
     private var info: NutrientInfo { NutrientCatalog.info(for: key) }
     private var progress: TargetProgress? { targetProgress(value: amount, target: target) }
@@ -48,7 +50,7 @@ struct RingView: View {
                 }
                 .padding(.horizontal, 10)
             }
-            .frame(width: 84, height: 84)
+            .frame(width: min(ringSize, 140), height: min(ringSize, 140))
             Text(info.label).font(.caption).foregroundStyle(.secondary)
         }
         .opacity(isDimmed ? 0.5 : 1)
