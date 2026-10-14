@@ -1,0 +1,13 @@
+// Debug builds (simulator and a plugged-in iPhone). Anything here can be overridden in Config/Local.xcconfig, which is
+// gitignored: copy Config/Local.xcconfig.example to it. See docs/ios-local-device-testing.md.
+
+// host:port of the API. `localhost` works on the simulator only; a real iPhone needs the Mac's address.
+API_HOST = localhost:8080
+// `//` starts a comment in an xcconfig, so the scheme's slashes are split with an empty macro.
+API_BASE_URL = http:/$()/$(API_HOST)/v1
+
+APP_BUNDLE_ID = dev.ambrosiaforme.mealplanner
+// Empty is fine for the simulator. A device needs the Team ID of the Apple ID signed in to Xcode (free is enough).
+DEVELOPMENT_TEAM =
+
+#include? "Local.xcconfig"

@@ -1,0 +1,10 @@
+// Copy to Local.xcconfig (gitignored) and fill in what you need. Every line is optional.
+
+// Real iPhone: the Mac's Bonjour name or LAN address plus the API port, e.g. Marcins-MacBook-Pro.local:8080 or 192.168.1.23:8080
+API_HOST = Your-Mac.local:8080
+
+// The Team ID shown in Xcode > Settings > Accounts for your "(Personal Team)". Free Apple ID is enough.
+DEVELOPMENT_TEAM = ABCDE12345
+
+// Only if Xcode says the identifier is not available (someone else registered it): pick your own.
+// APP_BUNDLE_ID = com.yourname.mealplanner

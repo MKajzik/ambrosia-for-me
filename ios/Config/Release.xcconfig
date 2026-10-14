@@ -1,0 +1,7 @@
+// Release builds. API_BASE_URL is empty on purpose: a release build stops at launch until it is set to the deployed
+// https URL (ios/CLAUDE.md, "Release").
+API_BASE_URL =
+APP_BUNDLE_ID = dev.ambrosiaforme.mealplanner
+DEVELOPMENT_TEAM =
+
+#include? "Local.xcconfig"
